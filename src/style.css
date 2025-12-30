@@ -21,20 +21,27 @@ body {
 }
 
 .page {
-  display: grid;
-  grid-template-columns: 3fr 1.2fr;
-  gap: 20px;
+  position: relative;
   height: 100%;
-  padding: 18px 18px 14px;
+  padding: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .viewer {
+  flex: none;
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  max-height: 100%;
   position: relative;
   background: linear-gradient(145deg, rgba(22, 26, 36, 0.9), rgba(10, 12, 18, 0.9));
   border: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: 16px;
   overflow: hidden;
   box-shadow: 0 10px 50px rgba(0, 0, 0, 0.45);
+  transition: width 0.3s ease, height 0.3s ease;
 }
 
 .viewer.dragging {
@@ -46,6 +53,42 @@ body {
   width: 100%;
   height: 100%;
   display: block;
+  transition: filter 0.25s ease, opacity 0.25s ease;
+}
+
+.viewer.loading canvas {
+  filter: blur(24px);
+  opacity: 0.1;
+}
+
+.loading-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(12, 16, 24, 0.5);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease;
+  z-index: 10;
+}
+
+.viewer.loading .loading-overlay {
+  opacity: 1;
+}
+
+.loading-spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid rgba(110, 231, 255, 0.2);
+  border-top-color: #6ee7ff;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 
 .drop-help {
@@ -80,14 +123,61 @@ body {
 }
 
 .side {
+  position: fixed;
+  top: 18px;
+  right: 18px;
+  bottom: 18px;
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding: 16px;
-  background: rgba(20, 24, 32, 0.9);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 14px;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.35);
+  padding: 20px 18px;
+  width: min(420px, calc(100vw - 48px));
+  background: rgba(12, 16, 26, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 18px;
+  box-shadow: 0 25px 80px rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(22px);
+  transform: translateX(0);
+  opacity: 1;
+  pointer-events: auto;
+  transition: transform 0.35s ease, opacity 0.35s ease;
+  z-index: 20;
+}
+
+.page:not(.panel-open) .side {
+  transform: translateX(calc(100% + 24px));
+  opacity: 0;
+  pointer-events: none;
+}
+
+.panel-toggle {
+  position: fixed;
+  top: 24px;
+  right: 24px;
+  width: 48px;
+  height: 48px;
+  border-radius: 32px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(14, 18, 28, 0.8);
+  color: #e6ecf8;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  cursor: pointer;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(14px);
+  z-index: 30;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.panel-toggle:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55);
+}
+
+.panel-toggle:active {
+  transform: translateY(0);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
 }
 
 .header {
@@ -176,10 +266,173 @@ body {
 
 @media (max-width: 960px) {
   .page {
-    grid-template-columns: 1fr;
+    padding: 14px;
   }
 
   .side {
-    order: -1;
+    top: 14px;
+    right: 14px;
+    bottom: 14px;
+    width: min(420px, calc(100vw - 36px));
   }
+
+  .panel-toggle {
+    top: 18px;
+    right: 18px;
+  }
+}
+
+@media (max-width: 640px) {
+  .side {
+    left: 12px;
+    right: 12px;
+    width: auto;
+  }
+
+  .panel-toggle {
+    top: 16px;
+    right: 16px;
+  }
+}
+
+/* Background image feature */
+.bg-image-container {
+  position: absolute;
+  inset: 0;
+  background-size: auto 100%;
+  background-position: center top;
+  background-repeat: no-repeat;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  z-index: 0;
+  /* Extend past edges to prevent blur edge artifacts */
+  margin: -60px;
+  padding: 60px;
+}
+
+.bg-image-container.active {
+  opacity: 1;
+}
+
+.viewer canvas {
+  position: relative;
+  z-index: 1;
+}
+
+.bg-image-controls {
+  display: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.bg-image-controls.visible {
+  display: flex;
+}
+
+.bg-image-controls input[type="range"] {
+  flex: 1;
+  min-width: 80px;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 2px;
+  appearance: none;
+  cursor: pointer;
+}
+
+.bg-image-controls input[type="range"]::-webkit-slider-thumb {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  background: linear-gradient(120deg, #6ee7ff, #7c3aed);
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.bg-image-controls input[type="range"]::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  background: linear-gradient(120deg, #6ee7ff, #7c3aed);
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+}
+
+#bg-blur-value {
+  font-size: 12px;
+  color: rgba(230, 236, 248, 0.7);
+  min-width: 40px;
+}
+
+.settings .row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.settings .row label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.fov-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.fov-controls input[type="range"] {
+  flex: 1;
+  min-width: 100px;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 2px;
+  appearance: none;
+  cursor: pointer;
+}
+
+.fov-controls input[type="range"]::-webkit-slider-thumb {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  background: linear-gradient(120deg, #6ee7ff, #7c3aed);
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.fov-controls input[type="range"]::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  background: linear-gradient(120deg, #6ee7ff, #7c3aed);
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+}
+
+#fov-value {
+  font-size: 12px;
+  color: rgba(230, 236, 248, 0.9);
+  min-width: 36px;
+  font-weight: 600;
+}
+
+.secondary {
+  appearance: none;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.05);
+  color: #e6ecf8;
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.secondary:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.3);
 }

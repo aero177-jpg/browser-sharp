@@ -5,16 +5,16 @@ on:
     branches:
       - master
       - main
-  # 允许手动触发
+  # Allow manual triggering
   workflow_dispatch:
 
-# 设置 GITHUB_TOKEN 的权限
+# Set GITHUB_TOKEN permissions
 permissions:
   contents: read
   pages: write
   id-token: write
 
-# 只允许一个并发部署
+# Allow only one concurrent deployment
 concurrency:
   group: pages
   cancel-in-progress: true
@@ -41,8 +41,8 @@ jobs:
       - name: Build
         run: pnpm build
         env:
-          # 自动获取仓库名作为 base path
-          # 格式: /repo-name/
+          # Automatically derive the repository name as the base path
+          # Format: /repo-name/
           BASE_PATH: /${{ github.event.repository.name }}/
 
       - name: Setup Pages
