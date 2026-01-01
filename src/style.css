@@ -608,12 +608,51 @@ body {
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 
 .secondary:hover {
   background: rgba(255, 255, 255, 0.1);
   border-color: rgba(255, 255, 255, 0.3);
+}
+
+.secondary:disabled {
+  cursor: default;
+  opacity: 0.9;
+}
+
+/* Focus depth button states */
+.focus-btn {
+  min-width: 120px;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.focus-btn.focus-setting {
+  background: rgba(110, 231, 255, 0.15);
+  border-color: rgba(110, 231, 255, 0.5);
+  color: #6ee7ff;
+  box-shadow: 0 0 12px rgba(110, 231, 255, 0.2);
+  animation: focus-pulse 1.5s ease-in-out infinite;
+}
+
+.focus-btn.focus-setting:hover {
+  background: rgba(110, 231, 255, 0.2);
+  border-color: rgba(110, 231, 255, 0.6);
+}
+
+.focus-btn.focus-set {
+  background: rgba(100, 220, 100, 0.15);
+  border-color: rgba(100, 220, 100, 0.5);
+  color: #7de87d;
+}
+
+@keyframes focus-pulse {
+  0%, 100% {
+    box-shadow: 0 0 8px rgba(110, 231, 255, 0.2);
+  }
+  50% {
+    box-shadow: 0 0 16px rgba(110, 231, 255, 0.35);
+  }
 }
 
 /* Asset Gallery */

@@ -3,7 +3,7 @@
  * Provides sliders for camera parameters and buttons for view manipulation.
  */
 
-import { useEffect, useRef } from 'preact/hooks';
+import { useEffect, useRef, useState, useCallback } from 'preact/hooks';
 import { useStore } from '../store';
 import { camera, controls, defaultCamera, defaultControls, dollyZoomBaseDistance, dollyZoomBaseFov, requestRender, THREE } from '../viewer';
 import { applyCameraRangeDegrees, restoreHomeView } from '../cameraUtils';
@@ -13,6 +13,13 @@ import { startAnchorTransition } from '../cameraAnimations';
 
 /** Default orbit range in degrees */
 const DEFAULT_CAMERA_RANGE_DEGREES = 8;
+
+/** Focus mode states */
+const FOCUS_MODE = {
+  IDLE: 'idle',
+  SETTING: 'setting',
+  SET: 'set',
+};
 
 /**
  * Clamps a value between min and max bounds.
@@ -94,6 +101,116 @@ function CameraControls() {
 
   // Ref for camera range slider to avoid DOM queries
   const rangeSliderRef = useRef(null);
+  
+  // Focus depth mode state
+  const [focusMode, setFocusMode] = useState(FOCUS_MODE.IDLE);
+  const focusModeRef = useRef(focusMode);
+  focusModeRef.current = focusMode;
+
+  /**
+   * Handles click during focus-setting mode.
+   * Raycasts to get hit distance, then moves the orbit target along the
+   * camera's forward direction to that distance, preserving pan/framing.
+   */
+  const handleFocusClick = useCallback((e) => {
+    if (focusModeRef.current !== FOCUS_MODE.SETTING) return;
+    if (!currentMesh || !camera || !raycaster || !controls) return;
+
+    // Get canvas-relative coordinates
+    const viewerEl = document.getElementById('viewer');
+    if (!viewerEl) return;
+    
+    const rect = viewerEl.getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+    const y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+
+    // Raycast from click position
+    const clickRay = new THREE.Vector2(x, y);
+    raycaster.setFromCamera(clickRay, camera);
+    const intersects = [];
+    raycaster.intersectObjects(scene.children, true, intersects);
+    const splatHit = intersects.find((hit) => hit.object instanceof SplatMesh) ?? null;
+
+    if (!splatHit) {
+      addLog('No surface hit - click on the model');
+      return;
+    }
+
+    // Get the hit distance
+    const hitDistance = splatHit.distance;
+    
+    // Calculate new target position along camera's forward direction at hit distance
+    const cameraDirection = new THREE.Vector3();
+    camera.getWorldDirection(cameraDirection);
+    const newTarget = camera.position.clone().addScaledVector(cameraDirection, hitDistance);
+
+    // Animate to new target (depth only - preserves apparent framing)
+    startAnchorTransition(newTarget, {
+      duration: 400,
+      onComplete: () => {
+        updateDollyZoomBaselineFromCamera();
+        requestRender();
+      },
+    });
+
+    addLog(`Focus depth set: ${hitDistance.toFixed(2)} units`);
+    
+    // Transition to "set" state briefly
+    setFocusMode(FOCUS_MODE.SET);
+    setTimeout(() => {
+      setFocusMode(FOCUS_MODE.IDLE);
+    }, 1500);
+  }, [addLog]);
+
+  /**
+   * Activates focus-setting mode.
+   * User can then click anywhere on the model to set focus depth.
+   */
+  const handleStartFocusMode = () => {
+    if (!currentMesh) {
+      addLog('No model loaded');
+      return;
+    }
+    setFocusMode(FOCUS_MODE.SETTING);
+    addLog('Click on the model to set focus depth');
+  };
+
+  /**
+   * Cancels focus-setting mode (e.g., pressing Escape).
+   */
+  const handleCancelFocusMode = useCallback(() => {
+    if (focusModeRef.current === FOCUS_MODE.SETTING) {
+      setFocusMode(FOCUS_MODE.IDLE);
+      addLog('Focus mode cancelled');
+    }
+  }, [addLog]);
+
+  // Set up click listener and cursor when in focus-setting mode
+  useEffect(() => {
+    const viewerEl = document.getElementById('viewer');
+    if (!viewerEl) return;
+
+    if (focusMode === FOCUS_MODE.SETTING) {
+      viewerEl.style.cursor = 'crosshair';
+      viewerEl.addEventListener('click', handleFocusClick);
+      
+      // Cancel on Escape key
+      const handleKeyDown = (e) => {
+        if (e.key === 'Escape') {
+          handleCancelFocusMode();
+        }
+      };
+      document.addEventListener('keydown', handleKeyDown);
+
+      return () => {
+        viewerEl.style.cursor = '';
+        viewerEl.removeEventListener('click', handleFocusClick);
+        document.removeEventListener('keydown', handleKeyDown);
+      };
+    } else {
+      viewerEl.style.cursor = '';
+    }
+  }, [focusMode, handleFocusClick, handleCancelFocusMode]);
 
   /**
    * Handles FOV slider changes with dolly-zoom compensation.
@@ -147,66 +264,31 @@ function CameraControls() {
   };
 
   /**
-   * Automatically sets the orbit target to the center of the visible scene.
-   * Attempts raycasting first, falls back to bounding box center, then origin.
+   * Returns the appropriate button text based on focus mode state.
    */
-  const handleAutoAnchor = () => {
-    if (!currentMesh || !camera || !raycaster) {
-      addLog('Auto target unavailable: no mesh loaded');
-      return;
+  const getFocusButtonText = () => {
+    switch (focusMode) {
+      case FOCUS_MODE.SETTING:
+        return 'Click model...';
+      case FOCUS_MODE.SET:
+        return 'Focus set ✓';
+      default:
+        return 'Set focus depth';
     }
+  };
 
-    // Try raycasting from screen center
-    const centerRay = new THREE.Vector2(0, 0);
-    raycaster.setFromCamera(centerRay, camera);
-    const intersects = [];
-    raycaster.intersectObjects(scene.children, true, intersects);
-    const splatHit = intersects.find((hit) => hit.object instanceof SplatMesh) ?? null;
-
-    /** Callback to update baseline after transition completes */
-    const onTransitionComplete = () => {
-      updateDollyZoomBaselineFromCamera();
-      requestRender();
-    };
-
-    if (splatHit) {
-      startAnchorTransition(splatHit.point, {
-        duration: 700,
-        onComplete: onTransitionComplete,
-      });
-      const distanceText = splatHit.distance != null
-        ? ` (distance: ${splatHit.distance.toFixed(2)})`
-        : '';
-      addLog(
-        `Auto target: ${splatHit.point.x.toFixed(2)}, ${splatHit.point.y.toFixed(2)}, ${splatHit.point.z.toFixed(2)}${distanceText}`
-      );
-      return;
+  /**
+   * Returns the appropriate button class based on focus mode state.
+   */
+  const getFocusButtonClass = () => {
+    switch (focusMode) {
+      case FOCUS_MODE.SETTING:
+        return 'secondary focus-btn focus-setting';
+      case FOCUS_MODE.SET:
+        return 'secondary focus-btn focus-set';
+      default:
+        return 'secondary focus-btn';
     }
-
-    // Fall back to bounding box center
-    const box = currentMesh.getBoundingBox?.();
-    if (box) {
-      const center = new THREE.Vector3();
-      box.getCenter(center);
-      startAnchorTransition(center, {
-        duration: 700,
-        onComplete: onTransitionComplete,
-      });
-      addLog(
-        `Auto target (bounds): ${center.x.toFixed(2)}, ${center.y.toFixed(2)}, ${center.z.toFixed(2)}`
-      );
-      return;
-    }
-
-    // Last resort: mesh position or origin
-    const fallbackPoint = currentMesh.position?.clone?.() ?? new THREE.Vector3(0, 0, 0);
-    startAnchorTransition(fallbackPoint, {
-      duration: 700,
-      onComplete: onTransitionComplete,
-    });
-    addLog(
-      `Auto target (origin): ${fallbackPoint.x.toFixed(2)}, ${fallbackPoint.y.toFixed(2)}, ${fallbackPoint.z.toFixed(2)}`
-    );
   };
 
   // Initialize camera range on mount
@@ -269,8 +351,12 @@ function CameraControls() {
         <button class="secondary" onClick={handleRecenter}>
           Recenter view
         </button>
-        <button class="secondary" onClick={handleAutoAnchor}>
-          Auto target
+        <button 
+          class={getFocusButtonClass()}
+          onClick={focusMode === FOCUS_MODE.SETTING ? handleCancelFocusMode : handleStartFocusMode}
+          disabled={focusMode === FOCUS_MODE.SET}
+        >
+          {getFocusButtonText()}
         </button>
       </div>
     </div>

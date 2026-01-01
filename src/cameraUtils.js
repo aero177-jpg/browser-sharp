@@ -140,26 +140,112 @@ const quantileSorted = (sorted, q) => {
   return sorted[lower] * (1 - weight) + sorted[upper] * weight;
 };
 
+/**
+ * Find the densest depth cluster using histogram binning.
+ * This helps identify where the "main subject" is located.
+ */
+const findDenseDepthCluster = (depths, numBins = 20) => {
+  if (!depths.length) return null;
+  
+  const minDepth = depths[0];
+  const maxDepth = depths[depths.length - 1];
+  const range = maxDepth - minDepth;
+  if (range < 0.01) return minDepth; // All at same depth
+  
+  const binSize = range / numBins;
+  const bins = new Array(numBins).fill(0);
+  
+  // Count splats in each depth bin
+  for (const d of depths) {
+    const binIdx = Math.min(numBins - 1, Math.floor((d - minDepth) / binSize));
+    bins[binIdx]++;
+  }
+  
+  // Find the densest bin (mode)
+  let maxCount = 0;
+  let densestBin = 0;
+  for (let i = 0; i < numBins; i++) {
+    if (bins[i] > maxCount) {
+      maxCount = bins[i];
+      densestBin = i;
+    }
+  }
+  
+  // Return center of densest bin
+  return minDepth + (densestBin + 0.5) * binSize;
+};
+
+/**
+ * Compute depth focus with subject detection.
+ * Uses multiple strategies to find optimal anchor point:
+ * 1. Center-weighted sampling (subjects are usually centered)
+ * 2. Depth clustering to find main subject mass
+ * 3. Adaptive minimum based on actual depth distribution
+ */
 export const computeMlSharpDepthFocus = (
   mesh,
-  { qFocus = 0.1, minDepthFocus = 2.0, maxSamples = 50_000 } = {},
+  { qFocus = 0.1, minDepthFocus = 0.1, maxSamples = 50_000 } = {},
 ) => {
   const numSplats = mesh?.packedSplats?.numSplats ?? 0;
-  if (!numSplats) return minDepthFocus;
+  if (!numSplats) return 2.0; // Fallback for empty mesh
 
   const step = Math.max(1, Math.floor(numSplats / maxSamples));
-  const depths = [];
+  const allDepths = [];
+  const centerWeightedDepths = [];
+  
   for (let i = 0; i < numSplats; i += step) {
     const { center } = mesh.packedSplats.getSplat(i);
     const z = center.z;
-    if (Number.isFinite(z) && z > 0) depths.push(z);
+    if (!Number.isFinite(z) || z <= 0) continue;
+    
+    allDepths.push(z);
+    
+    // Weight splats near image center more heavily
+    // Splats at x,y near 0 are likely the subject
+    const distFromCenter = Math.sqrt(center.x * center.x + center.y * center.y);
+    // Normalize by depth to get angular distance from center
+    const angularDist = distFromCenter / z;
+    
+    // Include in center-weighted if within ~30° of center (tan(30°) ≈ 0.577)
+    if (angularDist < 0.6) {
+      centerWeightedDepths.push(z);
+    }
   }
 
-  if (!depths.length) return minDepthFocus;
-  depths.sort((a, b) => a - b);
-  const q = quantileSorted(depths, qFocus);
-  if (!Number.isFinite(q)) return minDepthFocus;
-  return Math.max(minDepthFocus, q);
+  if (!allDepths.length) return 2.0;
+  allDepths.sort((a, b) => a - b);
+  
+  // Strategy 1: Simple quantile of all depths
+  const quantileDepth = quantileSorted(allDepths, qFocus);
+  
+  // Strategy 2: Dense cluster detection (finds main subject mass)
+  const clusterDepth = findDenseDepthCluster(allDepths);
+  
+  // Strategy 3: Center-weighted depth (prioritizes centered splats)
+  let centerDepth = null;
+  if (centerWeightedDepths.length > allDepths.length * 0.05) {
+    // Only use if we have enough center samples (>5% of total)
+    centerWeightedDepths.sort((a, b) => a - b);
+    centerDepth = quantileSorted(centerWeightedDepths, 0.15);
+  }
+  
+  // Combine strategies: prefer center-weighted if available, 
+  // otherwise use minimum of quantile and cluster
+  let focusDepth;
+  if (centerDepth !== null) {
+    // Use center depth but don't go further than cluster
+    focusDepth = Math.min(centerDepth, clusterDepth ?? Infinity);
+  } else {
+    // Fall back to quantile, bounded by cluster depth
+    focusDepth = Math.min(quantileDepth, clusterDepth ?? Infinity);
+  }
+  
+  // Adaptive minimum: use 1% of median depth, minimum 0.1
+  const medianDepth = quantileSorted(allDepths, 0.5);
+  const adaptiveMin = Math.max(minDepthFocus, medianDepth * 0.01);
+  
+  if (!Number.isFinite(focusDepth)) return Math.max(adaptiveMin, 2.0);
+  return Math.max(adaptiveMin, focusDepth);
 };
 
 // Build projection matrix from intrinsics
@@ -292,7 +378,7 @@ export const applyMetadataCamera = (mesh, cameraMetadata, resize) => {
   const lookAtCv = new THREE.Vector3(0, 0, depthFocusCv);
   const lookAtThree = lookAtCv.applyMatrix4(mesh.matrixWorld);
   controls.target.copy(lookAtThree);
-  store.addLog(`ml-sharp lookAt: depth_focus=${depthFocusCv.toFixed(3)} (q=0.1, min=2.0)`);
+  store.addLog(`ml-sharp lookAt: depth_focus=${depthFocusCv.toFixed(3)} (center-weighted + clustering)`);
 
   controls.enabled = true;
   controls.update();
