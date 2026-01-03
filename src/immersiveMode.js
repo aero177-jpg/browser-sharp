@@ -11,21 +11,80 @@ import { setLoadAnimationEnabled } from './cameraAnimations.js';
 
 // State
 let isActive = false;
+let isPaused = false;
 let baseQuaternion = null;
 let baseSpherical = null;
 let lastBeta = null;
 let lastGamma = null;
+let screenOrientation = 'portrait-primary';
 
 // Sensitivity settings
 const SENSITIVITY = {
-  tilt: 0.015,      // How much camera moves per degree of device tilt
-  maxAngle: 15,     // Maximum degrees of camera orbit from center
-  smoothing: 0.15,  // Smoothing factor (0-1, lower = smoother)
+  tilt: 0.006,      // How much camera moves per degree of device tilt (reduced)
+  maxAngle: 25,     // Maximum degrees of camera orbit from center
+  smoothing: 0.08,  // Smoothing factor (0-1, lower = smoother)
 };
 
 // Smoothed values
 let smoothedBeta = 0;
 let smoothedGamma = 0;
+let targetBeta = 0;
+let targetGamma = 0;
+
+/**
+ * Gets the current screen orientation.
+ */
+const getScreenOrientation = () => {
+  if (window.screen?.orientation?.type) {
+    return window.screen.orientation.type;
+  }
+  // Fallback for older browsers
+  const angle = window.orientation;
+  if (angle === 0) return 'portrait-primary';
+  if (angle === 180) return 'portrait-secondary';
+  if (angle === 90) return 'landscape-primary';
+  if (angle === -90) return 'landscape-secondary';
+  return 'portrait-primary';
+};
+
+/**
+ * Transforms device orientation values based on screen rotation.
+ * Returns { beta, gamma } adjusted for current screen orientation.
+ */
+const transformForOrientation = (beta, gamma, orientation) => {
+  switch (orientation) {
+    case 'portrait-primary':
+      // Normal portrait - no transformation needed
+      return { beta, gamma };
+    
+    case 'portrait-secondary':
+      // Upside down portrait (rare)
+      return { beta: -beta, gamma: -gamma };
+    
+    case 'landscape-primary':
+      // Landscape with home button on right (or natural landscape for tablets)
+      // Swap axes: device tilt left/right becomes front/back
+      return { beta: -gamma, gamma: beta };
+    
+    case 'landscape-secondary':
+      // Landscape with home button on left
+      // Swap and invert: device tilt left/right becomes front/back (reversed)
+      return { beta: gamma, gamma: -beta };
+    
+    default:
+      return { beta, gamma };
+  }
+};
+
+/**
+ * Handles screen orientation change.
+ */
+const handleOrientationChange = () => {
+  screenOrientation = getScreenOrientation();
+  // Reset baseline when orientation changes
+  resetImmersiveBaseline();
+  console.log('Screen orientation changed to:', screenOrientation);
+};
 
 /**
  * Gets the current immersive mode state from store.
@@ -56,14 +115,19 @@ export const requestOrientationPermission = async () => {
  * Maps beta (front-back tilt) and gamma (left-right tilt) to camera orbit.
  */
 const handleDeviceOrientation = (event) => {
-  if (!isActive || !camera || !controls) return;
+  if (!isActive || isPaused || !camera || !controls) return;
   
-  const { beta, gamma } = event;
+  let { beta, gamma } = event;
   
   // beta: front-back tilt (-180 to 180, 0 when flat)
   // gamma: left-right tilt (-90 to 90, 0 when flat)
   
   if (beta === null || gamma === null) return;
+  
+  // Transform values based on screen orientation
+  const transformed = transformForOrientation(beta, gamma, screenOrientation);
+  beta = transformed.beta;
+  gamma = transformed.gamma;
   
   // Initialize base values on first reading
   if (lastBeta === null) {
@@ -71,6 +135,8 @@ const handleDeviceOrientation = (event) => {
     lastGamma = gamma;
     smoothedBeta = 0;
     smoothedGamma = 0;
+    targetBeta = 0;
+    targetGamma = 0;
     
     // Capture current camera position as baseline
     const offset = new THREE.Vector3().subVectors(camera.position, controls.target);
@@ -86,13 +152,19 @@ const handleDeviceOrientation = (event) => {
   if (deltaBeta > 180) deltaBeta -= 360;
   if (deltaBeta < -180) deltaBeta += 360;
   
-  // Clamp to max angle
-  deltaBeta = THREE.MathUtils.clamp(deltaBeta, -SENSITIVITY.maxAngle, SENSITIVITY.maxAngle);
-  deltaGamma = THREE.MathUtils.clamp(deltaGamma, -SENSITIVITY.maxAngle, SENSITIVITY.maxAngle);
+  // Soft clamping using tanh for smooth boundaries
+  const softClamp = (value, limit) => {
+    const normalized = value / limit;
+    return limit * Math.tanh(normalized);
+  };
   
-  // Apply smoothing
-  smoothedBeta += (deltaBeta - smoothedBeta) * SENSITIVITY.smoothing;
-  smoothedGamma += (deltaGamma - smoothedGamma) * SENSITIVITY.smoothing;
+  // Apply soft clamping for smooth boundary behavior
+  targetBeta = softClamp(deltaBeta, SENSITIVITY.maxAngle);
+  targetGamma = softClamp(deltaGamma, SENSITIVITY.maxAngle);
+  
+  // Apply smoothing (interpolate towards target)
+  smoothedBeta += (targetBeta - smoothedBeta) * SENSITIVITY.smoothing;
+  smoothedGamma += (targetGamma - smoothedGamma) * SENSITIVITY.smoothing;
   
   // Apply to camera orbit
   if (baseSpherical) {
@@ -101,15 +173,15 @@ const handleDeviceOrientation = (event) => {
     // Map device tilt to camera orbit
     // Gamma (left-right tilt) -> azimuthal angle (horizontal orbit)
     // Beta (front-back tilt) -> polar angle (vertical orbit)
-    newSpherical.theta = baseSpherical.theta - smoothedGamma * SENSITIVITY.tilt;
-    newSpherical.phi = baseSpherical.phi - smoothedBeta * SENSITIVITY.tilt;
+    // Note: negative beta = tilt phone forward = look down = increase phi
+    newSpherical.theta = baseSpherical.theta + smoothedGamma * SENSITIVITY.tilt;
+    newSpherical.phi = baseSpherical.phi + smoothedBeta * SENSITIVITY.tilt;
     
-    // Clamp phi to avoid flipping
-    newSpherical.phi = THREE.MathUtils.clamp(
-      newSpherical.phi,
-      0.1,
-      Math.PI - 0.1
-    );
+    // Clamp phi - use very generous absolute limits
+    // The soft clamping on input already provides smooth boundaries
+    const minPhi = 0.02;  // Just above 0 (looking straight up)
+    const maxPhi = Math.PI - 0.02;  // Just below PI (looking straight down)
+    newSpherical.phi = THREE.MathUtils.clamp(newSpherical.phi, minPhi, maxPhi);
     
     // Apply to camera position
     const offset = new THREE.Vector3().setFromSpherical(newSpherical);
@@ -134,6 +206,9 @@ export const enableImmersiveMode = async () => {
     return false;
   }
   
+  // Get initial screen orientation
+  screenOrientation = getScreenOrientation();
+  
   // Disable load animations
   setLoadAnimationEnabled(false);
   
@@ -152,6 +227,14 @@ export const enableImmersiveMode = async () => {
   // Start listening to device orientation
   window.addEventListener('deviceorientation', handleDeviceOrientation, true);
   
+  // Listen for screen orientation changes
+  if (window.screen?.orientation) {
+    window.screen.orientation.addEventListener('change', handleOrientationChange);
+  } else {
+    // Fallback for older browsers
+    window.addEventListener('orientationchange', handleOrientationChange);
+  }
+  
   isActive = true;
   console.log('Immersive mode enabled');
   return true;
@@ -166,6 +249,13 @@ export const disableImmersiveMode = () => {
   
   // Stop listening to device orientation
   window.removeEventListener('deviceorientation', handleDeviceOrientation, true);
+  
+  // Stop listening to screen orientation changes
+  if (window.screen?.orientation) {
+    window.screen.orientation.removeEventListener('change', handleOrientationChange);
+  } else {
+    window.removeEventListener('orientationchange', handleOrientationChange);
+  }
   
   // Re-enable orbit controls
   if (controls) {
@@ -206,10 +296,58 @@ export const resetImmersiveBaseline = () => {
   lastGamma = null;
   smoothedBeta = 0;
   smoothedGamma = 0;
+  targetBeta = 0;
+  targetGamma = 0;
   baseSpherical = null;
+};
+
+/**
+ * Pauses immersive mode temporarily (e.g., during camera reset animation).
+ */
+export const pauseImmersiveMode = () => {
+  isPaused = true;
+};
+
+/**
+ * Resumes immersive mode after pause, resetting baseline to current position.
+ */
+export const resumeImmersiveMode = () => {
+  if (isActive) {
+    // Reset baseline so camera starts fresh from new position
+    resetImmersiveBaseline();
+    isPaused = false;
+  }
+};
+
+/**
+ * Performs a camera recenter while in immersive mode.
+ * Pauses orientation input, resets camera, then resumes with new baseline.
+ */
+export const recenterInImmersiveMode = (recenterCallback, duration = 600) => {
+  if (!isActive) {
+    // Not in immersive mode, just do normal recenter
+    recenterCallback();
+    return;
+  }
+  
+  // Pause orientation input
+  pauseImmersiveMode();
+  
+  // Perform recenter
+  recenterCallback();
+  
+  // Resume after animation completes
+  setTimeout(() => {
+    resumeImmersiveMode();
+  }, duration + 100); // Small buffer after animation
 };
 
 /**
  * Returns whether immersive mode is currently active.
  */
 export const isImmersiveModeActive = () => isActive;
+
+/**
+ * Returns whether immersive mode is paused.
+ */
+export const isImmersiveModePaused = () => isPaused;

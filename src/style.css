@@ -150,6 +150,14 @@ body {
   color: rgba(255, 255, 255, 0.5);
 }
 
+.drop-help .large-file-btn {
+  padding: 16px 32px;
+  font-size: 16px;
+  font-weight: 700;
+  border-radius: 12px;
+  pointer-events: auto;
+}
+
 .side {
   position: fixed;
   top: 18px;
@@ -576,7 +584,7 @@ body {
     padding: 6px;
   }
 
-  .side:not(.mobile-portrait) {
+  .side {
     left: 6px;
     right: 6px;
     top: 6px;
@@ -604,13 +612,13 @@ body {
   }
 }
 
-/* Portrait mode specific - swipe-up panel */
+/* Portrait mode specific - mobile sheet */
 @media (max-width: 768px) and (orientation: portrait) {
   .page {
     padding: 0;
   }
 
-  .side.mobile-portrait {
+  .mobile-sheet {
     max-height: 40vh;
     max-height: 40dvh;
   }
@@ -1018,66 +1026,7 @@ select option {
   color: #e6ecf8;
 }
 
-/* Mobile portrait swipe-up panel */
-.side.mobile-portrait {
-  top: auto;
-  left: 12px;
-  right: 12px;
-  bottom: 0;
-  max-height: 40vh;
-  max-height: 40dvh;
-  width: auto;
-  border-radius: 18px 18px 0 0;
-  padding: 8px 18px 20px 18px;
-  padding-bottom: max(20px, env(safe-area-inset-bottom));
-}
 
-.page:not(.panel-open) .side.mobile-portrait {
-  transform: translateY(calc(100% + 24px));
-  opacity: 0;
-}
-
-.page.panel-open .side.mobile-portrait {
-  transform: translateY(0);
-  opacity: 1;
-}
-
-/* Drag handle for mobile portrait */
-.drag-handle {
-  display: flex;
-  justify-content: center;
-  padding: 8px 0 8px 0;
-  margin: -8px -18px 4px -18px;
-}
-
-.drag-handle-bar {
-  width: 48px;
-  height: 5px;
-  background: rgba(255, 255, 255, 0.4);
-  border-radius: 3px;
-}
-
-/* Mobile portrait toggle button - bottom left */
-.panel-toggle.mobile-portrait-toggle {
-  top: auto;
-  right: auto;
-  bottom: 16px;
-  left: 16px;
-  width: 44px;
-  height: 44px;
-  font-size: 16px;
-  z-index: 25;
-}
-
-.page.panel-open .panel-toggle.mobile-portrait-toggle {
-  bottom: calc(40dvh + 16px);
-  transition: bottom 0.35s ease;
-}
-
-.page:not(.panel-open) .panel-toggle.mobile-portrait-toggle {
-  bottom: 16px;
-  transition: bottom 0.35s ease;
-}
 
 /* Reset view button */
 .reset-view-btn {
@@ -1140,4 +1089,81 @@ select option {
 
 .settings-group .group-toggle .asset-count {
   margin-right: 4px;
+}
+
+/* Mobile bottom sheet specifics */
+.mobile-sheet {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: -8px;
+  top: auto;
+  width: auto;
+  display: flex;
+  flex-direction: column;
+  max-height: 88vh;
+  background: rgba(12, 16, 26, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px 12px 0 0;
+  box-shadow: 0 -20px 60px rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(22px);
+  transform: translateY(calc(100% - 50px));
+  transition: transform 250ms cubic-bezier(0.4, 0, 0.2, 1);
+  z-index: 20;
+  overflow: visible; /* Allow touch target to extend outside */
+}
+
+.mobile-sheet.open {
+  transform: translateY(0);
+}
+
+.mobile-sheet.closed {
+  transform: translateY(calc(100% - 50px));
+}
+
+/* Scrollable inner content */
+.mobile-sheet-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 0 14px 20px 14px;
+  padding-bottom: max(20px, env(safe-area-inset-bottom));
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  flex: 1;
+  min-height: 0;
+}
+
+.mobile-sheet .drag-handle {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 16px 0 12px 0;
+  flex-shrink: 0;
+}
+
+.mobile-sheet .drag-handle-touch-target {
+  position: absolute;
+  /* background-color: red; */
+  top: -40px;
+  left: -12px;
+  right: -12px;
+  bottom: -10px;
+  cursor: grab;
+  z-index: 10;
+}
+
+.mobile-sheet .drag-handle-bar {
+  width: 56px;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.35);
+  border-radius: 6px;
+  transition: background 0.2s ease;
+  pointer-events: none;
+}
+
+.mobile-sheet .drag-handle-touch-target:active + .drag-handle-bar {
+  background: rgba(255, 255, 255, 0.5);
 }

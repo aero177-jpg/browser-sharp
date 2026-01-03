@@ -10,7 +10,7 @@ import { applyCameraRangeDegrees, restoreHomeView } from '../cameraUtils';
 import { currentMesh, raycaster, SplatMesh, scene } from '../viewer';
 import { updateDollyZoomBaselineFromCamera } from '../viewer';
 import { startAnchorTransition } from '../cameraAnimations';
-import { enableImmersiveMode, disableImmersiveMode, resetImmersiveBaseline } from '../immersiveMode';
+import { enableImmersiveMode, disableImmersiveMode, recenterInImmersiveMode, isImmersiveModeActive } from '../immersiveMode';
 
 /** Default orbit range in degrees */
 const DEFAULT_CAMERA_RANGE_DEGREES = 8;
@@ -333,13 +333,16 @@ function CameraControls() {
 
   /**
    * Resets immersive mode baseline on recenter.
+   * Pauses orientation input during animation to avoid conflicts.
    */
   const handleRecenterWithImmersive = useCallback(() => {
-    handleRecenter();
-    if (immersiveMode) {
-      resetImmersiveBaseline();
+    if (isImmersiveModeActive()) {
+      // Use special recenter that pauses orientation input
+      recenterInImmersiveMode(handleRecenter, 600);
+    } else {
+      handleRecenter();
     }
-  }, [immersiveMode]);
+  }, []);
 
   return (
     <div class="settings-group">

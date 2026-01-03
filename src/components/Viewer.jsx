@@ -6,7 +6,7 @@
  * - Keyboard shortcuts for navigation and view control
  */
 
-import { useEffect, useCallback, useRef } from 'preact/hooks';
+import { useEffect, useCallback, useRef, useState } from 'preact/hooks';
 import { useStore } from '../store';
 import { 
   camera, 
@@ -22,10 +22,15 @@ import {
 } from '../viewer';
 import { restoreHomeView } from '../cameraUtils';
 import { cancelLoadZoomAnimation, startAnchorTransition } from '../cameraAnimations';
-import { loadNextAsset, loadPrevAsset, resize, initDragDrop } from '../fileLoader';
+import { recenterInImmersiveMode, isImmersiveModeActive } from '../immersiveMode';
+import { loadNextAsset, loadPrevAsset, resize, initDragDrop, handleMultipleFiles } from '../fileLoader';
+import { getFormatAccept } from '../formats/index';
 
 /** Tags that should not trigger keyboard shortcuts */
 const INPUT_TAGS = new Set(['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON']);
+
+/** File input accept attribute value */
+const formatAccept = getFormatAccept();
 
 /**
  * Checks if an event target is an input element.
@@ -49,13 +54,51 @@ function Viewer({ viewerReady }) {
   // Store state
   const debugLoadingMode = useStore((state) => state.debugLoadingMode);
   const isMobile = useStore((state) => state.isMobile);
+  const isPortrait = useStore((state) => state.isPortrait);
   
   // Store actions
   const addLog = useStore((state) => state.addLog);
   const togglePanel = useStore((state) => state.togglePanel);
   
-  // Ref for viewer container
+  // Ref for viewer container and file input
   const viewerRef = useRef(null);
+  const fileInputRef = useRef(null);
+
+  // Track mesh state
+  const [hasMesh, setHasMesh] = useState(false);
+
+  /**
+   * Track mesh loading state
+   */
+  useEffect(() => {
+    const checkMesh = () => {
+      setHasMesh(!!currentMesh);
+    };
+    
+    // Check immediately and set up interval to poll
+    checkMesh();
+    const interval = setInterval(checkMesh, 100);
+    
+    return () => clearInterval(interval);
+  }, []);
+
+  /**
+   * Triggers file picker dialog.
+   */
+  const handlePickFile = useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
+
+  /**
+   * Handles file selection from file picker.
+   */
+  const handleFileChange = useCallback(async (event) => {
+    const files = event.target.files;
+    if (files && files.length > 0) {
+      await handleMultipleFiles(Array.from(files));
+      event.target.value = '';
+    }
+  }, []);
 
   /**
    * Sets up event listeners for viewer interactions.
@@ -187,15 +230,42 @@ function Viewer({ viewerReady }) {
       <div class="loading-overlay">
         <div class="loading-spinner"></div>
       </div>
-      <div class="drop-help">
-        <div class="eyebrow">Drag PLY/SOG files or folders here</div>
-        <div class="fine-print">Drop multiple files to browse • Spark + THREE 3DGS</div>
-      </div>
-      {/* Reset view button - mobile only */}
-      {isMobile && (
+      {isMobile ? (
+        !hasMesh && (
+          <div class="drop-help mobile-file-picker">
+            <button class="primary large-file-btn" onClick={handlePickFile}>
+              Choose File
+            </button>
+            <div class="fine-print">Select PLY/SOG files • Spark + THREE 3DGS</div>
+            <input 
+              ref={fileInputRef}
+              type="file" 
+              accept={formatAccept} 
+              multiple 
+              hidden 
+              onChange={handleFileChange}
+            />
+          </div>
+        )
+      ) : (
+        !hasMesh && (
+          <div class="drop-help">
+            <div class="eyebrow">Drag PLY/SOG files or folders here</div>
+            <div class="fine-print">Drop multiple files to browse • Spark + THREE 3DGS</div>
+          </div>
+        )
+      )}
+      {/* Reset view button - mobile only, shown when mesh is loaded */}
+      {isMobile && hasMesh && (
         <button 
           class="reset-view-btn" 
-          onClick={restoreHomeView}
+          onClick={() => {
+            if (isImmersiveModeActive()) {
+              recenterInImmersiveMode(restoreHomeView, 600);
+            } else {
+              restoreHomeView();
+            }
+          }}
           aria-label="Reset camera view"
           title="Reset view (R)"
         >

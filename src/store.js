@@ -53,7 +53,7 @@ export const useStore = create((set, get) => ({
   logs: [],
 
   // UI state
-  panelOpen: true,
+  panelOpen: false,
   logExpanded: false,
   animSettingsExpanded: false,
   cameraSettingsExpanded: true,
