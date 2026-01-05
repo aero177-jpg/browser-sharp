@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from 'preact/hooks';
+import { createPortal } from 'preact/compat';
 import useSwipe from '../utils/useSwipe';
 import { useStore } from '../store';
 import { loadAssetByIndex, handleAddFiles } from '../fileLoader';
@@ -25,6 +26,27 @@ function AssetSidebar() {
   const hideTimeoutRef = useRef(null);
 
   const formatAccept = getFormatAccept();
+
+  // Portal target for modal - render to fullscreen-safe container
+  const [portalTarget, setPortalTarget] = useState(null);
+
+  useEffect(() => {
+    // Use viewer element if in fullscreen, otherwise document body
+    const getPortalTarget = () => {
+      const viewerEl = document.getElementById('viewer');
+      return document.fullscreenElement === viewerEl ? viewerEl : document.body;
+    };
+
+    setPortalTarget(getPortalTarget());
+
+    // Update portal target when fullscreen state changes
+    const handleFullscreenChange = () => {
+      setPortalTarget(getPortalTarget());
+    };
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
 
   // Only show if we have multiple assets
   const hasMultipleAssets = assets.length > 1;
@@ -226,8 +248,8 @@ function AssetSidebar() {
         </div>
       </div>
 
-      {/* Delete Modal */}
-      {showDeleteModal && (
+      {/* Delete Modal - rendered via portal for fullscreen compatibility */}
+      {showDeleteModal && portalTarget && createPortal(
         <div class="modal-overlay">
           <div class="modal-content">
             <h3>Delete Asset</h3>
@@ -272,7 +294,8 @@ function AssetSidebar() {
               <button class="danger" onClick={confirmDelete}>Delete</button>
             </div>
           </div>
-        </div>
+        </div>,
+        portalTarget
       )}
     </>
   );

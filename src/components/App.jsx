@@ -56,7 +56,6 @@ function App() {
       const sidebarHoverTarget = document.querySelector('.sidebar-hover-target');
       const sidebarTriggerBtn = document.querySelector('.sidebar-trigger-btn.left');
       const mobileSheet = document.querySelector('.mobile-sheet');
-      const modalOverlay = document.querySelector('.modal-overlay');
       const controlsEl = controlsRef.current;
 
       if (fsEl === viewerEl) {
@@ -68,7 +67,6 @@ function App() {
           { el: sidebarHoverTarget, key: 'sidebarHoverTarget' },
           { el: sidebarTriggerBtn, key: 'sidebarTriggerBtn' },
           { el: mobileSheet, key: 'mobileSheet' },
-          { el: modalOverlay, key: 'modalOverlay' },
           { el: controlsEl, key: 'controls' }
         ];
 
@@ -87,7 +85,6 @@ function App() {
           { el: sidebarHoverTarget, key: 'sidebarHoverTarget' },
           { el: sidebarTriggerBtn, key: 'sidebarTriggerBtn' },
           { el: mobileSheet, key: 'mobileSheet' },
-          { el: modalOverlay, key: 'modalOverlay' },
           { el: controlsEl, key: 'controls' }
         ];
 
