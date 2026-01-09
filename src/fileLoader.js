@@ -34,6 +34,22 @@ import {
 } from "./cameraUtils.js";
 import { slideOutAnimation, slideInAnimation, cancelSlideAnimation } from "./cameraAnimations.js";
 import { isImmersiveModeActive, pauseImmersiveMode, resumeImmersiveMode } from "./immersiveMode.js";
+
+/** Navigation lock to prevent concurrent asset loads */
+let isNavigationLocked = false;
+
+/** Cleanup function for any in-flight animation state */
+const cleanupSlideTransitionState = () => {
+  const viewerEl = document.getElementById('viewer');
+  if (viewerEl) {
+    viewerEl.classList.remove('slide-out', 'slide-in');
+  }
+  const bgContainer = document.querySelector('.bg-image-container');
+  if (bgContainer) {
+    bgContainer.classList.remove('blur-out');
+  }
+  cancelSlideAnimation();
+};
 import {
   setAssetList as setAssetListManager,
   getAssetList,
@@ -410,8 +426,13 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
   const hasFileOrSource = asset.file || (asset.sourceId && asset._remoteAsset);
   if (!hasFileOrSource) return;
 
+  // Cancel any in-flight slide transitions before starting a new load
+  // This prevents race conditions where previous animation state corrupts the new load
+  cleanupSlideTransitionState();
+
   const store = getStoreState();
   const { slideDirection } = options;
+  const slideMode = store.slideMode ?? 'horizontal';
   const wasAlreadyCached = isSplatCached(asset);
 
   // Preload entry early (reused later to avoid duplicate loads)
@@ -421,7 +442,7 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
   // For slide transitions, start slide-out and entry prep in parallel
   let preloadedEntry = null;
   if (slideDirection && currentMesh) {
-    const slideOutPromise = slideOutAnimation(slideDirection, { duration: 1200, amount: 0.5, fadeDelay: 0.625 });
+    const slideOutPromise = slideOutAnimation(slideDirection, { duration: 1200, amount: 0.5, fadeDelay: 0.625, mode: slideMode });
     const prepPromise = entryPromise.catch((err) => {
       console.warn('Failed to preload during slide-out:', err);
       return null;
@@ -592,7 +613,13 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
       saveHomeView();
       
       // Slide in from the navigation direction (1s pan with quick fade-in)
-      await slideInAnimation(slideDirection, { duration: 1000, amount: 0.5 });
+      await slideInAnimation(slideDirection, { duration: 1000, amount: 0.5, mode: slideMode });
+      
+      // Safety cleanup in case slideInAnimation didn't fully clean up
+      const viewerEl = document.getElementById('viewer');
+      if (viewerEl && (viewerEl.classList.contains('slide-out') || viewerEl.classList.contains('slide-in'))) {
+        viewerEl.classList.remove('slide-out', 'slide-in');
+      }
     } else {
       const shouldAnimateCamera = !wasImmersiveModeActive && store.animationEnabled;
 
@@ -616,6 +643,21 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
 
         saveHomeView();
       }, { animate: shouldAnimateCamera });
+      
+      // For non-cached slide transitions, we need to fade the canvas back in
+      // since slideOutAnimation ran but slideInAnimation didn't
+      if (slideDirection) {
+        const viewerEl = document.getElementById('viewer');
+        if (viewerEl) {
+          // Add slide-in to trigger fade-in transition, remove slide-out
+          viewerEl.classList.remove('slide-out');
+          viewerEl.classList.add('slide-in');
+          // Remove slide-in after transition completes (match CSS transition duration)
+          setTimeout(() => {
+            viewerEl.classList.remove('slide-in');
+          }, 550);
+        }
+      }
     }
 
     // Apply preview immediately for cached splats
@@ -710,6 +752,9 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
     store.setIsLoading(false);
     clearMetadataCamera(resize);
     store.setStatus("Load failed, please check the file or console log");
+    
+    // Clean up any slide transition state on error
+    cleanupSlideTransitionState();
 
     if (wasImmersiveModeActive) {
       resumeImmersiveMode();
@@ -943,14 +988,36 @@ export const handleAddFiles = async (files) => {
   }
 };
 
+/**
+ * Loads a specific asset by index.
+ * Called from AssetGallery and AssetSidebar when user clicks a thumbnail.
+ * @param {number} index - Asset index to load
+ */
 export const loadAssetByIndex = async (index) => {
   const asset = getAssetByIndex(index);
   if (!asset) return;
+  if (isNavigationLocked) return;
   
-  const store = getStoreState();
-  setCurrentAssetIndexManager(index);
-  store.setCurrentAssetIndex(index);
-  await loadSplatFile(asset);
+  isNavigationLocked = true;
+  
+  // Pause immersive mode immediately to prevent erratic camera during transition
+  const wasImmersive = isImmersiveModeActive();
+  if (wasImmersive) {
+    pauseImmersiveMode();
+  }
+  
+  try {
+    const store = getStoreState();
+    setCurrentAssetIndexManager(index);
+    store.setCurrentAssetIndex(index);
+    await loadSplatFile(asset);
+  } finally {
+    isNavigationLocked = false;
+    // Resume immersive mode after navigation completes
+    if (wasImmersive) {
+      resumeImmersiveMode();
+    }
+  }
 };
 
 /**
@@ -1041,13 +1108,30 @@ export const loadFromStorageSource = async (source) => {
  */
 export const loadNextAsset = async () => {
   if (!hasMultipleAssets()) return;
+  if (isNavigationLocked) return;
   
-  const asset = nextAsset();
-  if (asset) {
-    const index = getCurrentAssetIndex();
-    const store = getStoreState();
-    store.setCurrentAssetIndex(index);
-    await loadSplatFile(asset, { slideDirection: 'next' });
+  isNavigationLocked = true;
+  
+  // Pause immersive mode immediately to prevent erratic camera during transition
+  const wasImmersive = isImmersiveModeActive();
+  if (wasImmersive) {
+    pauseImmersiveMode();
+  }
+  
+  try {
+    const asset = nextAsset();
+    if (asset) {
+      const index = getCurrentAssetIndex();
+      const store = getStoreState();
+      store.setCurrentAssetIndex(index);
+      await loadSplatFile(asset, { slideDirection: 'next' });
+    }
+  } finally {
+    isNavigationLocked = false;
+    // Resume immersive mode after navigation completes
+    if (wasImmersive) {
+      resumeImmersiveMode();
+    }
   }
 };
 
@@ -1057,12 +1141,29 @@ export const loadNextAsset = async () => {
  */
 export const loadPrevAsset = async () => {
   if (!hasMultipleAssets()) return;
+  if (isNavigationLocked) return;
   
-  const asset = prevAsset();
-  if (asset) {
-    const index = getCurrentAssetIndex();
-    const store = getStoreState();
-    store.setCurrentAssetIndex(index);
-    await loadSplatFile(asset, { slideDirection: 'prev' });
+  isNavigationLocked = true;
+  
+  // Pause immersive mode immediately to prevent erratic camera during transition
+  const wasImmersive = isImmersiveModeActive();
+  if (wasImmersive) {
+    pauseImmersiveMode();
+  }
+  
+  try {
+    const asset = prevAsset();
+    if (asset) {
+      const index = getCurrentAssetIndex();
+      const store = getStoreState();
+      store.setCurrentAssetIndex(index);
+      await loadSplatFile(asset, { slideDirection: 'prev' });
+    }
+  } finally {
+    isNavigationLocked = false;
+    // Resume immersive mode after navigation completes
+    if (wasImmersive) {
+      resumeImmersiveMode();
+    }
   }
 };

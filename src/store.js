@@ -37,6 +37,7 @@ export const useStore = create((set, get) => ({
   animationEnabled: true,
   animationIntensity: 'medium',
   animationDirection: 'left',
+  slideMode: 'horizontal',
   
   // Custom animation settings (used when intensity is 'custom')
   customAnimation: {
@@ -107,6 +108,9 @@ export const useStore = create((set, get) => ({
   
   /** Sets animation sweep direction */
   setAnimationDirection: (direction) => set({ animationDirection: direction }),
+  
+  /** Sets slide transition mode */
+  setSlideMode: (mode) => set({ slideMode: mode }),
   
   /** Updates custom animation settings (merges with existing) */
   setCustomAnimation: (settings) => set((state) => ({

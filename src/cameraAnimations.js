@@ -336,16 +336,56 @@ export const cancelSlideAnimation = () => {
     clearTimeout(slideAnimationState.fadeTimeoutId);
   }
   slideAnimationState = null;
+  
+  // Clean up CSS transition classes to ensure clean state
+  const viewerEl = document.getElementById('viewer');
+  if (viewerEl) {
+    viewerEl.classList.remove('slide-out', 'slide-in');
+  }
+  if (bgImageContainer) {
+    bgImageContainer.classList.remove('blur-out');
+  }
 };
 
 /**
  * Performs a slide-out animation (pan camera in direction of navigation).
  * @param {'next'|'prev'} direction - Navigation direction
  * @param {Object} options - Animation options
+ * @param {string} options.mode - Slide mode: 'horizontal', 'vertical', 'zoom', or 'fade'
  * @returns {Promise} Resolves when animation completes
  */
-export const slideOutAnimation = (direction, { duration = 1200, amount = 0.45, fadeDelay = 0.7 } = {}) => {
+export const slideOutAnimation = (direction, { duration = 1200, amount = 0.45, fadeDelay = 0.7, mode = 'horizontal' } = {}) => {
   return new Promise((resolve) => {
+    // For fade mode, only do CSS transition - no camera animation
+    if (mode === 'fade') {
+      cancelSlideAnimation();
+      
+      const viewerEl = document.getElementById('viewer');
+      if (bgImageContainer) {
+        bgImageContainer.classList.add('blur-out');
+      }
+      
+      const fadeTimeoutId = setTimeout(() => {
+        if (viewerEl) {
+          viewerEl.classList.add('slide-out');
+        }
+        if (bgImageContainer) {
+          bgImageContainer.classList.remove('active');
+        }
+      }, duration * fadeDelay);
+      
+      // Just wait for the fade duration, no camera movement
+      slideAnimationState = {
+        frameId: setTimeout(() => {
+          slideAnimationState = null;
+          resolve();
+        }, duration),
+        startTime: null,
+        fadeTimeoutId,
+      };
+      return;
+    }
+    
     if (!camera || !controls) {
       resolve();
       return;
@@ -375,25 +415,43 @@ export const slideOutAnimation = (direction, { duration = 1200, amount = 0.45, f
 
     const startPosition = camera.position.clone();
     const startTarget = controls.target.clone();
+    const distance = startPosition.distanceTo(startTarget);
 
-    // Calculate right vector for horizontal pan
+    // Calculate direction vectors
     const forward = new THREE.Vector3().subVectors(startTarget, startPosition).normalize();
     const up = camera.up.clone().normalize();
     const right = new THREE.Vector3().crossVectors(forward, up).normalize();
 
-    // Pan direction: next = pan right (camera moves left relative to scene)
-    // prev = pan left (camera moves right relative to scene)
-    const panSign = direction === 'next' ? 1 : -1;
-    const distance = startPosition.distanceTo(startTarget);
-    const panAmount = distance * amount * panSign;
-
-    const panOffset = right.multiplyScalar(panAmount);
-    const endPosition = startPosition.clone().add(panOffset);
-    const endTarget = startTarget.clone().add(panOffset);
-
-    // Orbit parameters (directional: next => right, prev => left)
-    const orbitAxis = up;
-    const orbitAngle = (Math.PI / 180) * 8 * (direction === 'next' ? 1 : -1); // 8 degrees
+    let endPosition, endTarget, orbitAxis, orbitAngle;
+    
+    if (mode === 'zoom') {
+      // Zoom mode: zoom into the scene (move camera closer to target)
+      const zoomAmount = distance * 0.3; // Zoom in by 30% of distance
+      const zoomOffset = forward.clone().multiplyScalar(zoomAmount);
+      endPosition = startPosition.clone().add(zoomOffset);
+      endTarget = startTarget.clone(); // Target stays the same
+      orbitAxis = up;
+      orbitAngle = 0; // No orbit rotation for zoom
+    } else if (mode === 'vertical') {
+      // Vertical mode: pan up/down
+      const panSign = direction === 'next' ? -1 : 1; // next = pan down, prev = pan up
+      const panAmount = distance * amount * panSign;
+      const panOffset = up.clone().multiplyScalar(panAmount);
+      endPosition = startPosition.clone().add(panOffset);
+      endTarget = startTarget.clone().add(panOffset);
+      // Orbit around right axis for vertical movement
+      orbitAxis = right;
+      orbitAngle = (Math.PI / 180) * 8 * (direction === 'next' ? 1 : -1);
+    } else {
+      // Horizontal mode (default): pan left/right
+      const panSign = direction === 'next' ? 1 : -1;
+      const panAmount = distance * amount * panSign;
+      const panOffset = right.clone().multiplyScalar(panAmount);
+      endPosition = startPosition.clone().add(panOffset);
+      endTarget = startTarget.clone().add(panOffset);
+      orbitAxis = up;
+      orbitAngle = (Math.PI / 180) * 8 * (direction === 'next' ? 1 : -1);
+    }
 
     const animate = (timestamp) => {
       if (!slideAnimationState) {
@@ -413,11 +471,13 @@ export const slideOutAnimation = (direction, { duration = 1200, amount = 0.45, f
       camera.position.lerpVectors(startPosition, endPosition, eased);
       controls.target.lerpVectors(startTarget, endTarget, eased);
 
-      // Add orbit rotation
-      const currentOrbitAngle = orbitAngle * eased;
-      const orbitOffset = new THREE.Vector3().subVectors(camera.position, controls.target);
-      orbitOffset.applyAxisAngle(orbitAxis, currentOrbitAngle);
-      camera.position.copy(controls.target).add(orbitOffset);
+      // Add orbit rotation (skip for zoom mode)
+      if (orbitAngle !== 0) {
+        const currentOrbitAngle = orbitAngle * eased;
+        const orbitOffset = new THREE.Vector3().subVectors(camera.position, controls.target);
+        orbitOffset.applyAxisAngle(orbitAxis, currentOrbitAngle);
+        camera.position.copy(controls.target).add(orbitOffset);
+      }
 
       controls.update();
       requestRender();
@@ -443,50 +503,110 @@ export const slideOutAnimation = (direction, { duration = 1200, amount = 0.45, f
  * Call this AFTER setting up the new camera position.
  * @param {'next'|'prev'} direction - Navigation direction (determines start offset)
  * @param {Object} options - Animation options
+ * @param {string} options.mode - Slide mode: 'horizontal', 'vertical', 'zoom', or 'fade'
  * @returns {Promise} Resolves when animation completes
  */
-export const slideInAnimation = (direction, { duration = 1000, amount = 0.45 } = {}) => {
+export const slideInAnimation = (direction, { duration = 1000, amount = 0.45, mode = 'horizontal' } = {}) => {
   return new Promise((resolve) => {
+    cancelSlideAnimation();
+    
+    const viewerEl = document.getElementById('viewer');
+    const canvas = viewerEl?.querySelector('canvas');
+    
+    // Clear any lingering blur-out on background
+    if (bgImageContainer) {
+      bgImageContainer.classList.remove('blur-out');
+    }
+
+    // For fade mode, use JS-driven opacity animation for reliability
+    if (mode === 'fade') {
+      if (viewerEl) {
+        // Remove CSS classes and use inline style for the fade
+        viewerEl.classList.remove('slide-out', 'slide-in');
+      }
+      
+      if (canvas) {
+        // Start at opacity 0
+        canvas.style.opacity = '0';
+        canvas.style.transition = `opacity ${duration}ms ease-in`;
+        
+        // Force reflow to ensure the opacity 0 is applied
+        void canvas.offsetHeight;
+        
+        // Trigger fade in
+        canvas.style.opacity = '1';
+      }
+      
+      // Wait for the fade-in to complete, then clean up
+      const timeoutId = setTimeout(() => {
+        slideAnimationState = null;
+        if (canvas) {
+          // Remove inline styles so CSS can take over again
+          canvas.style.opacity = '';
+          canvas.style.transition = '';
+        }
+        resolve();
+      }, duration + 50); // Small buffer for safety
+      
+      slideAnimationState = {
+        fadeTimeoutId: timeoutId,
+        startTime: null,
+      };
+      return;
+    }
+    
+    // For non-fade modes, remove slide-out synchronously before setting up camera
+    if (viewerEl) {
+      viewerEl.classList.remove('slide-out');
+      void viewerEl.offsetHeight;
+      viewerEl.classList.add('slide-in');
+    }
+
     if (!camera || !controls) {
       resolve();
       return;
     }
 
-    cancelSlideAnimation();
-    
-    // Layer slide-in on top first, then drop slide-out on next frame so CSS can transition opacity/blur smoothly
-    const viewerEl = document.getElementById('viewer');
-    if (viewerEl) {
-      viewerEl.classList.add('slide-in');
-      requestAnimationFrame(() => {
-        if (viewerEl) {
-          viewerEl.classList.remove('slide-out');
-        }
-      });
-    }
-
     // End position is current (target) position
     const endPosition = camera.position.clone();
     const endTarget = controls.target.clone();
+    const distance = endPosition.distanceTo(endTarget);
 
-    // Calculate right vector
+    // Calculate direction vectors
     const forward = new THREE.Vector3().subVectors(endTarget, endPosition).normalize();
     const up = camera.up.clone().normalize();
     const right = new THREE.Vector3().crossVectors(forward, up).normalize();
 
-    // Start offset: OPPOSITE of slide-out direction
-    // next = start from left (old slid right), prev = start from right (old slid left)
-    const panSign = direction === 'next' ? -1 : 1;
-    const distance = endPosition.distanceTo(endTarget);
-    const panAmount = distance * amount * panSign;
-
-    const panOffset = right.multiplyScalar(panAmount);
-    const startPosition = endPosition.clone().add(panOffset);
-    const startTarget = endTarget.clone().add(panOffset);
-
-    // Orbit parameters (directional: next incoming from left, prev incoming from right)
-    const orbitAxis = up;
-    const startOrbitAngle = (Math.PI / 180) * 8 * (direction === 'next' ? -1 : 1); // Start offset angle
+    let startPosition, startTarget, orbitAxis, startOrbitAngle;
+    
+    if (mode === 'zoom') {
+      // Zoom mode: start zoomed out (further from target) and zoom in
+      const zoomAmount = distance * 0.25; // Start 25% further out
+      const zoomOffset = forward.clone().multiplyScalar(-zoomAmount);
+      startPosition = endPosition.clone().add(zoomOffset);
+      startTarget = endTarget.clone(); // Target stays the same
+      orbitAxis = up;
+      startOrbitAngle = 0; // No orbit rotation for zoom
+    } else if (mode === 'vertical') {
+      // Vertical mode: start offset vertically
+      const panSign = direction === 'next' ? 1 : -1; // Opposite of slide-out
+      const panAmount = distance * amount * panSign;
+      const panOffset = up.clone().multiplyScalar(panAmount);
+      startPosition = endPosition.clone().add(panOffset);
+      startTarget = endTarget.clone().add(panOffset);
+      // Orbit around right axis for vertical movement
+      orbitAxis = right;
+      startOrbitAngle = (Math.PI / 180) * 8 * (direction === 'next' ? -1 : 1);
+    } else {
+      // Horizontal mode (default): start offset horizontally
+      const panSign = direction === 'next' ? -1 : 1;
+      const panAmount = distance * amount * panSign;
+      const panOffset = right.clone().multiplyScalar(panAmount);
+      startPosition = endPosition.clone().add(panOffset);
+      startTarget = endTarget.clone().add(panOffset);
+      orbitAxis = up;
+      startOrbitAngle = (Math.PI / 180) * 8 * (direction === 'next' ? -1 : 1);
+    }
 
     // Set camera to start position
     camera.position.copy(startPosition);
@@ -512,11 +632,13 @@ export const slideInAnimation = (direction, { duration = 1000, amount = 0.45 } =
       camera.position.lerpVectors(startPosition, endPosition, eased);
       controls.target.lerpVectors(startTarget, endTarget, eased);
 
-      // Add orbit rotation (from left to center)
-      const currentOrbitAngle = startOrbitAngle * (1 - eased); // Rotate from left back to center
-      const orbitOffset = new THREE.Vector3().subVectors(camera.position, controls.target);
-      orbitOffset.applyAxisAngle(orbitAxis, currentOrbitAngle);
-      camera.position.copy(controls.target).add(orbitOffset);
+      // Add orbit rotation (skip for zoom mode)
+      if (startOrbitAngle !== 0) {
+        const currentOrbitAngle = startOrbitAngle * (1 - eased);
+        const orbitOffset = new THREE.Vector3().subVectors(camera.position, controls.target);
+        orbitOffset.applyAxisAngle(orbitAxis, currentOrbitAngle);
+        camera.position.copy(controls.target).add(orbitOffset);
+      }
 
       controls.update();
       requestRender();

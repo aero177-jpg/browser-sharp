@@ -123,11 +123,23 @@ export const requestOrientationPermission = async () => {
 };
 
 /**
+ * Checks if a slide transition is currently active.
+ * Used to block camera input during transitions.
+ */
+const isSlideTransitionActive = () => {
+  const viewerEl = document.getElementById('viewer');
+  return viewerEl?.classList.contains('slide-out') || viewerEl?.classList.contains('slide-in');
+};
+
+/**
  * Handles device orientation event.
  * Maps beta (front-back tilt) and gamma (left-right tilt) to camera orbit.
  */
 const handleDeviceOrientation = (event) => {
   if (!isActive || isPaused || !camera || !controls) return;
+  
+  // Block input during slide transitions to prevent erratic camera movement
+  if (isSlideTransitionActive()) return;
   
   let { beta, gamma } = event;
   

@@ -229,14 +229,17 @@ export const updateBackgroundImage = (url) => {
   if (url) {
     const viewerEl = bgImageContainer.parentElement;
     const isSlidingOut = viewerEl?.classList.contains("slide-out");
+    const isSlidingIn = viewerEl?.classList.contains("slide-in");
 
-    if (isSlidingOut) {
-      // Defer swapping the background image until slide-out finishes so the old background stays visible
+    if (isSlidingOut || isSlidingIn) {
+      // Defer swapping the background image until slide transitions finish
+      // so the old background stays visible during slide-out and the new one
+      // isn't blocked by slide-in's opacity: 0 !important rule
         pendingBg = { url };
-      bgActivateRaf = requestAnimationFrame(function waitUntilSlideOutEnds() {
+      bgActivateRaf = requestAnimationFrame(function waitUntilSlideEnds() {
         bgActivateRaf = null;
-        if (viewerEl?.classList.contains("slide-out")) {
-          bgActivateRaf = requestAnimationFrame(waitUntilSlideOutEnds);
+        if (viewerEl?.classList.contains("slide-out") || viewerEl?.classList.contains("slide-in")) {
+          bgActivateRaf = requestAnimationFrame(waitUntilSlideEnds);
           return;
         }
         if (pendingBg) {

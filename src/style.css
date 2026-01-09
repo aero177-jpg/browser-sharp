@@ -231,7 +231,7 @@ button, a, input, .sidebar-btn, .panel-toggle {
   flex-direction: column;
   gap: 12px;
   padding: 20px 18px;
-  width: min(260px, calc(100vw - 48px));
+  width: min(300px, calc(100vw - 48px));
   max-height: calc(100vh - 36px);
   max-height: calc(100dvh - 36px);
   background: rgba(12, 16, 26, 0.78);

@@ -42,11 +42,20 @@ const EASING_OPTIONS = [
   { value: 'linear', label: 'Linear' },
 ];
 
+/** Slide transition mode options */
+const SLIDE_MODE_OPTIONS = [
+  { value: 'horizontal', label: 'Horizontal' },
+  { value: 'vertical', label: 'Vertical' },
+  { value: 'zoom', label: 'Zoom' },
+  { value: 'fade', label: 'Fade' },
+];
+
 function AnimationSettings() {
   // Store state
   const animationEnabled = useStore((state) => state.animationEnabled);
   const animationIntensity = useStore((state) => state.animationIntensity);
   const animationDirection = useStore((state) => state.animationDirection);
+  const slideMode = useStore((state) => state.slideMode);
   const animSettingsExpanded = useStore((state) => state.animSettingsExpanded);
   const customAnimation = useStore((state) => state.customAnimation);
   const currentFileName = useStore((state) => state.fileInfo?.name);
@@ -55,6 +64,7 @@ function AnimationSettings() {
   const setAnimationEnabledStore = useStore((state) => state.setAnimationEnabled);
   const setAnimationIntensityStore = useStore((state) => state.setAnimationIntensity);
   const setAnimationDirectionStore = useStore((state) => state.setAnimationDirection);
+  const setSlideModeStore = useStore((state) => state.setSlideMode);
   const setCustomAnimation = useStore((state) => state.setCustomAnimation);
   const toggleAnimSettingsExpanded = useStore((state) => state.toggleAnimSettingsExpanded);
 
@@ -105,6 +115,15 @@ function AnimationSettings() {
     setLoadAnimationDirection(direction);
     persistAnimationSettings(animationEnabled, animationIntensity, direction);
   }, [setAnimationDirectionStore, persistAnimationSettings, animationEnabled, animationIntensity]);
+
+  /**
+   * Changes slide transition mode.
+   * @param {Event} e - Change event from select element
+   */
+  const handleSlideModeChange = useCallback((e) => {
+    const mode = e.target.value;
+    setSlideModeStore(mode);
+  }, [setSlideModeStore]);
 
   /**
    * Captures a preview thumbnail of the current render.
@@ -201,6 +220,16 @@ function AnimationSettings() {
           <span class="control-label">Style</span>
           <select value={animationIntensity} onChange={handleIntensityChange}>
             {INTENSITY_OPTIONS.map(({ value, label }) => (
+              <option key={value} value={value}>{label}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* Slide mode selector */}
+        <div class="control-row select-row">
+          <span class="control-label">Slide</span>
+          <select value={slideMode} onChange={handleSlideModeChange}>
+            {SLIDE_MODE_OPTIONS.map(({ value, label }) => (
               <option key={value} value={value}>{label}</option>
             ))}
           </select>

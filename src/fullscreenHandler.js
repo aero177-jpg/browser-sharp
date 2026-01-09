@@ -11,6 +11,7 @@ const FULLSCREEN_ELEMENTS = [
   { selector: '.sidebar-hover-target', key: 'sidebarHoverTarget' },
   { selector: '.bottom-controls', key: 'bottomControls' },
   { selector: '.mobile-sheet', key: 'mobileSheet' },
+  { selector: '#fps-counter', key: 'fpsCounter' },
 ];
 
 // Track original parents for restoration
