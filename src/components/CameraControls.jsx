@@ -15,6 +15,7 @@ import { saveFocusDistance, clearFocusDistance } from '../fileStorage';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faChevronDown } from '@fortawesome/free-solid-svg-icons';
 import { resize } from '../fileLoader';
+import { enterVrSession } from '../vrMode';
 /** Default orbit range in degrees */
 const DEFAULT_CAMERA_RANGE_DEGREES = 8;
 
@@ -117,6 +118,8 @@ function CameraControls() {
   const setShowFps = useStore((state) => state.setShowFps);
   const stereoEnabled = useStore((state) => state.stereoEnabled);
   const setStereoEnabled = useStore((state) => state.setStereoEnabled);
+  const vrSupported = useStore((state) => state.vrSupported);
+  const vrSessionActive = useStore((state) => state.vrSessionActive);
 
   // Ref for camera range slider to avoid DOM queries
   const rangeSliderRef = useRef(null);

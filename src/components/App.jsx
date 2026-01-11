@@ -21,6 +21,7 @@ import { loadNextAsset, loadPrevAsset } from '../fileLoader';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faRotateRight } from '@fortawesome/free-solid-svg-icons';
 import { faExpand, faCompress } from '@fortawesome/free-solid-svg-icons';
+import { initVrSupport } from '../vrMode';
 
 /** Delay before resize after panel toggle animation completes */
 const PANEL_TRANSITION_MS = 350;
@@ -153,6 +154,7 @@ function App() {
     
     initViewer(viewerEl);
     startRenderLoop();
+    initVrSupport(viewerEl);
     setViewerReady(true);
     
     // Handle window resize

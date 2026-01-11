@@ -33,6 +33,9 @@ export const useStore = create((set, get) => ({
   cameraRange: 8,
   dollyZoomEnabled: true,
   stereoEnabled: false,
+  vrSupported: false,
+  vrSessionActive: false,
+  vrModelScale: 1,
 
   // Animation settings
   animationEnabled: true,
@@ -103,6 +106,15 @@ export const useStore = create((set, get) => ({
 
   /** Enables/disables side-by-side stereo rendering */
   setStereoEnabled: (enabled) => set({ stereoEnabled: enabled }),
+
+  /** Marks whether WebXR/VR is available */
+  setVrSupported: (vrSupported) => set({ vrSupported }),
+
+  /** Tracks if a VR session is active */
+  setVrSessionActive: (vrSessionActive) => set({ vrSessionActive }),
+
+  /** Tracks model scale while in VR */
+  setVrModelScale: (vrModelScale) => set({ vrModelScale }),
   
   /** Enables/disables load animation */
   setAnimationEnabled: (enabled) => set({ animationEnabled: enabled }),
