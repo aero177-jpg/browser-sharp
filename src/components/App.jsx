@@ -7,12 +7,13 @@
 import { useEffect, useState, useCallback, useRef } from 'preact/hooks';
 import { useStore } from '../store';
 import Viewer from './Viewer';
+import TitleCard from './TitleCard';
 import SidePanel from './SidePanel';
 import MobileSheet from './MobileSheet';
 import AssetSidebar from './AssetSidebar';
 import AssetNavigation from './AssetNavigation';
 import { initViewer, startRenderLoop, currentMesh } from '../viewer';
-import { resize, loadFromStorageSource, loadNextAsset, loadPrevAsset } from '../fileLoader';
+import { resize, loadFromStorageSource, loadNextAsset, loadPrevAsset, handleMultipleFiles } from '../fileLoader';
 import { resetViewWithImmersive } from '../cameraUtils';
 import { setupFullscreenHandler } from '../fullscreenHandler';
 import useOutsideClick from '../utils/useOutsideClick';
@@ -22,6 +23,9 @@ import { faRotateRight } from '@fortawesome/free-solid-svg-icons';
 import { faExpand, faCompress } from '@fortawesome/free-solid-svg-icons';
 import { initVrSupport } from '../vrMode';
 import { getSourcesArray } from '../storage/index.js';
+import { getSource, createPublicUrlSource, registerSource, saveSource } from '../storage/index.js';
+import { getFormatAccept } from '../formats/index';
+import ConnectStorageDialog from './ConnectStorageDialog';
 
 /** Delay before resize after panel toggle animation completes */
 const PANEL_TRANSITION_MS = 350;
@@ -39,6 +43,7 @@ function App() {
   const setAssets = useStore((state) => state.setAssets);
   const toggleAssetSidebar = useStore((state) => state.toggleAssetSidebar);
   const setStatus = useStore((state) => state.setStatus);
+  const addLog = useStore((state) => state.addLog);
   
   // Local state for viewer initialization
   const [viewerReady, setViewerReady] = useState(false);
@@ -47,6 +52,10 @@ function App() {
   const [hasMesh, setHasMesh] = useState(false);
   const hasMeshRef = useRef(false);
   const defaultLoadAttempted = useRef(false);
+
+  // File input + storage dialog state for title card actions
+  const fileInputRef = useRef(null);
+  const [storageDialogOpen, setStorageDialogOpen] = useState(false);
 
   // Fullscreen state
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -132,6 +141,83 @@ function App() {
   }, []);
 
   /**
+   * Title card actions: file picker
+   */
+  const formatAccept = getFormatAccept();
+
+  const handlePickFile = useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
+
+  const handleFileChange = useCallback(async (event) => {
+    const files = event.target.files;
+    if (files && files.length > 0) {
+      await handleMultipleFiles(Array.from(files));
+      event.target.value = '';
+    }
+  }, []);
+
+  /**
+   * Title card actions: storage dialog
+   */
+  const handleOpenStorage = useCallback(() => {
+    setStorageDialogOpen(true);
+  }, []);
+
+  const handleCloseStorage = useCallback(() => {
+    setStorageDialogOpen(false);
+  }, []);
+
+  const handleSourceConnect = useCallback(async (source) => {
+    setStorageDialogOpen(false);
+    try {
+      await loadFromStorageSource(source);
+    } catch (err) {
+      addLog('Failed to load from storage: ' + (err?.message || err));
+    }
+  }, [addLog]);
+
+  /**
+   * Title card actions: load demo collection
+   */
+  const handleLoadDemo = useCallback(async () => {
+    try {
+      let demo = getSource('demo-public-url');
+      if (!demo) {
+        const demoUrls = [
+          'https://xifbwkfsvurtuugvseqi.supabase.co/storage/v1/object/public/testbucket/sog_folder/_DSF1672.sog',
+          'https://xifbwkfsvurtuugvseqi.supabase.co/storage/v1/object/public/testbucket/sog_folder/_DSF1749.sog',
+          'https://xifbwkfsvurtuugvseqi.supabase.co/storage/v1/object/public/testbucket/sog_folder/_DSF1891.sog',
+          'https://xifbwkfsvurtuugvseqi.supabase.co/storage/v1/object/public/testbucket/sog_folder/_DSF2158.sog',
+          'https://xifbwkfsvurtuugvseqi.supabase.co/storage/v1/object/public/testbucket/sog_folder/_DSF2784.sog',
+          'https://xifbwkfsvurtuugvseqi.supabase.co/storage/v1/object/public/testbucket/sog_folder/_DSF2810-Pano.sog',
+          'https://xifbwkfsvurtuugvseqi.supabase.co/storage/v1/object/public/testbucket/sog_folder/_DSF3354.sog',
+          'https://xifbwkfsvurtuugvseqi.supabase.co/storage/v1/object/public/testbucket/sog_folder/_DSF7664.sog',
+          'https://xifbwkfsvurtuugvseqi.supabase.co/storage/v1/object/public/testbucket/sog_folder/20221007203015_IMG_0329.sog',
+          'https://xifbwkfsvurtuugvseqi.supabase.co/storage/v1/object/public/testbucket/sog_folder/APC_0678.sog',
+          'https://xifbwkfsvurtuugvseqi.supabase.co/storage/v1/object/public/testbucket/sog_folder/IMG_9728.sog',
+          'https://xifbwkfsvurtuugvseqi.supabase.co/storage/v1/object/public/testbucket/sog_folder/PXL_20230822_061301870.sog',
+          'https://xifbwkfsvurtuugvseqi.supabase.co/storage/v1/object/public/testbucket/sog_folder/PXL_20240307_200213904.sog',
+        ];
+        demo = createPublicUrlSource({ id: 'demo-public-url', name: 'Demo URL collection', assetPaths: demoUrls });
+        registerSource(demo);
+        try { await saveSource(demo.toJSON()); } catch (err) { console.warn('Failed to persist demo source:', err); }
+      }
+
+      try {
+        await demo.connect?.();
+      } catch (err) {
+        console.warn('Demo connect failed (continuing):', err);
+      }
+
+      await loadFromStorageSource(demo);
+    } catch (err) {
+      addLog('Failed to load demo: ' + (err?.message || err));
+      console.warn('Failed to load demo:', err);
+    }
+  }, [addLog]);
+
+  /**
    * Detects mobile device and orientation.
    */
   useEffect(() => {
@@ -206,6 +292,20 @@ function App() {
   return (
     <div class={`page ${panelOpen ? 'panel-open' : ''}`}>
       <AssetSidebar />
+      <input 
+        ref={fileInputRef}
+        type="file" 
+        accept={formatAccept} 
+        multiple 
+        hidden 
+        onChange={handleFileChange}
+      />
+      <TitleCard
+        show={!hasMesh}
+        onPickFile={handlePickFile}
+        onOpenStorage={handleOpenStorage}
+        onLoadDemo={handleLoadDemo}
+      />
       <div class="viewer-container">
         <Viewer viewerReady={viewerReady} />
       </div>
@@ -255,6 +355,12 @@ function App() {
           )}
         </div>
       </div>
+
+      <ConnectStorageDialog
+        isOpen={storageDialogOpen}
+        onClose={handleCloseStorage}
+        onConnect={handleSourceConnect}
+      />
     </div>
   );
 }

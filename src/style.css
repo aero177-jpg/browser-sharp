@@ -193,6 +193,53 @@ button, a, input, .sidebar-btn, .panel-toggle {
   to { transform: rotate(360deg); }
 }
 
+/* Title card overlay - fixed, above everything */
+.title-card-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* Title card - centered landing UI for file loading */
+.title-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  /* Shift slightly above center */
+  padding-bottom: 10vh;
+  padding-left: 25px;
+  padding-right: 25px;
+  box-sizing: border-box;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+  /* Constrain width for large screens */
+  max-width: 700px;
+  width: min(100%, 700px);
+      padding-left: 50px;
+    padding-right: 50px;
+}
+
+/* Content area - eyebrow text and buttons */
+.title-card__content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  margin-top: 24px;
+  text-align: center;
+}
+
+.viewer.loading .title-card {
+  opacity: 0;
+}
+
+/* Legacy drop-help styles (kept for compatibility) */
 .drop-help {
   position: absolute;
   inset: 0;
@@ -218,6 +265,8 @@ button, a, input, .sidebar-btn, .panel-toggle {
   opacity: 0;
 }
 
+/* Eyebrow text styling - works for both title-card and drop-help */
+.eyebrow,
 .drop-help .eyebrow {
   text-transform: uppercase;
   font-size: 14px;
@@ -239,12 +288,13 @@ button, a, input, .sidebar-btn, .panel-toggle {
   pointer-events: auto;
 }
 
+/* Action buttons - works for both title-card and drop-help */
+.action-buttons,
 .drop-help .action-buttons {
   display: flex;
   gap: 12px;
   justify-content: center;
   align-items: center;
-  margin-top: 8px;
   flex-wrap: wrap;
 }
 
@@ -263,6 +313,32 @@ button, a, input, .sidebar-btn, .panel-toggle {
   gap: 8px;
   transition: all 0.2s ease;
   backdrop-filter: blur(4px);
+}
+
+/* Landing buttons staggered fade/blur in */
+.action-buttons .action-btn {
+  opacity: 0;
+  filter: blur(10px);
+  transform: translateY(10px);
+  transition:
+    opacity 0.55s ease,
+    filter 0.55s ease,
+    transform 0.55s ease;
+}
+
+.action-buttons.is-visible .action-btn {
+  opacity: 1;
+  filter: blur(0);
+  transform: translateY(0);
+  transition-delay: 0s;
+}
+
+.action-buttons.is-visible .action-btn:nth-child(2) {
+  transition-delay: 0.2s;
+}
+
+.action-buttons.is-visible .action-btn:nth-child(3) {
+  transition-delay: 0.4s;
 }
 
 .action-btn:hover {

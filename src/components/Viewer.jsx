@@ -22,18 +22,11 @@ import {
 } from '../viewer';
 import { restoreHomeView, resetViewWithImmersive } from '../cameraUtils';
 import { cancelLoadZoomAnimation, startAnchorTransition } from '../cameraAnimations';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faRotate, faRotateRight, faFolder, faCloud, faRocket } from '@fortawesome/free-solid-svg-icons';
-import { loadNextAsset, loadPrevAsset, resize, initDragDrop, handleMultipleFiles, loadFromStorageSource } from '../fileLoader';
-import { getSource, createPublicUrlSource, registerSource, saveSource } from '../storage/index.js';
-import { getFormatAccept } from '../formats/index';
-import ConnectStorageDialog from './ConnectStorageDialog';
+import { loadNextAsset, loadPrevAsset, resize, initDragDrop } from '../fileLoader';
+
 
 /** Tags that should not trigger keyboard shortcuts */
 const INPUT_TAGS = new Set(['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON']);
-
-/** File input accept attribute value */
-const formatAccept = getFormatAccept();
 
 /**
  * Checks if an event target is an input element.
@@ -56,23 +49,16 @@ const formatPoint = (point) =>
 function Viewer({ viewerReady }) {
   // Store state
   const debugLoadingMode = useStore((state) => state.debugLoadingMode);
-  const isMobile = useStore((state) => state.isMobile);
-  const isPortrait = useStore((state) => state.isPortrait);
   
   // Store actions
   const addLog = useStore((state) => state.addLog);
   const togglePanel = useStore((state) => state.togglePanel);
   
-  // Ref for viewer container and file input
+  // Ref for viewer container
   const viewerRef = useRef(null);
-  const fileInputRef = useRef(null);
 
-  // Track mesh state
   const [hasMesh, setHasMesh] = useState(false);
   const hasMeshRef = useRef(false);
-  
-  // Storage dialog state
-  const [storageDialogOpen, setStorageDialogOpen] = useState(false);
 
   /**
    * Track mesh loading state - only update state when value changes
@@ -94,38 +80,6 @@ function Viewer({ viewerReady }) {
     return () => clearInterval(interval);
   }, []);
 
-  /**
-   * Triggers file picker dialog.
-   */
-  const handlePickFile = useCallback(() => {
-    fileInputRef.current?.click();
-  }, []);
-  
-  /**
-   * Opens connect storage dialog.
-   */
-  const handleOpenStorage = useCallback(() => {
-    setStorageDialogOpen(true);
-  }, []);
-  
-  /**
-   * Closes connect storage dialog.
-   */
-  const handleCloseStorage = useCallback(() => {
-    setStorageDialogOpen(false);
-  }, []);
-  
-  /**
-   * Handles successful storage connection.
-   */
-  const handleSourceConnect = useCallback(async (source) => {
-    setStorageDialogOpen(false);
-    try {
-      await loadFromStorageSource(source);
-    } catch (err) {
-      addLog('Failed to load from storage: ' + (err?.message || err));
-    }
-  }, [addLog]);
 
   /**
    * Load demo public URL collection (create it if missing) and open it
@@ -171,17 +125,6 @@ function Viewer({ viewerReady }) {
       console.warn('Failed to load demo:', err);
     }
   }, [addLog]);
-
-  /**
-   * Handles file selection from file picker.
-   */
-  const handleFileChange = useCallback(async (event) => {
-    const files = event.target.files;
-    if (files && files.length > 0) {
-      await handleMultipleFiles(Array.from(files));
-      event.target.value = '';
-    }
-  }, []);
 
   /**
    * Handles reset view - uses shared function that handles immersive mode.
@@ -320,63 +263,6 @@ function Viewer({ viewerReady }) {
       <div class="loading-overlay">
         <div class="loading-spinner"></div>
       </div>
-
-      <input 
-        ref={fileInputRef}
-        type="file" 
-        accept={formatAccept} 
-        multiple 
-        hidden 
-        onChange={handleFileChange}
-      />
-
-      {isMobile ? (
-        !hasMesh && (
-          <div class="drop-help mobile-file-picker">
-            <div class="action-buttons">
-              <button class="action-btn browse" onClick={handlePickFile}>
-                <FontAwesomeIcon icon={faFolder} />
-                <span>Browse Files</span>
-              </button>
-              <button class="action-btn storage" onClick={handleOpenStorage}>
-                <FontAwesomeIcon icon={faCloud} />
-                <span>Connect Storage</span>
-              </button>
-              <button class="action-btn demo" onClick={handleLoadDemo}>
-                <FontAwesomeIcon icon={faRocket} />
-                <span>Load Demo</span>
-              </button>
-            </div>
-          </div>
-        )
-      ) : (
-        !hasMesh && (
-          <div class="drop-help">
-            <div class="eyebrow">Drag PLY/SOG files or folders here</div>
-            <div class="action-buttons">
-              <button class="action-btn browse" onClick={handlePickFile}>
-                <FontAwesomeIcon icon={faFolder} />
-                <span>Browse Files</span>
-              </button>
-              <button class="action-btn storage" onClick={handleOpenStorage}>
-                <FontAwesomeIcon icon={faCloud} />
-                <span>Connect Storage</span>
-              </button>
-              <button class="action-btn demo" onClick={handleLoadDemo}>
-                <FontAwesomeIcon icon={faRocket} />
-                <span>Load Demo</span>
-              </button>
-            </div>
-          </div>
-        )
-      )}
-      
-      {/* Connect to Storage dialog */}
-      <ConnectStorageDialog
-        isOpen={storageDialogOpen}
-        onClose={handleCloseStorage}
-        onConnect={handleSourceConnect}
-      />
     </div>
   );
 }
