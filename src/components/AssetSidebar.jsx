@@ -18,6 +18,7 @@ function AssetSidebar() {
 
   const isVisible = useStore((state) => state.assetSidebarOpen);
   const setIsVisible = useStore((state) => state.setAssetSidebarOpen);
+  const imageAccept = '.jpg,.jpeg,.png,.webp,.avif,.tif,.tiff,image/*';
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteScope, setDeleteScope] = useState('single'); // 'single' or 'all'
   const [clearMetadata, setClearMetadata] = useState(false);
@@ -91,6 +92,9 @@ function AssetSidebar() {
   }, [isVisible, hideSidebar, showDeleteModal]);
 
   const handleAddClick = () => {
+    const current = assets[currentAssetIndex];
+    const isSupabase = current?.sourceType === 'supabase-storage';
+    console.log('[AssetSidebar] Add clicked. Supabase collection?', isSupabase, 'sourceId:', current?.sourceId);
     fileInputRef.current?.click();
     openedByHoverRef.current = false; // opened by explicit click
   };
@@ -175,7 +179,7 @@ function AssetSidebar() {
       <input 
         ref={fileInputRef}
         type="file" 
-        accept={formatAccept} 
+        accept={`${formatAccept},${imageAccept}`} 
         multiple 
         hidden 
         onChange={handleFileChange}

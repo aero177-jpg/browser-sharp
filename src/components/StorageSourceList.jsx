@@ -32,6 +32,7 @@ import {
 } from '../storage/index.js';
 import { useStore } from '../store';
 import { getSupportedExtensions, getFormatAccept } from '../formats/index.js';
+import { testSharpCloud } from '../testSharpCloud';
 
 const TYPE_ICONS = {
   'local-folder': faFolder,
@@ -45,6 +46,8 @@ const TYPE_LABELS = {
   'public-url': 'URL',
 };
 
+const IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp', '.avif', '.tif', '.tiff'];
+
 /**
  * Individual source item with controls
  */
@@ -52,9 +55,20 @@ function SourceItem({ source, onSelect, onRemove, expanded, onToggleExpand, isAc
   const [status, setStatus] = useState('checking');
   const [assetCount, setAssetCount] = useState(source.getAssets().length);
   const [isLoading, setIsLoading] = useState(false);
+  const [showConvertModal, setShowConvertModal] = useState(false);
+  const [pendingImageFiles, setPendingImageFiles] = useState([]);
+  const [pendingOtherFiles, setPendingOtherFiles] = useState([]);
   const uploadInputRef = useRef(null);
   const supportedExtensions = useMemo(() => getSupportedExtensions(), []);
   const acceptString = useMemo(() => getFormatAccept(), []);
+  const combinedAccept = useMemo(() => {
+    const imageList = IMAGE_EXTENSIONS.join(',');
+    return acceptString ? `${acceptString},${imageList},image/*` : `${imageList},image/*`;
+  }, [acceptString]);
+  const collectionPrefix = useMemo(() => {
+    const collectionId = source?.config?.config?.collectionId;
+    return collectionId ? `collections/${collectionId}/assets` : 'collections/default/assets';
+  }, [source?.config?.config?.collectionId]);
 
   const isSupportedFile = useCallback((file) => {
     if (!file?.name) return false;
@@ -77,9 +91,10 @@ function SourceItem({ source, onSelect, onRemove, expanded, onToggleExpand, isAc
     try {
       const result = await source.uploadAssets(valid);
       if (result?.success) {
-        const assets = await source.listAssets();
-        setAssetCount(assets.length);
-        setStatus('connected');
+        const rescanOk = await runRescanAndRefresh();
+        if (!rescanOk) {
+          setStatus('error');
+        }
       } else {
         setStatus('error');
       }
@@ -94,6 +109,105 @@ function SourceItem({ source, onSelect, onRemove, expanded, onToggleExpand, isAc
       setIsLoading(false);
     }
   }, [isSupportedFile, source, supportedExtensions]);
+
+  const isImageFile = useCallback((file) => {
+    if (!file) return false;
+    const type = file.type || '';
+    const name = (file.name || '').toLowerCase();
+    return type.startsWith('image/') || IMAGE_EXTENSIONS.some((ext) => name.endsWith(ext));
+  }, []);
+
+  const refreshAssets = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const assets = await source.listAssets();
+      setAssetCount(assets.length);
+      setStatus('connected');
+    } catch (err) {
+      console.error('Refresh failed:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [source]);
+
+  const runRescanAndRefresh = useCallback(async () => {
+    if (source.type !== 'supabase-storage' || typeof source.rescan !== 'function') return false;
+    setIsLoading(true);
+    try {
+      const applied = await source.rescan({ applyChanges: true });
+      if (!applied?.success) {
+        setStatus('error');
+        return false;
+      }
+      await refreshAssets();
+      return true;
+    } catch (err) {
+      console.error('Rescan failed:', err);
+      setStatus('error');
+      return false;
+    } finally {
+      setIsLoading(false);
+    }
+  }, [refreshAssets, source]);
+
+  const handleFilesSelected = useCallback(async (files) => {
+    if (!files?.length || source.type !== 'supabase-storage') return;
+
+    const imageFiles = files.filter(isImageFile);
+    const otherFiles = files.filter((file) => !isImageFile(file));
+
+    if (imageFiles.length > 0) {
+      setPendingImageFiles(imageFiles);
+      setPendingOtherFiles(otherFiles);
+      setShowConvertModal(true);
+      return;
+    }
+
+    await processUploads(files);
+  }, [isImageFile, processUploads, source.type]);
+
+  const handleConfirmConvert = useCallback(async () => {
+    if (!pendingImageFiles.length) {
+      setShowConvertModal(false);
+      return;
+    }
+
+    setShowConvertModal(false);
+    setIsLoading(true);
+
+    try {
+      const results = await testSharpCloud(pendingImageFiles, { prefix: collectionPrefix });
+      const failures = results.filter((r) => !r.ok);
+
+      if (pendingOtherFiles.length > 0) {
+        await processUploads(pendingOtherFiles);
+      }
+
+      const anySuccess = results.some((r) => r.ok);
+      if (anySuccess) {
+        await runRescanAndRefresh();
+      }
+
+      if (failures.length > 0) {
+        console.warn('Some conversions failed:', failures);
+      }
+    } catch (err) {
+      console.error('Convert/upload failed:', err);
+    } finally {
+      setPendingImageFiles([]);
+      setPendingOtherFiles([]);
+      setIsLoading(false);
+    }
+  }, [collectionPrefix, pendingImageFiles, pendingOtherFiles, processUploads, runRescanAndRefresh]);
+
+  const handleCancelConvert = useCallback(async () => {
+    setShowConvertModal(false);
+    if (pendingOtherFiles.length > 0) {
+      await processUploads(pendingOtherFiles);
+    }
+    setPendingImageFiles([]);
+    setPendingOtherFiles([]);
+  }, [pendingOtherFiles, processUploads]);
 
   // Check connection status on mount
   useEffect(() => {
@@ -249,47 +363,15 @@ function SourceItem({ source, onSelect, onRemove, expanded, onToggleExpand, isAc
     e.stopPropagation();
     if (!source.isConnected()) return;
 
-    setIsLoading(true);
-    try {
-      const assets = await source.listAssets();
-      setAssetCount(assets.length);
-    } catch (err) {
-      console.error('Refresh failed:', err);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [source]);
+    await refreshAssets();
+  }, [refreshAssets, source]);
 
   const handleRescan = useCallback(async (e) => {
     e.stopPropagation();
     if (source.type !== 'supabase-storage' || typeof source.rescan !== 'function') return;
 
-    setIsLoading(true);
-    try {
-      const preview = await source.rescan({ applyChanges: false });
-      if (!preview?.success) {
-        setStatus('error');
-        return;
-      }
-
-      const summary = `Found ${preview.added.length} new, ${preview.missing.length} missing. Apply updates to manifest?`;
-      const apply = confirm(summary);
-
-      if (apply) {
-        const applied = await source.rescan({ applyChanges: true });
-        if (applied?.success) {
-          const assets = await source.listAssets();
-          setAssetCount(assets.length);
-          setStatus('connected');
-        }
-      }
-    } catch (err) {
-      console.error('Rescan failed:', err);
-      setStatus('error');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [source]);
+    await runRescanAndRefresh();
+  }, [runRescanAndRefresh, source]);
 
   const handleUploadClick = useCallback(async (e) => {
     e.stopPropagation();
@@ -305,12 +387,16 @@ function SourceItem({ source, onSelect, onRemove, expanded, onToggleExpand, isAc
               description: 'Supported splat assets',
               accept: { 'application/octet-stream': supportedExtensions },
             },
+            {
+              description: 'Images',
+              accept: { 'image/*': IMAGE_EXTENSIONS },
+            },
           ],
           excludeAcceptAllOption: false,
         });
 
         const files = await Promise.all(handles.map((handle) => handle.getFile()));
-        await processUploads(files);
+        await handleFilesSelected(files);
         return;
       } catch (err) {
         if (err?.name === 'AbortError') return; // user cancelled
@@ -319,14 +405,14 @@ function SourceItem({ source, onSelect, onRemove, expanded, onToggleExpand, isAc
     }
 
     uploadInputRef.current?.click();
-  }, [source.type, supportedExtensions, processUploads]);
+  }, [handleFilesSelected, source.type, supportedExtensions]);
 
   const handleUploadChange = useCallback(async (e) => {
     e.stopPropagation();
     const files = Array.from(e.target.files || []);
     e.target.value = '';
-    await processUploads(files);
-  }, [processUploads]);
+    await handleFilesSelected(files);
+  }, [handleFilesSelected]);
 
   const handleRemove = useCallback(async (e) => {
     e.stopPropagation();
@@ -366,7 +452,7 @@ function SourceItem({ source, onSelect, onRemove, expanded, onToggleExpand, isAc
         ref={uploadInputRef}
         type="file"
         multiple
-        accept={acceptString}
+        accept={combinedAccept}
         style={{ display: 'none' }}
         onChange={handleUploadChange}
       />
@@ -475,6 +561,20 @@ function SourceItem({ source, onSelect, onRemove, expanded, onToggleExpand, isAc
         </div>
       )}
       </div>
+
+      {showConvertModal && (
+        <div class="modal-overlay">
+          <div class="modal-content">
+            <h3>Convert images?</h3>
+            <p>Convert and upload {pendingImageFiles.length} image{pendingImageFiles.length === 1 ? '' : 's'} to this Supabase collection?</p>
+            <p class="modal-subnote">Prefix: {collectionPrefix}</p>
+            <div class="modal-actions">
+              <button onClick={handleCancelConvert}>Cancel</button>
+              <button class="danger" onClick={handleConfirmConvert}>Convert & Upload</button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
