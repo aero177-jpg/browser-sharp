@@ -88,7 +88,7 @@ function TitleCard({
             </button>
             <button class="action-btn demo" onClick={onLoadDemo}>
               <FontAwesomeIcon icon={faRocket} />
-              <span>Load Demo</span>
+              <span>Load Demo Collection</span>
             </button>
           </div>
         </div>
