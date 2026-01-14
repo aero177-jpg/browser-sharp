@@ -43,6 +43,8 @@ const TRANSLATE_SPEED = 1.0; // units per second for panning (base speed)
 const DEPTH_SPEED = 1.5; // units per second for push/pull
 const ROTATION_SPEED = 0.6; // radians per second for model rotation
 const AXIS_LOCK_THRESHOLD = 0.25; // minimum deflection to lock axis
+const MIN_VR_SCREEN_WIDTH = 768;
+const MIN_VR_SCREEN_HEIGHT = 480;
 
 // Axis locking state for rotation
 let lockedRotationAxis = null; // 'x', 'y', or null
@@ -55,6 +57,38 @@ let lastNextMs = 0;
 let lastPrevMs = 0;
 let lastScaleUpMs = 0;
 let lastScaleDownMs = 0;
+
+let vrSupportCheckPromise = null;
+
+const isSmallScreen = () => {
+  const w = window.innerWidth || 0;
+  const h = window.innerHeight || 0;
+  return w < MIN_VR_SCREEN_WIDTH || h < MIN_VR_SCREEN_HEIGHT;
+};
+
+const checkVrSupport = async () => {
+  const store = useStore.getState();
+
+  if (isSmallScreen()) {
+    store.setVrSupported(false);
+    return { ok: false, reason: "small-screen" };
+  }
+
+  if (!navigator?.xr || typeof navigator.xr.isSessionSupported !== "function") {
+    store.setVrSupported(false);
+    return { ok: false, reason: "no-webxr" };
+  }
+
+  try {
+    const supported = await navigator.xr.isSessionSupported("immersive-vr");
+    store.setVrSupported(Boolean(supported));
+    return { ok: Boolean(supported), reason: supported ? null : "unsupported" };
+  } catch (err) {
+    console.warn("WebXR support probe failed:", err);
+    store.setVrSupported(false);
+    return { ok: false, reason: "probe-error", error: err };
+  }
+};
 
 const scaleModel = (multiplier) => {
   const store = useStore.getState();
@@ -404,12 +438,17 @@ const attachSessionListeners = () => {
   renderer.xr.addEventListener?.("sessionend", handleSessionEnd);
 };
 
-export const initVrSupport = (containerEl) => {
+export const initVrSupport = async (containerEl) => {
   const store = useStore.getState();
 
   if (!renderer || vrButton) return vrButton;
-  if (!navigator?.xr) {
-    store.setVrSupported(false);
+
+  if (!vrSupportCheckPromise) {
+    vrSupportCheckPromise = checkVrSupport();
+  }
+
+  const support = await vrSupportCheckPromise;
+  if (!support?.ok) {
     return null;
   }
 
@@ -435,9 +474,10 @@ export const initVrSupport = (containerEl) => {
   return vrButton;
 };
 
-export const enterVrSession = () => {
+export const enterVrSession = async () => {
   const store = useStore.getState();
-  const button = vrButton || initVrSupport(document.getElementById("viewer"));
+  const viewer = document.getElementById("viewer");
+  const button = vrButton || await initVrSupport(viewer);
   if (!button) {
     store.addLog?.("VR not available on this device");
     return false;

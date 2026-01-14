@@ -116,6 +116,25 @@ function AssetSidebar() {
     openedByHoverRef.current = false; // explicit action
   };
 
+  const handleDebugWipeDb = useCallback(async () => {
+    const confirmed = window.confirm('Wipe IndexedDB "sharp-viwer-storage"? This cannot be undone.');
+    if (!confirmed) return;
+
+    try {
+      await new Promise((resolve, reject) => {
+        const request = indexedDB.deleteDatabase('sharp-viwer-storage');
+        request.onsuccess = () => resolve();
+        request.onerror = () => reject(request.error || new Error('Failed to delete database'));
+        request.onblocked = () => console.warn('Delete blocked: close other tabs or reopen the app.');
+      });
+      alert('IndexedDB sharp-viwer-storage wiped. Reloading...');
+      window.location.reload();
+    } catch (err) {
+      console.error('DB wipe failed:', err);
+      alert(err?.message || 'Failed to wipe DB');
+    }
+  }, []);
+
   const clearHideTimeout = useCallback(() => {
     if (hideTimeoutRef.current) {
       clearTimeout(hideTimeoutRef.current);
@@ -404,6 +423,7 @@ function AssetSidebar() {
 
             <div class="modal-actions">
               <button onClick={() => setShowDeleteModal(false)}>Cancel</button>
+              <button onClick={handleDebugWipeDb}>Wipe storage DB</button>
               <button class="danger" onClick={confirmDelete}>Delete</button>
             </div>
           </div>

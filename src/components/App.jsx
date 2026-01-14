@@ -277,7 +277,7 @@ function App() {
     
     initViewer(viewerEl);
     startRenderLoop();
-    initVrSupport(viewerEl);
+    void initVrSupport(viewerEl);
     setViewerReady(true);
     
     // Handle window resize
