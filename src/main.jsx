@@ -4,6 +4,8 @@
 
 import { render } from 'preact';
 import eruda from 'eruda';
+import erudaIndexedDB from 'eruda-indexeddb';
+
 import App from './components/App';
 import './style.css';
 
@@ -13,6 +15,7 @@ import { initializeSources } from './storage/index.js';
 // Always enable Eruda for mobile debugging in this test app
 try {
   eruda.init();
+  eruda.add(erudaIndexedDB);
 } catch (err) {
   console.warn('[Eruda] Failed to initialize:', err);
 }
