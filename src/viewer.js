@@ -222,6 +222,20 @@ export const initViewer = (viewerEl) => {
   bgImageContainer.className = "bg-image-container";
   viewerEl.insertBefore(bgImageContainer, viewerEl.firstChild);
 
+  // Subscribe to bgBlur from store to keep CSS filter in sync
+  import('./store.js').then(({ useStore }) => {
+    const applyBlur = (value) => {
+      if (!bgImageContainer) return;
+      const clamped = Math.max(0, Math.min(40, Number(value) || 0));
+      bgImageContainer.style.setProperty('--bg-blur', `${clamped}px`);
+      // Also set explicit filter for browsers that ignore custom property here
+      bgImageContainer.style.filter = `blur(${clamped}px)`;
+    };
+
+    applyBlur(useStore.getState().bgBlur);
+    useStore.subscribe((s) => s.bgBlur, applyBlur);
+  }).catch(() => {});
+
   // FPS overlay
   fpsContainer = document.createElement('div');
   fpsContainer.id = 'fps-counter';
@@ -340,17 +354,16 @@ export const updateBackgroundImage = (url) => {
     const isSlidingOut = viewerEl?.classList.contains("slide-out");
     const isSlidingIn = viewerEl?.classList.contains("slide-in");
 
-    if (isSlidingOut || isSlidingIn) {
-      // Defer swapping the background image until slide transitions finish
-      // so the old background stays visible during slide-out and the new one
-      // isn't blocked by slide-in's opacity: 0 !important rule
-        pendingBg = { url };
-      bgActivateRaf = requestAnimationFrame(function waitUntilSlideEnds() {
+    if (isSlidingOut) {
+      // During slide-out, defer swap until slide-out completes (old bg stays visible)
+      pendingBg = { url };
+      bgActivateRaf = requestAnimationFrame(function waitUntilSlideOutEnds() {
         bgActivateRaf = null;
-        if (viewerEl?.classList.contains("slide-out") || viewerEl?.classList.contains("slide-in")) {
-          bgActivateRaf = requestAnimationFrame(waitUntilSlideEnds);
+        if (viewerEl?.classList.contains("slide-out")) {
+          bgActivateRaf = requestAnimationFrame(waitUntilSlideOutEnds);
           return;
         }
+        // slide-out done, apply the new background (slide-in may now be active)
         if (pendingBg) {
           bgImageContainer.style.backgroundImage = `url(${pendingBg.url})`;
           bgImageUrl = pendingBg.url;
@@ -359,6 +372,11 @@ export const updateBackgroundImage = (url) => {
         bgImageContainer.classList.add("active");
         requestRender();
       });
+    } else if (isSlidingIn) {
+      // During slide-in, apply immediately so it fades in with canvas
+      bgImageContainer.style.backgroundImage = `url(${url})`;
+      bgImageUrl = url;
+      bgImageContainer.classList.add("active");
     } else {
       bgImageContainer.style.backgroundImage = `url(${url})`;
       bgImageUrl = url;

@@ -16,41 +16,39 @@ import {
   currentMesh,
   setCurrentMesh,
   setOriginalImageAspect,
-  originalImageAspect,
-  activeCamera,
   requestRender,
   THREE,
 } from "./viewer.js";
 import { applyPreviewBackground, captureAndApplyBackground, clearBackground } from "./backgroundManager.js";
-import { savePreviewBlob, loadPreviewBlob } from "./fileStorage.js";
+import { savePreviewBlob } from "./fileStorage.js";
 import {
   fitViewToMesh,
   applyMetadataCamera,
   clearMetadataCamera,
   saveHomeView,
   applyFocusDistanceOverride,
-  applyCameraProjection,
   animateCameraMutation,
 } from "./cameraUtils.js";
-import { slideOutAnimation, slideInAnimation, cancelSlideAnimation } from "./cameraAnimations.js";
+import { slideOutAnimation, slideInAnimation } from "./cameraAnimations.js";
 import { isImmersiveModeActive, pauseImmersiveMode, resumeImmersiveMode } from "./immersiveMode.js";
+import { applyIntrinsicsAspect, updateViewerAspectRatio, resize } from "./layout.js";
+import { cleanupSlideTransitionState, waitForViewerResizeTransition } from "./transitionUtils.js";
+import { hydrateAssetPreviewFromStorage, replacePreviewUrl, formatBytes } from "./previewManager.js";
+
+// Re-export layout helpers for existing callers
+export { updateViewerAspectRatio, resize } from "./layout.js";
 
 /** Navigation lock to prevent concurrent asset loads */
 let isNavigationLocked = false;
 
+export const isNavigationLockedRef = () => isNavigationLocked;
+export const setNavigationLocked = (locked) => {
+  isNavigationLocked = locked;
+};
+
 /** Track if this is the very first asset load (no previous mesh) */
 let hasLoadedFirstAsset = false;
 
-/** Cleanup function for any in-flight animation state */
-const cleanupSlideTransitionState = () => {
-  const viewerEl = document.getElementById('viewer');
-  if (viewerEl) {
-    viewerEl.classList.remove('slide-out', 'slide-in');
-  }
-  const bgContainer = document.querySelector('.bg-image-container');
- 
-  cancelSlideAnimation();
-};
 import {
   setAssetList as setAssetListManager,
   getAssetList,
@@ -62,7 +60,6 @@ import {
   getAssetCount,
   nextAsset,
   prevAsset,
-  setCapturePreviewFn,
   captureCurrentAssetPreview,
   addAssets,
 } from "./assetManager.js";
@@ -90,27 +87,9 @@ const PREVIEW_CAPTURE_FRAME = 60;
 /** Frame at which to capture for cached splats */
 const PREVIEW_CAPTURE_FRAME_CACHED = 10;
 
-/** Target height for generated previews (width auto-calculated) */
-const PREVIEW_TARGET_HEIGHT = 128;
-
-/** Preferred WebP quality for compact previews */
-const PREVIEW_WEBP_QUALITY = 0.5;
-
-/** JPEG fallback quality when WebP is unavailable */
-const PREVIEW_JPEG_QUALITY = 0.35;
-
 /** Debug helper: force camera far out to inspect backgrounds */
-const DEBUG_FORCE_ZOOM_OUT = false; // set true to enable debug zoom-out
+let debugForceZoomOut = false; // toggled via DebugSettings
 const DEBUG_ZOOM_MULTIPLIER = 6; // how much farther to push camera back
-
-/** Page padding in pixels */
-const PAGE_PADDING = 36;
-
-/** Mobile sheet closed height (handle visible) */
-const MOBILE_SHEET_CLOSED_HEIGHT = 50;
-
-/** Mobile sheet open height as percentage of viewport (matches CSS max-height in portrait mode) */
-const MOBILE_SHEET_OPEN_HEIGHT_VH = 40;
 
 /** Accesses Zustand store state */
 const getStoreState = () => useStore.getState();
@@ -118,35 +97,6 @@ const getStoreState = () => useStore.getState();
 /** Supported file extensions for display */
 const supportedExtensions = getSupportedExtensions();
 const supportedExtensionsText = supportedExtensions.join(", ");
-
-const isObjectUrl = (value) => typeof value === 'string' && value.startsWith('blob:');
-
-const replacePreviewUrl = (asset, url) => {
-  if (!asset) return;
-  if (asset.preview && isObjectUrl(asset.preview) && asset.preview !== url) {
-    URL.revokeObjectURL(asset.preview);
-  }
-  asset.preview = url;
-};
-
-const hydrateAssetPreviewFromStorage = async (asset) => {
-  if (!asset || asset.preview) return null;
-  const storedPreview = await loadPreviewBlob(asset.name);
-  if (storedPreview?.blob) {
-    const objectUrl = URL.createObjectURL(storedPreview.blob);
-    replacePreviewUrl(asset, objectUrl);
-    asset.previewSource = 'indexeddb';
-    asset.previewMeta = {
-      width: storedPreview.width,
-      height: storedPreview.height,
-      format: storedPreview.format,
-      updated: storedPreview.updated,
-    };
-    return storedPreview;
-  }
-  replacePreviewUrl(asset, null);
-  return null;
-};
 
 const isFile = (value) => typeof File !== "undefined" && value instanceof File;
 
@@ -211,42 +161,6 @@ const collectNeighborAssets = (assets, centerIndex) => {
   return results;
 };
 
-const applyIntrinsicsAspect = (entry) => {
-  const intrinsics = entry?.cameraMetadata?.intrinsics;
-  if (!intrinsics || !intrinsics.imageWidth || !intrinsics.imageHeight) return;
-  const aspect = intrinsics.imageWidth / intrinsics.imageHeight;
-  setOriginalImageAspect(aspect);
-  updateViewerAspectRatio();
-  requestRender();
-};
-
-const waitForViewerResizeTransition = () => new Promise((resolve) => {
-  const viewerEl = document.getElementById('viewer');
-  if (!viewerEl) {
-    resolve();
-    return;
-  }
-
-  let timeoutId = null;
-  const done = () => {
-    if (timeoutId) {
-      clearTimeout(timeoutId);
-      timeoutId = null;
-    }
-    viewerEl.removeEventListener('transitionend', onEnd);
-    resolve();
-  };
-
-  const onEnd = (event) => {
-    if (event.propertyName === 'width' || event.propertyName === 'height') {
-      done();
-    }
-  };
-
-  timeoutId = setTimeout(done, 280); // Fallback in case transitionend doesn't fire
-  viewerEl.addEventListener('transitionend', onEnd);
-});
-
 const syncStoredAnimationSettings = async (animationSettings, wasImmersiveModeActive, store) => {
   if (!animationSettings) return;
   const { enabled, intensity, direction } = animationSettings;
@@ -270,139 +184,9 @@ const syncStoredAnimationSettings = async (animationSettings, wasImmersiveModeAc
   }
 };
 
-/**
- * Updates viewer dimensions based on window size and panel state.
- * If camera metadata provides an aspect ratio, constrains viewer to match it.
- * Otherwise fills available space.
- * In mobile portrait mode, accounts for mobile sheet height.
- */
-export const updateViewerAspectRatio = () => {
-  const viewerEl = document.getElementById('viewer');
-  if (!viewerEl) return;
-  
-  const { isMobile, isPortrait, panelOpen } = getStoreState();
-  
-  let availableWidth = Math.max(0, window.innerWidth - PAGE_PADDING);
-  let availableHeight = Math.max(0, window.innerHeight - PAGE_PADDING);
-  
-  // In mobile portrait mode, subtract the mobile sheet height from available space
-  if (isMobile && isPortrait) {
-    // Always use closed height to prevent viewer resize/camera reset when opening sheet
-    // The sheet will overlay the bottom of the viewer
-    const sheetHeight = MOBILE_SHEET_CLOSED_HEIGHT;
-    availableHeight = Math.max(0, window.innerHeight - sheetHeight - (PAGE_PADDING / 2));
-  }
-
-  if (originalImageAspect && originalImageAspect > 0) {
-    // Calculate what the aspect ratio of available space is
-    const availableAspect = availableWidth / availableHeight;
-    
-    let viewerWidth, viewerHeight;
-    
-    // If image is wider than available space, constrain by width
-    // If image is taller than available space, constrain by height
-    if (originalImageAspect > availableAspect) {
-      // Image is wider - fill width
-      viewerWidth = availableWidth;
-      viewerHeight = viewerWidth / originalImageAspect;
-    } else {
-      // Image is taller - fill height
-      viewerHeight = availableHeight;
-      viewerWidth = viewerHeight * originalImageAspect;
-    }
-    
-    viewerEl.style.width = `${viewerWidth}px`;
-    viewerEl.style.height = `${viewerHeight}px`;
-  } else {
-    viewerEl.style.width = `${availableWidth}px`;
-    viewerEl.style.height = `${availableHeight}px`;
-  }
-};
-
-/**
- * Resizes renderer and updates camera projection.
- * Called on window resize and panel toggle.
- */
-export const resize = () => {
-  const viewerEl = document.getElementById('viewer');
-  if (!viewerEl) return;
-  if (!renderer) return;
-  
-  updateViewerAspectRatio();
-  const { clientWidth, clientHeight } = viewerEl;
-  renderer.setSize(clientWidth, clientHeight, false);
-//   composer.setSize(clientWidth, clientHeight);
-  
-  if (activeCamera) {
-    applyCameraProjection(activeCamera, clientWidth, clientHeight);
-  } else {
-    camera.aspect = clientWidth / clientHeight;
-    camera.updateProjectionMatrix();
-  }
-  requestRender();
-};
-
-const canvasToBlob = (canvas, type, quality) => new Promise((resolve) => {
-  canvas.toBlob((blob) => resolve(blob || null), type, quality);
-});
-
-const encodePreviewCanvas = async (canvas) => {
-  const webpBlob = await canvasToBlob(canvas, 'image/webp', PREVIEW_WEBP_QUALITY);
-  if (webpBlob) return { blob: webpBlob, format: 'image/webp' };
-
-  const jpegBlob = await canvasToBlob(canvas, 'image/jpeg', PREVIEW_JPEG_QUALITY);
-  if (jpegBlob) return { blob: jpegBlob, format: 'image/jpeg' };
-
-  try {
-    const dataUrl = canvas.toDataURL('image/jpeg', PREVIEW_JPEG_QUALITY);
-    const response = await fetch(dataUrl);
-    const blob = await response.blob();
-    return { blob, format: blob.type || 'image/jpeg', fallback: true };
-  } catch (err) {
-    console.warn('Preview encoding fallback failed', err);
-    return null;
-  }
-};
-
-const capturePreviewBlob = async () => {
-  if (!currentMesh) return null;
-
-  const clearColor = new THREE.Color();
-  renderer.getClearColor(clearColor);
-  const clearAlpha = renderer.getClearAlpha();
-  const originalBackground = scene.background;
-
-  // Render with clear background for preview capture
-  scene.background = null;
-  renderer.setClearColor(0x000000, 0);
-  composer.render();
-
-  const sourceCanvas = renderer.domElement;
-  const scale = PREVIEW_TARGET_HEIGHT / Math.max(1, sourceCanvas.height);
-  const targetWidth = Math.max(1, Math.round(sourceCanvas.width * scale));
-  const canvas = document.createElement('canvas');
-  canvas.width = targetWidth;
-  canvas.height = PREVIEW_TARGET_HEIGHT;
-  const ctx = canvas.getContext('2d');
-  ctx.drawImage(sourceCanvas, 0, 0, targetWidth, PREVIEW_TARGET_HEIGHT);
-
-  const encoded = await encodePreviewCanvas(canvas);
-
-  // Restore original background/clear state after capture
-  scene.background = originalBackground;
-  renderer.setClearColor(clearColor, clearAlpha);
-
-  if (!encoded) return null;
-
-  return {
-    ...encoded,
-    width: targetWidth,
-    height: PREVIEW_TARGET_HEIGHT,
-  };
-};
 
 const applyDebugZoomOut = () => {
-  if (!DEBUG_FORCE_ZOOM_OUT) return;
+  if (!debugForceZoomOut) return;
   if (!camera || !controls) return;
   const dir = camera.position.clone().sub(controls.target);
   const dist = dir.length();
@@ -413,41 +197,9 @@ const applyDebugZoomOut = () => {
   requestRender();
 };
 
-const createPreviewObjectUrl = (blob) => URL.createObjectURL(blob);
-
-// Register capture function with asset manager (returns object URLs + blob)
-setCapturePreviewFn(async () => {
-  const payload = await capturePreviewBlob();
-  if (!payload) return null;
-  return {
-    ...payload,
-    url: createPreviewObjectUrl(payload.blob),
-    source: 'renderer',
-    updated: Date.now(),
-  };
-});
-
-/**
- * Applies a preview image as background immediately.
- * Used when loading an asset that already has a preview.
- */
-// Background helpers now centralized in backgroundManager
-
-/**
- * Formats byte count into human-readable string.
- * @param {number} bytes - Number of bytes
- * @returns {string} Formatted string (e.g., "1.5 MB")
- */
-const formatBytes = (bytes) => {
-  if (!bytes && bytes !== 0) return "-";
-  const units = ["B", "KB", "MB", "GB"];
-  let i = 0;
-  let value = bytes;
-  while (value >= 1024 && i < units.length - 1) {
-    value /= 1024;
-    i += 1;
-  }
-  return `${value.toFixed(value >= 10 ? 0 : 1)} ${units[i]}`;
+/** Enable or disable debug zoom-out mode */
+export const setDebugForceZoomOut = (enabled) => {
+  debugForceZoomOut = Boolean(enabled);
 };
 
 /**
@@ -686,6 +438,11 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
       saveHomeView();
       applyDebugZoomOut();
       
+      // Apply background BEFORE slideIn so it fades in sync with canvas
+      if (asset.preview) {
+        applyPreviewBackground(asset.preview);
+      }
+      
       // Slide in from the navigation direction (1s pan with quick fade-in)
       await slideInAnimation(slideDirection, { duration: 1000, amount: 0.5, mode: slideMode });
       
@@ -721,6 +478,11 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
         applyDebugZoomOut();
       }, { animate: shouldAnimateCamera });
       
+      // Apply background BEFORE slideIn so it fades in sync with canvas
+      if (shouldRunTransition && asset.preview) {
+        applyPreviewBackground(asset.preview);
+      }
+      
       if (shouldRunTransition) {
         // Bring content back with fade/slide-in after camera is set
         await slideInAnimation(transitionDirection, { duration: slideMode === 'fade' ? 750 : 1000, amount: 0.45, mode: slideMode });
@@ -753,16 +515,23 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
       }
     }
 
-    // Apply preview immediately for cached splats; clear if missing to avoid stale backgrounds
-    if (asset.preview) {
-      if (wasAlreadyCached) {
-        applyPreviewBackground(asset.preview);
-      } else {
-        setTimeout(() => {
+    // Apply preview for non-transition cases (transitions handled above)
+    // For slideDirection/shouldRunTransition cases, preview was already applied before slideInAnimation
+    const alreadyAppliedPreview = slideDirection || shouldRunTransition;
+    if (!alreadyAppliedPreview) {
+      if (asset.preview) {
+        if (wasAlreadyCached) {
           applyPreviewBackground(asset.preview);
-        }, 50);
+        } else {
+          setTimeout(() => {
+            applyPreviewBackground(asset.preview);
+          }, 50);
+        }
+      } else {
+        applyPreviewBackground(null);
       }
-    } else {
+    } else if (!asset.preview) {
+      // Clear stale background for transitions without preview
       applyPreviewBackground(null);
     }
 
@@ -1034,17 +803,8 @@ export const handleMultipleFiles = async (files) => {
     // First, hydrate preview from storage (same as multi-file branch)
     const asset = result.assets[0];
     if (!asset.preview) {
-      const storedPreview = await loadPreviewBlob(asset.name);
+      const storedPreview = await hydrateAssetPreviewFromStorage(asset);
       if (storedPreview?.blob) {
-        const objectUrl = URL.createObjectURL(storedPreview.blob);
-        replacePreviewUrl(asset, objectUrl);
-        asset.previewSource = 'indexeddb';
-        asset.previewMeta = {
-          width: storedPreview.width,
-          height: storedPreview.height,
-          format: storedPreview.format,
-          updated: storedPreview.updated,
-        };
         store.updateAssetPreview(0, asset.preview);
       }
     }
@@ -1065,17 +825,8 @@ export const handleMultipleFiles = async (files) => {
     for (let i = 0; i < result.assets.length; i++) {
       const asset = result.assets[i];
       if (asset.preview) continue;
-      const storedPreview = await loadPreviewBlob(asset.name);
+      const storedPreview = await hydrateAssetPreviewFromStorage(asset);
       if (storedPreview?.blob) {
-        const objectUrl = URL.createObjectURL(storedPreview.blob);
-        replacePreviewUrl(asset, objectUrl);
-        asset.previewSource = 'indexeddb';
-        asset.previewMeta = {
-          width: storedPreview.width,
-          height: storedPreview.height,
-          format: storedPreview.format,
-          updated: storedPreview.updated,
-        };
         store.updateAssetPreview(i, asset.preview);
       }
     }
@@ -1125,17 +876,8 @@ export const handleAddFiles = async (files) => {
     const asset = result.newAssets[i];
     const globalIndex = startIndex + i;
     if (asset.preview) continue;
-    const storedPreview = await loadPreviewBlob(asset.name);
+    const storedPreview = await hydrateAssetPreviewFromStorage(asset);
     if (storedPreview?.blob) {
-      const objectUrl = URL.createObjectURL(storedPreview.blob);
-      replacePreviewUrl(asset, objectUrl);
-      asset.previewSource = 'indexeddb';
-      asset.previewMeta = {
-        width: storedPreview.width,
-        height: storedPreview.height,
-        format: storedPreview.format,
-        updated: storedPreview.updated,
-      };
       store.updateAssetPreview(globalIndex, asset.preview);
     }
   }
@@ -1232,18 +974,8 @@ export const loadFromStorageSource = async (source) => {
       for (let i = 0; i < result.assets.length; i++) {
         const asset = result.assets[i];
         if (asset.preview) continue;
-
-        const storedPreview = await loadPreviewBlob(asset.name);
+        const storedPreview = await hydrateAssetPreviewFromStorage(asset);
         if (storedPreview?.blob) {
-          const objectUrl = URL.createObjectURL(storedPreview.blob);
-          replacePreviewUrl(asset, objectUrl);
-          asset.previewSource = 'indexeddb';
-          asset.previewMeta = {
-            width: storedPreview.width,
-            height: storedPreview.height,
-            format: storedPreview.format,
-            updated: storedPreview.updated,
-          };
           store.updateAssetPreview(i, asset.preview);
           continue;
         }
@@ -1367,231 +1099,3 @@ export const reloadCurrentAsset = async () => {
   }
 };
 
-/** Batch preview generation state */
-let batchPreviewAborted = false;
-
-/**
- * Loads a splat file in fast mode - no animations, minimal warmup, for batch preview generation.
- * @param {Object} asset - Asset descriptor to load
- * @returns {Promise<void>}
- */
-const loadSplatFileFast = async (asset) => {
-  const viewerEl = document.getElementById('viewer');
-  if (!viewerEl || !asset) return;
-
-  const store = getStoreState();
-
-  try {
-    // Clear any existing background
-    clearBackground();
-
-    // Load the splat entry
-    const entry = await ensureSplatEntry(asset);
-    if (!entry) throw new Error('Unable to activate splat entry');
-
-    // Show only this mesh
-    const cache = getSplatCache();
-    cache.forEach((cached, id) => {
-      cached.mesh.visible = id === asset.id;
-    });
-
-    setCurrentMesh(entry.mesh);
-    viewerEl.classList.add('has-mesh');
-    spark.update({ scene });
-
-    const { cameraMetadata, focusDistanceOverride } = entry;
-
-    // Apply camera metadata without animation
-    if (cameraMetadata?.intrinsics) {
-      setOriginalImageAspect(cameraMetadata.intrinsics.imageWidth / cameraMetadata.intrinsics.imageHeight);
-    } else {
-      setOriginalImageAspect(null);
-    }
-
-    updateViewerAspectRatio();
-    resize();
-    clearMetadataCamera(resize);
-
-    // Apply camera settings instantly
-    if (cameraMetadata) {
-      applyMetadataCamera(entry.mesh, cameraMetadata, resize);
-    } else {
-      fitViewToMesh(entry.mesh);
-    }
-
-    if (focusDistanceOverride !== undefined) {
-      applyFocusDistanceOverride(focusDistanceOverride);
-    }
-
-    saveHomeView();
-
-    // Minimal warmup - just enough frames for splat to stabilize
-    const FAST_WARMUP_FRAMES = 8;
-    for (let i = 0; i < FAST_WARMUP_FRAMES; i++) {
-      requestRender();
-      await new Promise((resolve) => requestAnimationFrame(resolve));
-    }
-
-    store.setFileInfo({
-      name: asset.name,
-      size: formatBytes(asset.file?.size ?? asset.size),
-      splatCount: entry.mesh?.packedSplats?.numSplats ?? '-',
-    });
-  } catch (error) {
-    console.error('Fast load failed:', error);
-    throw error;
-  }
-};
-
-/**
- * Generates preview images for all assets in the collection.
- * Runs in batch mode with UI hidden and animations disabled.
- * 
- * @param {Object} options - Options
- * @param {Function} options.onProgress - Progress callback (current, total, assetName)
- * @param {Function} options.onComplete - Completion callback (successCount, failCount)
- * @returns {Promise<{ success: number, failed: number }>}
- */
-export const generateAllPreviews = async (options = {}) => {
-  const { onProgress, onComplete } = options;
-  const store = getStoreState();
-  const assetList = getAssetList();
-
-  if (assetList.length === 0) {
-    store.addLog('[BatchPreview] No assets to process');
-    return { success: 0, failed: 0 };
-  }
-
-  // Lock navigation
-  if (isNavigationLocked) {
-    store.addLog('[BatchPreview] Navigation locked, cannot start batch');
-    return { success: 0, failed: 0 };
-  }
-  isNavigationLocked = true;
-  batchPreviewAborted = false;
-
-  // Save original state
-  const originalAnimationEnabled = store.animationEnabled;
-  const wasImmersive = isImmersiveModeActive();
-  if (wasImmersive) {
-    pauseImmersiveMode();
-  }
-
-  // Disable animations for speed
-  store.setAnimationEnabled(false);
-  try {
-    const { setLoadAnimationEnabled } = await import('./cameraAnimations.js');
-    setLoadAnimationEnabled(false);
-  } catch (err) {
-    console.warn('Failed to disable load animation:', err);
-  }
-
-  // Hide UI elements for clean captures
-  const viewerEl = document.getElementById('viewer');
-  const sidePanelEl = document.querySelector('.side-panel');
-  const mobileBtnContainer = document.querySelector('.mobile-btn-container');
-  const bgContainer = document.querySelector('.bg-image-container');
-
-  const hiddenElements = [];
-  if (sidePanelEl) {
-    sidePanelEl.style.display = 'none';
-    hiddenElements.push(sidePanelEl);
-  }
-  if (mobileBtnContainer) {
-    mobileBtnContainer.style.display = 'none';
-    hiddenElements.push(mobileBtnContainer);
-  }
-  if (bgContainer) {
-    bgContainer.style.opacity = '0';
-  }
-
-  // Add batch mode class for any additional CSS hiding
-  viewerEl?.classList.add('batch-preview-mode');
-
-  let successCount = 0;
-  let failCount = 0;
-
-  store.addLog(`[BatchPreview] Starting batch for ${assetList.length} assets`);
-
-  try {
-    for (let i = 0; i < assetList.length; i++) {
-      if (batchPreviewAborted) {
-        store.addLog('[BatchPreview] Aborted by user');
-        break;
-      }
-
-      const asset = assetList[i];
-      onProgress?.(i + 1, assetList.length, asset.name);
-      store.setStatus(`Generating preview ${i + 1}/${assetList.length}: ${asset.name}`);
-
-      try {
-        // Update current index so captureCurrentAssetPreview knows which asset
-        setCurrentAssetIndexManager(i);
-
-        // Fast load the asset
-        await loadSplatFileFast(asset);
-
-        // Capture preview
-        const result = await captureCurrentAssetPreview();
-        if (result?.blob) {
-          // Save to IndexedDB
-          await savePreviewBlob(asset.name, result.blob, {
-            width: result.width,
-            height: result.height,
-            format: result.format,
-          });
-          // Update store for gallery display
-          store.updateAssetPreview(i, asset.preview);
-          successCount++;
-          store.addLog(`[BatchPreview] ✓ ${asset.name}`);
-        } else {
-          failCount++;
-          store.addLog(`[BatchPreview] ✗ ${asset.name} - no preview captured`);
-        }
-      } catch (err) {
-        failCount++;
-        store.addLog(`[BatchPreview] ✗ ${asset.name} - ${err.message}`);
-        console.warn(`[BatchPreview] Failed to process ${asset.name}:`, err);
-      }
-    }
-  } finally {
-    // Restore UI elements
-    hiddenElements.forEach((el) => {
-      el.style.display = '';
-    });
-    if (bgContainer) {
-      bgContainer.style.opacity = '';
-    }
-    viewerEl?.classList.remove('batch-preview-mode');
-
-    // Restore animation settings
-    store.setAnimationEnabled(originalAnimationEnabled);
-    try {
-      const { setLoadAnimationEnabled } = await import('./cameraAnimations.js');
-      setLoadAnimationEnabled(originalAnimationEnabled);
-    } catch (err) {
-      console.warn('Failed to restore load animation:', err);
-    }
-
-    // Unlock navigation
-    isNavigationLocked = false;
-
-    // Resume immersive mode if it was active
-    if (wasImmersive) {
-      resumeImmersiveMode();
-    }
-
-    store.addLog(`[BatchPreview] Complete: ${successCount} succeeded, ${failCount} failed`);
-    store.setStatus(`Batch preview complete: ${successCount}/${assetList.length}`);
-    onComplete?.(successCount, failCount);
-  }
-
-  return { success: successCount, failed: failCount };
-};
-
-/**
- * Aborts the current batch preview generation.
- */
-export const abortBatchPreview = () => {
-  batchPreviewAborted = true;
-};

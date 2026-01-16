@@ -454,7 +454,8 @@ function SupabaseForm({ onConnect, onBack, onClose }) {
   const [status, setStatus] = useState('idle');
   const [error, setError] = useState(null);
   const [hasManifest, setHasManifest] = useState(null);
-  const [uploadExisting, setUploadExisting] = useState(hasQueueFiles);
+  // Default to false so the checkbox is unchecked until the user explicitly selects it.
+  const [uploadExisting, setUploadExisting] = useState(false);
 
   // Existing collections browser
   const [existingCollections, setExistingCollections] = useState([]);

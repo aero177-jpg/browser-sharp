@@ -14,6 +14,7 @@
  */
 
 import { create } from 'zustand';
+import { subscribeWithSelector } from 'zustand/middleware';
 
 /** Safely load a persisted boolean flag from localStorage */
 const getPersistedBoolean = (key, fallback = false) => {
@@ -46,7 +47,8 @@ const DEFAULT_FILE_INFO = {
   bounds: '-',
 };
 
-export const useStore = create((set, get) => ({
+export const useStore = create(
+  subscribeWithSelector((set, get) => ({
   // Camera settings
   fov: 60,
   cameraRange: 8,
@@ -114,6 +116,7 @@ export const useStore = create((set, get) => ({
   rotationEnabled: true,    // Enable tilt rotation by default
   touchPanEnabled: true,    // Enable touch panning by default
   mobileDevtoolsEnabled: defaultDevtoolsEnabled,
+  bgBlur: 40,
   
   // Debug
   debugLoadingMode: false,
@@ -282,6 +285,9 @@ export const useStore = create((set, get) => ({
     }
     set({ mobileDevtoolsEnabled: enabled });
   },
+
+  /** Sets blur amount for background container */
+  setBgBlur: (bgBlur) => set({ bgBlur }),
   
   /** Toggles debug loading mode */
   toggleDebugLoadingMode: () => set((state) => ({ 
@@ -292,4 +298,5 @@ export const useStore = create((set, get) => ({
   toggleDebugSettingsExpanded: () => set((state) => ({ 
     debugSettingsExpanded: !state.debugSettingsExpanded 
   })),
-}));
+}))
+);

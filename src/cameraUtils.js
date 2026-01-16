@@ -17,7 +17,7 @@ import {
 } from "./viewer.js";
 import { useStore } from "./store.js";
 import { startSmoothResetAnimation, cancelResetAnimation } from "./cameraAnimations.js";
-import { resize } from "./fileLoader.js";
+import { resize } from "./layout.js";
 
 // Helper to access store
 const getStoreState = () => useStore.getState();
@@ -423,82 +423,6 @@ export const computeMlSharpDepthFocus = (
   return Math.max(adaptiveMin, focusDepth);
 };
 
-// Build projection matrix from intrinsics
-export const makeProjectionFromIntrinsics = ({
-  fx,
-  fy,
-  cx,
-  cy,
-  width,
-  height,
-  near,
-  far,
-}) => {
-  const left = (-cx * near) / fx;
-  const right = ((width - cx) * near) / fx;
-  const top = (cy * near) / fy;
-  const bottom = (-(height - cy) * near) / fy;
-
-  return new THREE.Matrix4().set(
-    (2 * near) / (right - left),
-    0,
-    (right + left) / (right - left),
-    0,
-    0,
-    (2 * near) / (top - bottom),
-    (top + bottom) / (top - bottom),
-    0,
-    0,
-    0,
-    -(far + near) / (far - near),
-    (-2 * far * near) / (far - near),
-    0,
-    0,
-    -1,
-    0,
-  );
-};
-
-export const applyCameraProjection = (cameraMetadata, viewportWidth, viewportHeight) => {
-  const { intrinsics, near, far } = cameraMetadata;
-  const sx = viewportWidth / intrinsics.imageWidth;
-  const sy = viewportHeight / intrinsics.imageHeight;
-  const s = Math.min(sx, sy);
-  const scaledWidth = intrinsics.imageWidth * s;
-  const scaledHeight = intrinsics.imageHeight * s;
-  const offsetX = (viewportWidth - scaledWidth) * 0.5;
-  const offsetY = (viewportHeight - scaledHeight) * 0.5;
-
-  const fx = intrinsics.fx * s;
-  const fy = intrinsics.fy * s;
-  const cx = intrinsics.cx * s + offsetX;
-  const cy = intrinsics.cy * s + offsetY;
-
-  camera.aspect = viewportWidth / viewportHeight;
-  camera.fov = THREE.MathUtils.radToDeg(
-    2 * Math.atan(viewportHeight / (2 * Math.max(1e-6, fy))),
-  );
-  camera.near = near;
-  camera.far = far;
-
-  const fovScale = THREE.MathUtils.clamp(camera.fov / defaultCamera.fov, 0.05, 2.0);
-  controls.rotateSpeed = Math.max(0.02, defaultControls.rotateSpeed * fovScale * 0.45);
-  controls.zoomSpeed = Math.max(0.05, defaultControls.zoomSpeed * fovScale * 0.8);
-  controls.panSpeed = Math.max(0.05, defaultControls.panSpeed * fovScale * 0.8);
-
-  const projection = makeProjectionFromIntrinsics({
-    fx,
-    fy,
-    cx,
-    cy,
-    width: viewportWidth,
-    height: viewportHeight,
-    near,
-    far,
-  });
-  camera.projectionMatrix.copy(projection);
-  camera.projectionMatrixInverse.copy(projection).invert();
-};
 
 export const applyMetadataCamera = (mesh, cameraMetadata, resize) => {
   const store = getStoreState();

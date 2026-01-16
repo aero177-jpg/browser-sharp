@@ -9,7 +9,8 @@ import { faChevronDown } from '@fortawesome/free-solid-svg-icons';
 import { useStore } from '../store';
 import { captureCurrentAssetPreview, getAssetList, getCurrentAssetIndex } from '../assetManager';
 import { savePreviewBlob } from '../fileStorage';
-import { generateAllPreviews, abortBatchPreview } from '../fileLoader';
+import { generateAllPreviews, abortBatchPreview } from '../batchPreview';
+import { setDebugForceZoomOut } from '../fileLoader';
 
 let erudaInitPromise = null;
 
@@ -57,12 +58,24 @@ function DebugSettings() {
   const debugSettingsExpanded = useStore((state) => state.debugSettingsExpanded);
   const toggleDebugSettingsExpanded = useStore((state) => state.toggleDebugSettingsExpanded);
   const updateAssetPreview = useStore((state) => state.updateAssetPreview);
+  const setAssets = useStore((state) => state.setAssets);
+  const setCurrentAssetIndex = useStore((state) => state.setCurrentAssetIndex);
   const addLog = useStore((state) => state.addLog);
+  const bgBlur = useStore((state) => state.bgBlur);
+  const setBgBlur = useStore((state) => state.setBgBlur);
 
   const [wipingDb, setWipingDb] = useState(false);
   const [generatingPreview, setGeneratingPreview] = useState(false);
   const [batchProgress, setBatchProgress] = useState(null); // { current, total, name }
   const [generatingBatch, setGeneratingBatch] = useState(false);
+  const [debugZoomOut, setDebugZoomOut] = useState(false);
+
+  const refreshAssets = useCallback(() => {
+    const assets = getAssetList();
+    const idx = getCurrentAssetIndex();
+    setAssets([...assets]);
+    setCurrentAssetIndex(idx);
+  }, [setAssets, setCurrentAssetIndex]);
 
   /** Toggle FPS overlay visibility */
   const handleFpsToggle = useCallback((e) => {
@@ -138,6 +151,7 @@ function DebugSettings() {
         // Force update the store directly
         console.log('[Debug] Calling updateAssetPreview with index:', currentIndex, 'preview:', asset.preview);
         updateAssetPreview(currentIndex, asset.preview);
+        refreshAssets();
         
         // Also save to IndexedDB
         if (result.blob) {
@@ -192,8 +206,9 @@ function DebugSettings() {
     } finally {
       setGeneratingBatch(false);
       setBatchProgress(null);
+      refreshAssets();
     }
-  }, [addLog]);
+  }, [addLog, refreshAssets]);
 
   /** Abort batch preview generation */
   const handleAbortBatchPreview = useCallback(() => {
@@ -274,6 +289,37 @@ function DebugSettings() {
           >
             {generatingPreview ? 'Capturing...' : 'Capture'}
           </button>
+        </div>
+
+        <div class="control-row">
+          <span class="control-label">Debug zoom-out</span>
+          <label class="switch">
+            <input
+              type="checkbox"
+              checked={debugZoomOut}
+              onChange={(e) => {
+                const enabled = Boolean(e.target.checked);
+                setDebugZoomOut(enabled);
+                setDebugForceZoomOut(enabled);
+              }}
+            />
+            <span class="switch-track" aria-hidden="true" />
+          </label>
+        </div>
+
+        <div class="control-row">
+          <span class="control-label">BG blur</span>
+          <div class="slider-row">
+            <input
+              type="range"
+              min="0"
+              max="40"
+              step="1"
+              value={bgBlur}
+              onInput={(e) => setBgBlur(Number(e.target.value) || 0)}
+            />
+            <span class="slider-value">{bgBlur}px</span>
+          </div>
         </div>
 
         <div class="control-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '8px' }}>
