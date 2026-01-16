@@ -106,9 +106,9 @@ export const useStore = create((set, get) => ({
   cameraSettingsExpanded: true,
   galleryExpanded: true,
   
-  // Mobile state
-  isMobile: false,
-  isPortrait: false,
+  // Mobile state - initialize with actual values to prevent flash on load
+  isMobile: typeof window !== 'undefined' && Math.min(window.innerWidth, window.innerHeight) <= 768,
+  isPortrait: typeof window !== 'undefined' && window.innerHeight > window.innerWidth,
   immersiveMode: false,
   immersiveSensitivity: 1.0,
   mobileDevtoolsEnabled: defaultDevtoolsEnabled,

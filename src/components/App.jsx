@@ -63,6 +63,7 @@ function App() {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const controlsRef = useRef(null);
   const bottomControlsRef = useRef(null);
+  const swipeTargetRef = useRef(null);
 
   // Outside click handler to close side panel
   useOutsideClick(
@@ -142,7 +143,7 @@ function App() {
   }, [assets.length]);
 
   // Setup swipe detection on bottom controls
-  useSwipe(bottomControlsRef, {
+  useSwipe(swipeTargetRef, {
     direction: 'horizontal',
     threshold: 40,
     onSwipe: handleSwipe,
@@ -348,6 +349,8 @@ function App() {
         onLoadDemo={handleLoadDemo}
       />
         <Viewer viewerReady={viewerReady} />
+      {/* Separate swipe target near bottom controls (debug green) */}
+      <div class="bottom-swipe-target" ref={swipeTargetRef} />
       {isMobile && isPortrait ? <MobileSheet /> : <SidePanel />}
       {/* Bottom controls container: sidebar index (left), nav (center), fullscreen+reset (right) */}
       <div class="bottom-controls" ref={bottomControlsRef}>

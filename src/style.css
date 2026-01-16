@@ -1662,9 +1662,29 @@ select option {
   position: absolute;
   left: 0;
   top: 0;
-  bottom: 130px;
-  width: 40px;
+ height: max(80vh, calc(100% - 150px));
+  width: 12vw;
   z-index: 9;
+}
+
+.sidepanel-hover-target {
+  position: absolute;
+  right: 0;
+  top: 80px;
+  height: max(60vh, calc(100% - 300px));
+  width: 12vw;
+  z-index: 9;
+}
+
+.bottom-swipe-target {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 140px;
+  max-height: 20vh;
+  z-index: 8;
+  pointer-events: auto;
 }
 
 /* On mobile portrait, leave space for bottom sheet */

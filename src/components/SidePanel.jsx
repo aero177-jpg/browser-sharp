@@ -23,6 +23,13 @@ function SidePanel() {
   const panelOpen = useStore((state) => state.panelOpen); // assumes this exists
   // Store actions
   const togglePanel = useStore((state) => state.togglePanel);
+
+  // Open the panel if it is currently closed (used for hover target)
+  const openPanel = useCallback(() => {
+    if (!panelOpen) {
+      togglePanel();
+    }
+  }, [panelOpen, togglePanel]);
   
   // Storage dialog state
   const [storageDialogOpen, setStorageDialogOpen] = useState(false);
@@ -56,6 +63,11 @@ function SidePanel() {
       >
         <FontAwesomeIcon icon={faChevronLeft} />
       </button>
+      {/* Right-edge hover target to open the side panel */}
+        <div
+          class="sidepanel-hover-target"
+          onMouseEnter={openPanel}
+        />
       {/* Side panel content */}
       <div class="side">
         {/* File info display - hidden on mobile */}
