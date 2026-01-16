@@ -10,7 +10,7 @@ import { applyCameraRangeDegrees, restoreHomeView, resetViewWithImmersive } from
 import { currentMesh, raycaster, SplatMesh, scene } from '../viewer';
 import { updateDollyZoomBaselineFromCamera } from '../viewer';
 import { startAnchorTransition } from '../cameraAnimations';
-import { enableImmersiveMode, disableImmersiveMode, recenterInImmersiveMode, isImmersiveModeActive, pauseImmersiveMode, resumeImmersiveMode, setImmersiveSensitivityMultiplier } from '../immersiveMode';
+import { enableImmersiveMode, disableImmersiveMode, recenterInImmersiveMode, isImmersiveModeActive, pauseImmersiveMode, resumeImmersiveMode, setImmersiveSensitivityMultiplier, setTouchPanEnabled, setRotationEnabled } from '../immersiveMode';
 import { saveFocusDistance, clearFocusDistance } from '../fileStorage';
 import { updateFocusDistanceInCache, clearFocusDistanceInCache } from '../splatManager';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -18,7 +18,7 @@ import { faChevronDown } from '@fortawesome/free-solid-svg-icons';
 import { resize, loadSplatFile } from '../fileLoader';
 import { enterVrSession } from '../vrMode';
 /** Default orbit range in degrees */
-const DEFAULT_CAMERA_RANGE_DEGREES = 8;
+const DEFAULT_CAMERA_RANGE_DEGREES = 26;
 const MIN_IMMERSIVE_RANGE_DEGREES = 15;
 const MAX_IMMERSIVE_RANGE_DEGREES = 90;
 const IMMERSIVE_RANGE_PER_SENSITIVITY = 18.75; // extra degrees per +1 sensitivity (hits 90° at max sens)
@@ -125,6 +125,10 @@ function CameraControls() {
   const setImmersiveMode = useStore((state) => state.setImmersiveMode);
   const immersiveSensitivity = useStore((state) => state.immersiveSensitivity);
   const setImmersiveSensitivity = useStore((state) => state.setImmersiveSensitivity);
+  const touchPanEnabled = useStore((state) => state.touchPanEnabled);
+  const setTouchPanEnabledStore = useStore((state) => state.setTouchPanEnabled);
+  const rotationEnabled = useStore((state) => state.rotationEnabled);
+  const setRotationEnabledStore = useStore((state) => state.setRotationEnabled);
   const currentFileName = useStore((state) => state.fileInfo?.name);
   const assets = useStore((state) => state.assets);
   const currentAssetIndex = useStore((state) => state.currentAssetIndex);
@@ -481,6 +485,9 @@ function CameraControls() {
   const handleImmersiveToggle = useCallback(async (e) => {
     const enabled = e.target.checked;
     if (enabled) {
+      // Set touch pan state before enabling (so it's used during enable)
+      setTouchPanEnabled(touchPanEnabled);
+      
       const success = await enableImmersiveMode();
       if (success) {
         setImmersiveMode(true);
@@ -500,7 +507,7 @@ function CameraControls() {
       setImmersiveMode(false);
       addLog('Immersive mode disabled');
     }
-  }, [setImmersiveMode, addLog, cameraRange, immersiveSensitivity, setCameraRange]);
+  }, [setImmersiveMode, addLog, cameraRange, immersiveSensitivity, setCameraRange, touchPanEnabled]);
 
   /**
    * Handles immersive sensitivity slider changes.
@@ -518,6 +525,26 @@ function CameraControls() {
       }
     }
   }, [setImmersiveSensitivity, cameraRange, setCameraRange]);
+
+  /**
+   * Handles touch panning toggle.
+   */
+  const handleTouchPanToggle = useCallback((e) => {
+    const enabled = e.target.checked;
+    setTouchPanEnabledStore(enabled);
+    setTouchPanEnabled(enabled);
+    addLog(`Touch pan ${enabled ? 'enabled' : 'disabled'}`);
+  }, [setTouchPanEnabledStore, addLog]);
+
+  /**
+   * Handles rotation (tilt orbit) toggle.
+   */
+  const handleRotationToggle = useCallback((e) => {
+    const enabled = e.target.checked;
+    setRotationEnabledStore(enabled);
+    setRotationEnabled(enabled);
+    addLog(`Tilt rotation ${enabled ? 'enabled' : 'disabled'}`);
+  }, [setRotationEnabledStore, addLog]);
 
   /**
    * Resets view with immersive mode support.
@@ -611,22 +638,50 @@ function CameraControls() {
             
             {/* Immersive sensitivity slider - shown when immersive mode is active */}
             {immersiveMode && (
-              <div class="control-row">
-                <span class="control-label">Tilt sensitivity</span>
-                <div class="control-track">
-                  <input
-                    type="range"
-                    min="1.0"
-                    max="5.0"
-                    step="0.1"
-                    value={immersiveSensitivity}
-                    onInput={handleImmersiveSensitivityChange}
-                  />
-                  <span class="control-value">
-                    {immersiveSensitivity.toFixed(1)}×
-                  </span>
+              <>
+                <div class="control-row">
+                  <span class="control-label">Tilt sensitivity</span>
+                  <div class="control-track">
+                    <input
+                      type="range"
+                      min="1.0"
+                      max="5.0"
+                      step="0.1"
+                      value={immersiveSensitivity}
+                      onInput={handleImmersiveSensitivityChange}
+                    />
+                    <span class="control-value">
+                      {immersiveSensitivity.toFixed(1)}×
+                    </span>
+                  </div>
                 </div>
-              </div>
+                
+                {/* Tilt rotation toggle - shown when immersive mode is active */}
+                <div class="control-row">
+                  <span class="control-label">Tilt rotation</span>
+                  <label class="switch">
+                    <input
+                      type="checkbox"
+                      checked={rotationEnabled}
+                      onChange={handleRotationToggle}
+                    />
+                    <span class="switch-track" aria-hidden="true" />
+                  </label>
+                </div>
+                
+                {/* Touch panning toggle - shown when immersive mode is active */}
+                <div class="control-row">
+                  <span class="control-label">Touch pan</span>
+                  <label class="switch">
+                    <input
+                      type="checkbox"
+                      checked={touchPanEnabled}
+                      onChange={handleTouchPanToggle}
+                    />
+                    <span class="switch-track" aria-hidden="true" />
+                  </label>
+                </div>
+              </>
             )}
           </>
         )}

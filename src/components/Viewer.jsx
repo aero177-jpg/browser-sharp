@@ -216,11 +216,6 @@ function Viewer({ viewerReady }) {
 
       cancelLoadZoomAnimation();
 
-      if (event.key === 't' || event.key === 'T') {
-        event.preventDefault();
-        togglePanel();
-        return;
-      }
 
       if (event.code === 'Space' || event.key === ' ' || event.key === 'Spacebar') {
         event.preventDefault();

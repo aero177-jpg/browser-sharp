@@ -1366,3 +1366,232 @@ export const reloadCurrentAsset = async () => {
     }
   }
 };
+
+/** Batch preview generation state */
+let batchPreviewAborted = false;
+
+/**
+ * Loads a splat file in fast mode - no animations, minimal warmup, for batch preview generation.
+ * @param {Object} asset - Asset descriptor to load
+ * @returns {Promise<void>}
+ */
+const loadSplatFileFast = async (asset) => {
+  const viewerEl = document.getElementById('viewer');
+  if (!viewerEl || !asset) return;
+
+  const store = getStoreState();
+
+  try {
+    // Clear any existing background
+    clearBackground();
+
+    // Load the splat entry
+    const entry = await ensureSplatEntry(asset);
+    if (!entry) throw new Error('Unable to activate splat entry');
+
+    // Show only this mesh
+    const cache = getSplatCache();
+    cache.forEach((cached, id) => {
+      cached.mesh.visible = id === asset.id;
+    });
+
+    setCurrentMesh(entry.mesh);
+    viewerEl.classList.add('has-mesh');
+    spark.update({ scene });
+
+    const { cameraMetadata, focusDistanceOverride } = entry;
+
+    // Apply camera metadata without animation
+    if (cameraMetadata?.intrinsics) {
+      setOriginalImageAspect(cameraMetadata.intrinsics.imageWidth / cameraMetadata.intrinsics.imageHeight);
+    } else {
+      setOriginalImageAspect(null);
+    }
+
+    updateViewerAspectRatio();
+    resize();
+    clearMetadataCamera(resize);
+
+    // Apply camera settings instantly
+    if (cameraMetadata) {
+      applyMetadataCamera(entry.mesh, cameraMetadata, resize);
+    } else {
+      fitViewToMesh(entry.mesh);
+    }
+
+    if (focusDistanceOverride !== undefined) {
+      applyFocusDistanceOverride(focusDistanceOverride);
+    }
+
+    saveHomeView();
+
+    // Minimal warmup - just enough frames for splat to stabilize
+    const FAST_WARMUP_FRAMES = 8;
+    for (let i = 0; i < FAST_WARMUP_FRAMES; i++) {
+      requestRender();
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    }
+
+    store.setFileInfo({
+      name: asset.name,
+      size: formatBytes(asset.file?.size ?? asset.size),
+      splatCount: entry.mesh?.packedSplats?.numSplats ?? '-',
+    });
+  } catch (error) {
+    console.error('Fast load failed:', error);
+    throw error;
+  }
+};
+
+/**
+ * Generates preview images for all assets in the collection.
+ * Runs in batch mode with UI hidden and animations disabled.
+ * 
+ * @param {Object} options - Options
+ * @param {Function} options.onProgress - Progress callback (current, total, assetName)
+ * @param {Function} options.onComplete - Completion callback (successCount, failCount)
+ * @returns {Promise<{ success: number, failed: number }>}
+ */
+export const generateAllPreviews = async (options = {}) => {
+  const { onProgress, onComplete } = options;
+  const store = getStoreState();
+  const assetList = getAssetList();
+
+  if (assetList.length === 0) {
+    store.addLog('[BatchPreview] No assets to process');
+    return { success: 0, failed: 0 };
+  }
+
+  // Lock navigation
+  if (isNavigationLocked) {
+    store.addLog('[BatchPreview] Navigation locked, cannot start batch');
+    return { success: 0, failed: 0 };
+  }
+  isNavigationLocked = true;
+  batchPreviewAborted = false;
+
+  // Save original state
+  const originalAnimationEnabled = store.animationEnabled;
+  const wasImmersive = isImmersiveModeActive();
+  if (wasImmersive) {
+    pauseImmersiveMode();
+  }
+
+  // Disable animations for speed
+  store.setAnimationEnabled(false);
+  try {
+    const { setLoadAnimationEnabled } = await import('./cameraAnimations.js');
+    setLoadAnimationEnabled(false);
+  } catch (err) {
+    console.warn('Failed to disable load animation:', err);
+  }
+
+  // Hide UI elements for clean captures
+  const viewerEl = document.getElementById('viewer');
+  const sidePanelEl = document.querySelector('.side-panel');
+  const mobileBtnContainer = document.querySelector('.mobile-btn-container');
+  const bgContainer = document.querySelector('.bg-image-container');
+
+  const hiddenElements = [];
+  if (sidePanelEl) {
+    sidePanelEl.style.display = 'none';
+    hiddenElements.push(sidePanelEl);
+  }
+  if (mobileBtnContainer) {
+    mobileBtnContainer.style.display = 'none';
+    hiddenElements.push(mobileBtnContainer);
+  }
+  if (bgContainer) {
+    bgContainer.style.opacity = '0';
+  }
+
+  // Add batch mode class for any additional CSS hiding
+  viewerEl?.classList.add('batch-preview-mode');
+
+  let successCount = 0;
+  let failCount = 0;
+
+  store.addLog(`[BatchPreview] Starting batch for ${assetList.length} assets`);
+
+  try {
+    for (let i = 0; i < assetList.length; i++) {
+      if (batchPreviewAborted) {
+        store.addLog('[BatchPreview] Aborted by user');
+        break;
+      }
+
+      const asset = assetList[i];
+      onProgress?.(i + 1, assetList.length, asset.name);
+      store.setStatus(`Generating preview ${i + 1}/${assetList.length}: ${asset.name}`);
+
+      try {
+        // Update current index so captureCurrentAssetPreview knows which asset
+        setCurrentAssetIndexManager(i);
+
+        // Fast load the asset
+        await loadSplatFileFast(asset);
+
+        // Capture preview
+        const result = await captureCurrentAssetPreview();
+        if (result?.blob) {
+          // Save to IndexedDB
+          await savePreviewBlob(asset.name, result.blob, {
+            width: result.width,
+            height: result.height,
+            format: result.format,
+          });
+          // Update store for gallery display
+          store.updateAssetPreview(i, asset.preview);
+          successCount++;
+          store.addLog(`[BatchPreview] ✓ ${asset.name}`);
+        } else {
+          failCount++;
+          store.addLog(`[BatchPreview] ✗ ${asset.name} - no preview captured`);
+        }
+      } catch (err) {
+        failCount++;
+        store.addLog(`[BatchPreview] ✗ ${asset.name} - ${err.message}`);
+        console.warn(`[BatchPreview] Failed to process ${asset.name}:`, err);
+      }
+    }
+  } finally {
+    // Restore UI elements
+    hiddenElements.forEach((el) => {
+      el.style.display = '';
+    });
+    if (bgContainer) {
+      bgContainer.style.opacity = '';
+    }
+    viewerEl?.classList.remove('batch-preview-mode');
+
+    // Restore animation settings
+    store.setAnimationEnabled(originalAnimationEnabled);
+    try {
+      const { setLoadAnimationEnabled } = await import('./cameraAnimations.js');
+      setLoadAnimationEnabled(originalAnimationEnabled);
+    } catch (err) {
+      console.warn('Failed to restore load animation:', err);
+    }
+
+    // Unlock navigation
+    isNavigationLocked = false;
+
+    // Resume immersive mode if it was active
+    if (wasImmersive) {
+      resumeImmersiveMode();
+    }
+
+    store.addLog(`[BatchPreview] Complete: ${successCount} succeeded, ${failCount} failed`);
+    store.setStatus(`Batch preview complete: ${successCount}/${assetList.length}`);
+    onComplete?.(successCount, failCount);
+  }
+
+  return { success: successCount, failed: failCount };
+};
+
+/**
+ * Aborts the current batch preview generation.
+ */
+export const abortBatchPreview = () => {
+  batchPreviewAborted = true;
+};

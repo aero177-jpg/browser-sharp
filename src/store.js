@@ -111,6 +111,8 @@ export const useStore = create((set, get) => ({
   isPortrait: typeof window !== 'undefined' && window.innerHeight > window.innerWidth,
   immersiveMode: false,
   immersiveSensitivity: 1.0,
+  rotationEnabled: true,    // Enable tilt rotation by default
+  touchPanEnabled: true,    // Enable touch panning by default
   mobileDevtoolsEnabled: defaultDevtoolsEnabled,
   
   // Debug
@@ -259,6 +261,12 @@ export const useStore = create((set, get) => ({
   
   /** Sets immersive mode sensitivity multiplier */
   setImmersiveSensitivity: (sensitivity) => set({ immersiveSensitivity: sensitivity }),
+
+  /** Sets touch panning enabled/disabled */
+  setTouchPanEnabled: (enabled) => set({ touchPanEnabled: enabled }),
+
+  /** Sets rotation (orientation-based orbit) enabled/disabled */
+  setRotationEnabled: (enabled) => set({ rotationEnabled: enabled }),
 
   /** Sets visibility of FPS counter overlay */
   setShowFps: (show) => set({ showFps: show }),

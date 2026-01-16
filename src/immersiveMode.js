@@ -1,8 +1,11 @@
 /**
- * Immersive Mode - Device orientation-based camera control
+ * Immersive Mode - Device orientation and touch-based camera control
  * 
  * Maps device rotation to camera orbit for a parallax effect.
  * Tilting the device orbits the camera around the target.
+ * Single finger drag pans the camera for a parallax pan effect.
+ * 
+ * Uses a unified update loop to combine both inputs smoothly without jitter.
  */
 
 import { camera, controls, requestRender, THREE } from './viewer.js';
@@ -18,11 +21,33 @@ let lastBeta = null;
 let lastGamma = null;
 let screenOrientation = 'portrait-primary';
 
+// Unified update loop
+let updateLoopId = null;
+
+// Rotation (orientation) state
+let rotationEnabled = true;
+
+// Touch pan state
+let touchPanEnabled = true;
+let panOffset = { x: 0, y: 0 }; // Current pan offset applied to camera
+let baseCameraTarget = null; // Original target before any pan offset
+let touchStartPos = null; // Starting touch position
+let touchPanSensitivity = 0.003; // How much touch movement translates to pan
+
+// Raw input values (updated by event handlers, consumed by update loop)
+let rawOrientation = { beta: null, gamma: null };
+
 // Sensitivity settings
 const BASE_SENSITIVITY = {
   tilt: 0.006,      // Base tilt sensitivity
   maxAngle: 25,     // Maximum degrees of camera orbit from center
   smoothing: 0.08,  // Smoothing factor (0-1, lower = smoother)
+};
+
+// Touch pan sensitivity settings
+const TOUCH_PAN_SENSITIVITY = {
+  scale: 0.003,     // How much touch movement translates to pan
+  maxPanOffset: 2.0, // Maximum pan offset from center (world units, scaled by distance)
 };
 
 // Current sensitivity (can be scaled by multiplier)
@@ -35,6 +60,34 @@ let currentSensitivity = { ...BASE_SENSITIVITY };
 export const setImmersiveSensitivityMultiplier = (multiplier) => {
   const clamped = Math.max(1.0, Math.min(5.0, multiplier));
   currentSensitivity.tilt = BASE_SENSITIVITY.tilt * clamped;
+};
+
+/**
+ * Enables or disables rotation (orientation-based orbit).
+ * @param {boolean} enabled - Whether rotation is enabled
+ */
+export const setRotationEnabled = (enabled) => {
+  rotationEnabled = enabled;
+  if (!enabled) {
+    // Reset orientation state when disabled
+    smoothedBeta = 0;
+    smoothedGamma = 0;
+    targetBeta = 0;
+    targetGamma = 0;
+  }
+};
+
+/**
+ * Enables or disables touch-based panning.
+ * @param {boolean} enabled - Whether touch panning is enabled
+ */
+export const setTouchPanEnabled = (enabled) => {
+  touchPanEnabled = enabled;
+  if (!enabled) {
+    // Reset pan state when disabled
+    panOffset = { x: 0, y: 0 };
+    touchStartPos = null;
+  }
 };
 
 // Smoothed values
@@ -112,13 +165,38 @@ export const requestOrientationPermission = async () => {
       typeof DeviceOrientationEvent.requestPermission === 'function') {
     try {
       const permission = await DeviceOrientationEvent.requestPermission();
-      return permission === 'granted';
+      if (permission !== 'granted') {
+        console.warn('Device orientation permission denied');
+        return false;
+      }
     } catch (err) {
       console.warn('Device orientation permission denied:', err);
       return false;
     }
   }
-  // Permission not required on this device
+  // Permission not required on this device or granted
+  return true;
+};
+
+/**
+ * Requests permission for device motion (accelerometer) on iOS 13+.
+ * Returns true if permission granted or not needed.
+ */
+export const requestMotionPermission = async () => {
+  if (typeof DeviceMotionEvent !== 'undefined' &&
+      typeof DeviceMotionEvent.requestPermission === 'function') {
+    try {
+      const permission = await DeviceMotionEvent.requestPermission();
+      if (permission !== 'granted') {
+        console.warn('Device motion permission denied');
+        return false;
+      }
+    } catch (err) {
+      console.warn('Device motion permission denied:', err);
+      return false;
+    }
+  }
+  // Permission not required on this device or granted
   return true;
 };
 
@@ -133,99 +211,191 @@ const isSlideTransitionActive = () => {
 
 /**
  * Handles device orientation event.
- * Maps beta (front-back tilt) and gamma (left-right tilt) to camera orbit.
+ * Just stores the raw values - actual camera update happens in unified loop.
  */
 const handleDeviceOrientation = (event) => {
-  if (!isActive || isPaused || !camera || !controls) return;
-  
-  // Block input during slide transitions to prevent erratic camera movement
-  if (isSlideTransitionActive()) return;
+  if (!isActive || isPaused) return;
   
   let { beta, gamma } = event;
-  
-  // beta: front-back tilt (-180 to 180, 0 when flat)
-  // gamma: left-right tilt (-90 to 90, 0 when flat)
-  
   if (beta === null || gamma === null) return;
   
   // Transform values based on screen orientation
   const transformed = transformForOrientation(beta, gamma, screenOrientation);
-  beta = transformed.beta;
-  gamma = transformed.gamma;
+  rawOrientation.beta = transformed.beta;
+  rawOrientation.gamma = transformed.gamma;
+};
+
+/**
+ * Handles touch start for panning.
+ */
+const handleTouchStart = (event) => {
+  if (!isActive || isPaused || !touchPanEnabled) return;
+  if (event.touches.length !== 1) return; // Only single finger
   
-  // Initialize base values on first reading
-  if (lastBeta === null) {
-    lastBeta = beta;
-    lastGamma = gamma;
-    smoothedBeta = 0;
-    smoothedGamma = 0;
-    targetBeta = 0;
-    targetGamma = 0;
-    
-    // Capture current camera position as baseline
-    const offset = new THREE.Vector3().subVectors(camera.position, controls.target);
-    baseSpherical = new THREE.Spherical().setFromVector3(offset);
-    return;
-  }
+  const touch = event.touches[0];
+  touchStartPos = { x: touch.clientX, y: touch.clientY };
+};
+
+/**
+ * Handles touch move for panning.
+ */
+const handleTouchMove = (event) => {
+  if (!isActive || isPaused || !touchPanEnabled || !touchStartPos) return;
+  if (event.touches.length !== 1) return; // Only single finger
   
-  // Calculate delta from initial orientation
-  let deltaBeta = beta - lastBeta;
-  let deltaGamma = gamma - lastGamma;
+  const touch = event.touches[0];
+  const deltaX = touch.clientX - touchStartPos.x;
+  const deltaY = touch.clientY - touchStartPos.y;
   
-  // Handle wrap-around for beta
-  if (deltaBeta > 180) deltaBeta -= 360;
-  if (deltaBeta < -180) deltaBeta += 360;
+  // Update start position for continuous drag
+  touchStartPos = { x: touch.clientX, y: touch.clientY };
   
-  // Soft clamping using tanh for smooth boundaries
-  const softClamp = (value, limit) => {
-    const normalized = value / limit;
-    return limit * Math.tanh(normalized);
-  };
+  // Get distance for scaling pan amount
+  const distance = baseSpherical?.radius ?? camera.position.distanceTo(controls.target);
   
-  // Apply soft clamping for smooth boundary behavior
-  targetBeta = softClamp(deltaBeta, currentSensitivity.maxAngle);
-  targetGamma = softClamp(deltaGamma, currentSensitivity.maxAngle);
+  // Apply pan (negative X because dragging right should move view left)
+  panOffset.x -= deltaX * TOUCH_PAN_SENSITIVITY.scale * distance;
+  panOffset.y += deltaY * TOUCH_PAN_SENSITIVITY.scale * distance; // Y is inverted in screen coords
   
-  // Apply smoothing (interpolate towards target)
-  smoothedBeta += (targetBeta - smoothedBeta) * currentSensitivity.smoothing;
-  smoothedGamma += (targetGamma - smoothedGamma) * currentSensitivity.smoothing;
-  
-  // Apply to camera orbit
-  if (baseSpherical) {
-    const newSpherical = baseSpherical.clone();
-    
-    // Map device tilt to camera orbit
-    // Gamma (left-right tilt) -> azimuthal angle (horizontal orbit)
-    // Beta (front-back tilt) -> polar angle (vertical orbit)
-    // Note: negative beta = tilt phone forward = look down = increase phi
-    newSpherical.theta = baseSpherical.theta + smoothedGamma * currentSensitivity.tilt;
-    newSpherical.phi = baseSpherical.phi + smoothedBeta * currentSensitivity.tilt;
-    
-    // Clamp phi - use very generous absolute limits
-    // The soft clamping on input already provides smooth boundaries
-    const minPhi = 0.02;  // Just above 0 (looking straight up)
-    const maxPhi = Math.PI - 0.02;  // Just below PI (looking straight down)
-    newSpherical.phi = THREE.MathUtils.clamp(newSpherical.phi, minPhi, maxPhi);
-    
-    // Apply to camera position
-    const offset = new THREE.Vector3().setFromSpherical(newSpherical);
-    camera.position.copy(controls.target).add(offset);
-    camera.lookAt(controls.target);
-    
-    requestRender();
+  // Clamp pan offset
+  const maxPan = TOUCH_PAN_SENSITIVITY.maxPanOffset * distance;
+  panOffset.x = THREE.MathUtils.clamp(panOffset.x, -maxPan, maxPan);
+  panOffset.y = THREE.MathUtils.clamp(panOffset.y, -maxPan, maxPan);
+};
+
+/**
+ * Handles touch end for panning.
+ */
+const handleTouchEnd = (event) => {
+  if (event.touches.length === 0) {
+    touchStartPos = null;
   }
 };
 
 /**
+ * Unified update loop - combines orientation and touch pan inputs.
+ * Runs on requestAnimationFrame to ensure smooth, jitter-free updates.
+ */
+const immersiveUpdateLoop = () => {
+  if (!isActive || isPaused || !camera || !controls) {
+    updateLoopId = requestAnimationFrame(immersiveUpdateLoop);
+    return;
+  }
+  
+  // Block input during slide transitions
+  if (isSlideTransitionActive()) {
+    updateLoopId = requestAnimationFrame(immersiveUpdateLoop);
+    return;
+  }
+  
+  let needsRender = false;
+  
+  // === Process Orientation (Orbit) ===
+  if (rotationEnabled && rawOrientation.beta !== null && rawOrientation.gamma !== null) {
+    const beta = rawOrientation.beta;
+    const gamma = rawOrientation.gamma;
+    
+    // Initialize base values on first reading
+    if (lastBeta === null) {
+      lastBeta = beta;
+      lastGamma = gamma;
+      smoothedBeta = 0;
+      smoothedGamma = 0;
+      targetBeta = 0;
+      targetGamma = 0;
+      
+      // Capture current camera position as baseline
+      const offset = new THREE.Vector3().subVectors(camera.position, controls.target);
+      baseSpherical = new THREE.Spherical().setFromVector3(offset);
+    } else {
+      // Calculate delta from initial orientation
+      let deltaBeta = beta - lastBeta;
+      let deltaGamma = gamma - lastGamma;
+      
+      // Handle wrap-around for beta
+      if (deltaBeta > 180) deltaBeta -= 360;
+      if (deltaBeta < -180) deltaBeta += 360;
+      
+      // Soft clamping using tanh for smooth boundaries
+      const softClamp = (value, limit) => {
+        const normalized = value / limit;
+        return limit * Math.tanh(normalized);
+      };
+      
+      // Apply soft clamping for smooth boundary behavior
+      targetBeta = softClamp(deltaBeta, currentSensitivity.maxAngle);
+      targetGamma = softClamp(deltaGamma, currentSensitivity.maxAngle);
+      
+      // Apply smoothing (interpolate towards target)
+      smoothedBeta += (targetBeta - smoothedBeta) * currentSensitivity.smoothing;
+      smoothedGamma += (targetGamma - smoothedGamma) * currentSensitivity.smoothing;
+    }
+  }
+  
+  // === Pan is handled directly in touch handlers (panOffset is updated there) ===
+  
+  // === Apply Combined Camera Transform ===
+  if (baseSpherical) {
+    const newSpherical = baseSpherical.clone();
+    
+    // Apply orientation-based orbit
+    newSpherical.theta = baseSpherical.theta + smoothedGamma * currentSensitivity.tilt;
+    newSpherical.phi = baseSpherical.phi + smoothedBeta * currentSensitivity.tilt;
+    
+    // Clamp phi
+    const minPhi = 0.02;
+    const maxPhi = Math.PI - 0.02;
+    newSpherical.phi = THREE.MathUtils.clamp(newSpherical.phi, minPhi, maxPhi);
+    
+    // Calculate base position from orbit (relative to base target)
+    const orbitOffset = new THREE.Vector3().setFromSpherical(newSpherical);
+    
+    // Calculate pan displacement in camera space (true pan = move camera + target together)
+    let panDisplacement = new THREE.Vector3();
+    if (touchPanEnabled && (Math.abs(panOffset.x) > 0.0001 || Math.abs(panOffset.y) > 0.0001)) {
+      // Get camera's right and up vectors from the orbit position
+      // We need to compute these based on the spherical coordinates
+      const tempCamPos = new THREE.Vector3().copy(baseCameraTarget ?? controls.target).add(orbitOffset);
+      const forward = new THREE.Vector3().subVectors(baseCameraTarget ?? controls.target, tempCamPos).normalize();
+      const worldUp = new THREE.Vector3(0, 1, 0);
+      const cameraRight = new THREE.Vector3().crossVectors(forward, worldUp).normalize();
+      const cameraUp = new THREE.Vector3().crossVectors(cameraRight, forward).normalize();
+      
+      // Pan displacement moves both camera and target
+      panDisplacement.addScaledVector(cameraRight, panOffset.x);
+      panDisplacement.addScaledVector(cameraUp, panOffset.y);
+    }
+    
+    // Apply pan offset to target (true panning)
+    const pannedTarget = (baseCameraTarget ?? controls.target).clone().add(panDisplacement);
+    
+    // Position camera relative to panned target
+    camera.position.copy(pannedTarget).add(orbitOffset);
+    camera.lookAt(pannedTarget);
+    
+    // Update controls target to match (so manual controls work correctly after)
+    controls.target.copy(pannedTarget);
+    
+    needsRender = true;
+  }
+  
+  if (needsRender) {
+    requestRender();
+  }
+  
+  updateLoopId = requestAnimationFrame(immersiveUpdateLoop);
+};
+
+/**
  * Enables immersive mode.
- * Disables orbit controls and starts listening to device orientation.
+ * Disables orbit controls and starts listening to device orientation and touch.
  */
 export const enableImmersiveMode = async () => {
   if (isActive) return true;
   
-  // Request permission if needed (iOS)
-  const hasPermission = await requestOrientationPermission();
-  if (!hasPermission) {
+  // Request orientation permission if needed (iOS)
+  const hasOrientationPermission = await requestOrientationPermission();
+  if (!hasOrientationPermission) {
     console.warn('Immersive mode requires device orientation permission');
     return false;
   }
@@ -239,17 +409,32 @@ export const enableImmersiveMode = async () => {
   // Disable orbit controls drag (but keep zoom/pan)
   if (controls) {
     controls.enableRotate = false;
+    controls.enablePan = false; // We handle pan ourselves
   }
   
-  // Reset state
+  // Reset orientation state
   lastBeta = null;
   lastGamma = null;
   smoothedBeta = 0;
   smoothedGamma = 0;
   baseSpherical = null;
+  rawOrientation = { beta: null, gamma: null };
   
-  // Start listening to device orientation
+  // Reset pan state
+  panOffset = { x: 0, y: 0 };
+  touchStartPos = null;
+  baseCameraTarget = controls?.target?.clone() ?? null;
+  
+  // Start listening to device orientation (just stores values)
   window.addEventListener('deviceorientation', handleDeviceOrientation, true);
+  
+  // Start listening to touch events for panning
+  const viewerEl = document.getElementById('viewer');
+  if (viewerEl) {
+    viewerEl.addEventListener('touchstart', handleTouchStart, { passive: true });
+    viewerEl.addEventListener('touchmove', handleTouchMove, { passive: true });
+    viewerEl.addEventListener('touchend', handleTouchEnd, { passive: true });
+  }
   
   // Listen for screen orientation changes
   if (window.screen?.orientation) {
@@ -259,20 +444,40 @@ export const enableImmersiveMode = async () => {
     window.addEventListener('orientationchange', handleOrientationChange);
   }
   
+  // Start unified update loop
+  if (updateLoopId) {
+    cancelAnimationFrame(updateLoopId);
+  }
+  updateLoopId = requestAnimationFrame(immersiveUpdateLoop);
+  
   isActive = true;
-  console.log('Immersive mode enabled');
+  console.log('Immersive mode enabled (touch pan:', touchPanEnabled ? 'on' : 'off', ')');
   return true;
 };
 
 /**
  * Disables immersive mode.
- * Re-enables orbit controls and stops listening to device orientation.
+ * Re-enables orbit controls and stops listening to device orientation and touch.
  */
 export const disableImmersiveMode = () => {
   if (!isActive) return;
   
+  // Stop unified update loop
+  if (updateLoopId) {
+    cancelAnimationFrame(updateLoopId);
+    updateLoopId = null;
+  }
+  
   // Stop listening to device orientation
   window.removeEventListener('deviceorientation', handleDeviceOrientation, true);
+  
+  // Stop listening to touch events
+  const viewerEl = document.getElementById('viewer');
+  if (viewerEl) {
+    viewerEl.removeEventListener('touchstart', handleTouchStart);
+    viewerEl.removeEventListener('touchmove', handleTouchMove);
+    viewerEl.removeEventListener('touchend', handleTouchEnd);
+  }
   
   // Stop listening to screen orientation changes
   if (window.screen?.orientation) {
@@ -284,17 +489,23 @@ export const disableImmersiveMode = () => {
   // Re-enable orbit controls
   if (controls) {
     controls.enableRotate = true;
+    controls.enablePan = true;
   }
   
   // Re-enable load animations (restore from store)
   const storedAnimationEnabled = useStore.getState().animationEnabled;
   setLoadAnimationEnabled(storedAnimationEnabled);
   
-  // Reset state
+  // Reset orientation state
   isActive = false;
   lastBeta = null;
   lastGamma = null;
   baseSpherical = null;
+  
+  // Reset pan state
+  panOffset = { x: 0, y: 0 };
+  touchStartPos = null;
+  baseCameraTarget = null;
   
   console.log('Immersive mode disabled');
 };
@@ -316,6 +527,7 @@ export const toggleImmersiveMode = async () => {
  * Call this to re-center the parallax effect.
  */
 export const resetImmersiveBaseline = () => {
+  // Reset orientation baseline
   lastBeta = null;
   lastGamma = null;
   smoothedBeta = 0;
@@ -323,6 +535,12 @@ export const resetImmersiveBaseline = () => {
   targetBeta = 0;
   targetGamma = 0;
   baseSpherical = null;
+  rawOrientation = { beta: null, gamma: null };
+  
+  // Reset pan state
+  panOffset = { x: 0, y: 0 };
+  touchStartPos = null;
+  baseCameraTarget = controls?.target?.clone() ?? null;
 };
 
 /**
@@ -375,3 +593,13 @@ export const isImmersiveModeActive = () => isActive;
  * Returns whether immersive mode is paused.
  */
 export const isImmersiveModePaused = () => isPaused;
+
+/**
+ * Returns whether rotation (orientation-based orbit) is currently enabled.
+ */
+export const isRotationEnabled = () => rotationEnabled;
+
+/**
+ * Returns whether touch panning is currently enabled.
+ */
+export const isTouchPanEnabled = () => touchPanEnabled;

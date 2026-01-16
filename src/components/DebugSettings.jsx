@@ -9,6 +9,7 @@ import { faChevronDown } from '@fortawesome/free-solid-svg-icons';
 import { useStore } from '../store';
 import { captureCurrentAssetPreview, getAssetList, getCurrentAssetIndex } from '../assetManager';
 import { savePreviewBlob } from '../fileStorage';
+import { generateAllPreviews, abortBatchPreview } from '../fileLoader';
 
 let erudaInitPromise = null;
 
@@ -60,6 +61,8 @@ function DebugSettings() {
 
   const [wipingDb, setWipingDb] = useState(false);
   const [generatingPreview, setGeneratingPreview] = useState(false);
+  const [batchProgress, setBatchProgress] = useState(null); // { current, total, name }
+  const [generatingBatch, setGeneratingBatch] = useState(false);
 
   /** Toggle FPS overlay visibility */
   const handleFpsToggle = useCallback((e) => {
@@ -156,6 +159,48 @@ function DebugSettings() {
     }
   }, [addLog, updateAssetPreview]);
 
+  /** Generate previews for all assets in batch mode */
+  const handleGenerateAllPreviews = useCallback(async () => {
+    const assetList = getAssetList();
+    if (assetList.length === 0) {
+      addLog('[BatchPreview] No assets loaded');
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Generate previews for all ${assetList.length} assets?\n\n` +
+      `This will rapidly load each asset without animations and capture a preview image. ` +
+      `The UI will be hidden during generation.`
+    );
+    if (!confirmed) return;
+
+    setGeneratingBatch(true);
+    setBatchProgress({ current: 0, total: assetList.length, name: '' });
+
+    try {
+      await generateAllPreviews({
+        onProgress: (current, total, name) => {
+          setBatchProgress({ current, total, name });
+        },
+        onComplete: (success, failed) => {
+          addLog(`[BatchPreview] Done: ${success} succeeded, ${failed} failed`);
+        },
+      });
+    } catch (err) {
+      console.error('[BatchPreview] Error:', err);
+      addLog(`[BatchPreview] Error: ${err.message}`);
+    } finally {
+      setGeneratingBatch(false);
+      setBatchProgress(null);
+    }
+  }, [addLog]);
+
+  /** Abort batch preview generation */
+  const handleAbortBatchPreview = useCallback(() => {
+    abortBatchPreview();
+    addLog('[BatchPreview] Abort requested');
+  }, [addLog]);
+
   // React to devtools preference changes
   useEffect(() => {
     if (mobileDevtoolsEnabled) {
@@ -229,6 +274,53 @@ function DebugSettings() {
           >
             {generatingPreview ? 'Capturing...' : 'Capture'}
           </button>
+        </div>
+
+        <div class="control-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '8px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span class="control-label">Batch previews</span>
+            {generatingBatch ? (
+              <button
+                type="button"
+                class="secondary danger"
+                onClick={handleAbortBatchPreview}
+              >
+                Abort
+              </button>
+            ) : (
+              <button
+                type="button"
+                class="secondary"
+                onClick={handleGenerateAllPreviews}
+              >
+                Generate All
+              </button>
+            )}
+          </div>
+          {batchProgress && (
+            <div style={{ fontSize: '11px', color: 'var(--color-text-secondary)', marginTop: '4px' }}>
+              <div style={{ marginBottom: '4px' }}>
+                {batchProgress.current}/{batchProgress.total}: {batchProgress.name}
+              </div>
+              <div
+                style={{
+                  height: '4px',
+                  background: 'var(--color-bg-tertiary)',
+                  borderRadius: '2px',
+                  overflow: 'hidden',
+                }}
+              >
+                <div
+                  style={{
+                    height: '100%',
+                    width: `${(batchProgress.current / batchProgress.total) * 100}%`,
+                    background: 'var(--color-accent)',
+                    transition: 'width 0.2s ease',
+                  }}
+                />
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
