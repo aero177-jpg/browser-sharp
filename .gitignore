@@ -141,3 +141,23 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+
+# Capacitor / Android
+android/.gradle/
+android/.idea/
+android/.classpath
+android/.project
+android/.settings/
+android/*.iml
+android/build/
+android/app/build/
+android/app/src/main/assets/public/
+android/capacitor-cordova-android-plugins/build/
+android/local.properties
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*.swn
