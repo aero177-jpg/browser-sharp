@@ -623,6 +623,44 @@ button, a, input, .sidebar-btn, .panel-toggle {
   color: rgba(230, 236, 248, 0.7);
 }
 
+.fov-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.fov-toggle-btn {
+  font-size: .8em;
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(230, 236, 248, 0.7);
+  cursor: pointer;
+  padding: 0;
+  transition: transform 0.15s ease, background 0.15s ease, color 0.15s ease, border-color 0.15s ease, opacity 0.15s ease;
+}
+
+.fov-toggle-btn:hover {
+  background: rgba(255, 255, 255, 0.16);
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.fov-toggle-btn.is-off {
+  opacity: 0.55;
+}
+
+.fov-toggle-btn.is-on {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.24);
+  color: rgba(255, 255, 255, 0.95);
+  opacity: 1;
+}
+
 .control-track {
   display: flex;
   align-items: center;
@@ -1701,7 +1739,7 @@ select option {
   position: absolute;
   left: 0;
   top: 0;
-  bottom: 0;
+  height: calc(100% - 80px);
   width: 100px;
   background: rgba(12, 16, 26, 0.331);
   backdrop-filter: blur(6px);
@@ -1711,9 +1749,13 @@ select option {
   transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   display: flex;
   flex-direction: column;
+    border-radius: 0 0 12px 0;
+    overflow: hidden;
+
 }
 
 .asset-sidebar.visible {
+  transition-delay: 220ms;
   transform: translateX(0);
 }
 
@@ -1772,6 +1814,16 @@ select option {
   align-items: center;
   justify-content: center;
   white-space: nowrap;
+}
+
+.bottom-page-btn.immersive-toggle.is-inactive {
+  opacity: 0.55;
+}
+
+.bottom-page-btn.immersive-toggle.is-active {
+  background: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 255, 255, 0.45);
+  color: #fff;
 }
 
 /* Apply hover styles only on devices that support hover (desktop, trackpads)
@@ -2069,6 +2121,48 @@ select option {
 .bottom-controls-center {
   flex: 1 1 auto;
   justify-content: center;
+}
+
+.bottom-controls-center-inner {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.fov-overlay {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(12, 16, 26, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(8px);
+  pointer-events: auto;
+}
+
+.fov-overlay-slider {
+  width: 220px;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 999px;
+  appearance: none;
+  cursor: pointer;
+}
+
+.fov-overlay-slider::-webkit-slider-thumb {
+  width: 20px;
+  height: 20px;
+}
+
+.fov-overlay-slider::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
 }
 
 .bottom-controls-right {
@@ -2454,6 +2548,29 @@ select option {
   justify-content: center;
   gap: 8px;
   margin-top: 8px;
+}
+
+.secondary-button.save-settings-btn.is-ready {
+  background: linear-gradient(135deg, rgba(110, 231, 255, 0.15), rgba(110, 231, 255, 0.08));
+  border-color: rgba(110, 231, 255, 0.35);
+  color: #6ee7ff;
+}
+
+.secondary-button.save-settings-btn.is-ready:hover:not(:disabled) {
+  background: linear-gradient(135deg, rgba(110, 231, 255, 0.25), rgba(110, 231, 255, 0.1));
+  border-color: rgba(110, 231, 255, 0.5);
+}
+
+.secondary-button.save-settings-btn:disabled {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.1);
+  color: #e6ecf8;
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.save-settings-text.is-muted {
+  opacity: 0.55;
 }
 
 .secondary-button:hover {

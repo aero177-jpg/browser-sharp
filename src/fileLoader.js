@@ -281,7 +281,7 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
 
   try {
     // Only clear background if not cached (avoid flash)
-    if (!wasAlreadyCached) {
+    if (!wasAlreadyCached && !asset.preview) {
       clearBackground();
       const pageEl = document.querySelector(".page");
       if (pageEl) {
@@ -580,6 +580,9 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
                   const assetIndex = getAssetList().findIndex((a) => a.id === asset.id);
                   if (assetIndex >= 0 && asset.preview) {
                     store.updateAssetPreview(assetIndex, asset.preview);
+                    if (assetIndex === getCurrentAssetIndex()) {
+                      applyPreviewBackground(asset.preview);
+                    }
                   }
                   
                   await savePreviewBlob(asset.name, previewResult.blob, {

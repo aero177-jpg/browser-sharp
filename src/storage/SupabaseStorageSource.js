@@ -11,12 +11,12 @@
  * - Uploads update manifest deterministically
  */
 
-import { createClient } from '@supabase/supabase-js';
 import { AssetSource } from './AssetSource.js';
 import { createSourceId, MANIFEST_VERSION, SUPPORTED_MANIFEST_VERSIONS } from './types.js';
 import { saveSource } from './sourceManager.js';
 import { getSupportedExtensions } from '../formats/index.js';
 import { loadSupabaseManifestCache, saveSupabaseManifestCache } from './supabaseSettings.js';
+import { getSupabaseClient } from './supabaseClient.js';
 
 const PREVIEW_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp'];
 const METADATA_SUFFIXES = ['.meta.json', '.metadata.json'];
@@ -48,19 +48,6 @@ const toRelativeFromBase = (fullPath, basePrefix) => {
   return normalized;
 };
 
-// Reuse Supabase clients per config to avoid GoTrue multi-instance warnings.
-const clientCache = new Map();
-
-const getSharedClient = (url, key) => {
-  const cacheKey = `${String(url)}::${String(key)}`;
-  if (!clientCache.has(cacheKey)) {
-    const client = createClient(url, key, {
-      auth: { autoRefreshToken: false, persistSession: false },
-    });
-    clientCache.set(cacheKey, client);
-  }
-  return clientCache.get(cacheKey);
-};
 
 export class SupabaseStorageSource extends AssetSource {
   constructor(config) {
@@ -69,7 +56,7 @@ export class SupabaseStorageSource extends AssetSource {
   }
 
   _ensureClient() {
-    return getSharedClient(this.config.config.supabaseUrl, this.config.config.anonKey);
+    return getSupabaseClient(this.config.config.supabaseUrl, this.config.config.anonKey);
   }
 
   _storage() {
@@ -446,7 +433,11 @@ export class SupabaseStorageSource extends AssetSource {
 
       const targetPath = `${this._assetPrefix()}/${file.name}`;
       const relative = toRelativeFromBase(targetPath, this._basePrefix());
-      const { error } = await storage.upload(targetPath, file, { upsert: true, contentType: file.type || 'application/octet-stream' });
+      const { error } = await storage.upload(targetPath, file, {
+        upsert: false,
+        contentType: file.type || 'application/octet-stream',
+        cacheControl: 'public, max-age=31536000, immutable',
+      });
       if (error) {
         results.failed.push({ name: file.name, error: error.message });
         continue;
@@ -550,7 +541,11 @@ export class SupabaseStorageSource extends AssetSource {
     const blob = new Blob(['ok'], { type: 'text/plain' });
 
     try {
-      const { error: uploadError } = await storage.upload(probeName, blob, { upsert: true, contentType: 'text/plain' });
+      const { error: uploadError } = await storage.upload(probeName, blob, {
+        upsert: false,
+        contentType: 'text/plain',
+        cacheControl: 'public, max-age=31536000, immutable',
+      });
       if (uploadError) {
         return { success: false, error: `Upload permission failed: ${uploadError.message}` };
       }

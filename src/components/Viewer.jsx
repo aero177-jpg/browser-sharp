@@ -83,51 +83,6 @@ function Viewer({ viewerReady }) {
 
 
   /**
-   * Load demo public URL collection (create it if missing) and open it
-   */
-  const handleLoadDemo = useCallback(async () => {
-    console.log('Loading demo URL collection...');
-    try {
-      let demo = getSource('demo-public-url');
-      if (!demo) {
-        // Fallback: create the demo source if it wasn't registered yet
-        const demoUrls = [
-          'https://xifbwkfsvurtuugvseqi.supabase.co/storage/v1/object/public/testbucket/sog_folder/_DSF1672.sog',
-          'https://xifbwkfsvurtuugvseqi.supabase.co/storage/v1/object/public/testbucket/sog_folder/_DSF1749.sog',
-          'https://xifbwkfsvurtuugvseqi.supabase.co/storage/v1/object/public/testbucket/sog_folder/_DSF1891.sog',
-          'https://xifbwkfsvurtuugvseqi.supabase.co/storage/v1/object/public/testbucket/sog_folder/_DSF2158.sog',
-          'https://xifbwkfsvurtuugvseqi.supabase.co/storage/v1/object/public/testbucket/sog_folder/_DSF2784.sog',
-          'https://xifbwkfsvurtuugvseqi.supabase.co/storage/v1/object/public/testbucket/sog_folder/_DSF2810-Pano.sog',
-          'https://xifbwkfsvurtuugvseqi.supabase.co/storage/v1/object/public/testbucket/sog_folder/_DSF3354.sog',
-          'https://xifbwkfsvurtuugvseqi.supabase.co/storage/v1/object/public/testbucket/sog_folder/_DSF7664.sog',
-          'https://xifbwkfsvurtuugvseqi.supabase.co/storage/v1/object/public/testbucket/sog_folder/20221007203015_IMG_0329.sog',
-          'https://xifbwkfsvurtuugvseqi.supabase.co/storage/v1/object/public/testbucket/sog_folder/APC_0678.sog',
-          'https://xifbwkfsvurtuugvseqi.supabase.co/storage/v1/object/public/testbucket/sog_folder/IMG_9728.sog',
-          'https://xifbwkfsvurtuugvseqi.supabase.co/storage/v1/object/public/testbucket/sog_folder/PXL_20230822_061301870.sog',
-          'https://xifbwkfsvurtuugvseqi.supabase.co/storage/v1/object/public/testbucket/sog_folder/PXL_20240307_200213904.sog',
-        ];
-        demo = createPublicUrlSource({ id: 'demo-public-url', name: 'Demo URL collection', assetPaths: demoUrls });
-        registerSource(demo);
-        try { await saveSource(demo.toJSON()); } catch (err) { console.warn('Failed to persist demo source:', err); }
-      }
-
-      // Ensure source is connected before loading
-      try {
-        await demo.connect?.();
-      } catch (err) {
-        console.warn('Demo connect failed (continuing):', err);
-      }
-
-      // Load the demo collection
-      await loadFromStorageSource(demo);
-
-    } catch (err) {
-      addLog('Failed to load demo: ' + (err?.message || err));
-      console.warn('Failed to load demo:', err);
-    }
-  }, [addLog]);
-
-  /**
    * Handles reset view - uses shared function that handles immersive mode.
    */
   const handleResetView = useCallback(() => {

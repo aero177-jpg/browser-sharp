@@ -5,23 +5,9 @@
  * before creating a full source connection.
  */
 
-import { createClient } from '@supabase/supabase-js';
 import { getSupportedExtensions } from '../formats/index.js';
 import { loadSupabaseManifestCache } from './supabaseSettings.js';
-
-// Reuse clients to avoid GoTrue multi-instance warnings
-const clientCache = new Map();
-
-const getClient = (url, key) => {
-  const cacheKey = `${url}::${key}`;
-  if (!clientCache.has(cacheKey)) {
-    const client = createClient(url, key, {
-      auth: { autoRefreshToken: false, persistSession: false },
-    });
-    clientCache.set(cacheKey, client);
-  }
-  return clientCache.get(cacheKey);
-};
+import { getSupabaseClient } from './supabaseClient.js';
 
 /**
  * List all collection folders in the bucket under `collections/`
@@ -33,7 +19,7 @@ export async function listExistingCollections({ supabaseUrl, anonKey, bucket }) 
   }
 
   try {
-    const client = getClient(supabaseUrl, anonKey);
+    const client = getSupabaseClient(supabaseUrl, anonKey);
     const storage = client.storage.from(bucket);
 
     // List top-level folders under collections/
@@ -116,7 +102,7 @@ export async function testBucketConnection({ supabaseUrl, anonKey, bucket }) {
   }
 
   try {
-    const client = getClient(supabaseUrl, anonKey);
+    const client = getSupabaseClient(supabaseUrl, anonKey);
     const storage = client.storage.from(bucket);
     const { error } = await storage.list('', { limit: 1 });
 

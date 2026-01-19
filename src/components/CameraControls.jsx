@@ -10,16 +10,16 @@ import { applyCameraRangeDegrees, restoreHomeView, resetViewWithImmersive } from
 import { currentMesh, raycaster, SplatMesh, scene } from '../viewer';
 import { updateDollyZoomBaselineFromCamera } from '../viewer';
 import { startAnchorTransition } from '../cameraAnimations';
-import { enableImmersiveMode, disableImmersiveMode, recenterInImmersiveMode, isImmersiveModeActive, pauseImmersiveMode, resumeImmersiveMode, setImmersiveSensitivityMultiplier, setTouchPanEnabled, setRotationEnabled } from '../immersiveMode';
+import { enableImmersiveMode, disableImmersiveMode, recenterInImmersiveMode, isImmersiveModeActive, pauseImmersiveMode, resumeImmersiveMode, setImmersiveSensitivityMultiplier, setTouchPanEnabled, syncImmersiveBaseline } from '../immersiveMode';
 import { saveFocusDistance, clearFocusDistance } from '../fileStorage';
 import { updateFocusDistanceInCache, clearFocusDistanceInCache } from '../splatManager';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faChevronDown } from '@fortawesome/free-solid-svg-icons';
+import { faChevronDown, faEye, faEyeSlash } from '@fortawesome/free-solid-svg-icons';
 import { resize, loadSplatFile } from '../fileLoader';
 import { enterVrSession } from '../vrMode';
 /** Default orbit range in degrees */
 const DEFAULT_CAMERA_RANGE_DEGREES = 26;
-const MIN_IMMERSIVE_RANGE_DEGREES = 15;
+const MIN_IMMERSIVE_RANGE_DEGREES = 10;
 const MAX_IMMERSIVE_RANGE_DEGREES = 90;
 const IMMERSIVE_RANGE_PER_SENSITIVITY = 18.75; // extra degrees per +1 sensitivity (hits 90° at max sens)
 
@@ -115,6 +115,8 @@ function CameraControls() {
   // Store state and actions
   const fov = useStore((state) => state.fov);
   const setFov = useStore((state) => state.setFov);
+  const viewerFovSlider = useStore((state) => state.viewerFovSlider);
+  const toggleViewerFovSlider = useStore((state) => state.toggleViewerFovSlider);
   const cameraRange = useStore((state) => state.cameraRange);
   const setCameraRange = useStore((state) => state.setCameraRange);
   const addLog = useStore((state) => state.addLog);
@@ -125,15 +127,12 @@ function CameraControls() {
   const setImmersiveMode = useStore((state) => state.setImmersiveMode);
   const immersiveSensitivity = useStore((state) => state.immersiveSensitivity);
   const setImmersiveSensitivity = useStore((state) => state.setImmersiveSensitivity);
-  const touchPanEnabled = useStore((state) => state.touchPanEnabled);
-  const setTouchPanEnabledStore = useStore((state) => state.setTouchPanEnabled);
-  const rotationEnabled = useStore((state) => state.rotationEnabled);
-  const setRotationEnabledStore = useStore((state) => state.setRotationEnabled);
   const currentFileName = useStore((state) => state.fileInfo?.name);
   const assets = useStore((state) => state.assets);
   const currentAssetIndex = useStore((state) => state.currentAssetIndex);
   const hasCustomFocus = useStore((state) => state.hasCustomFocus);
   const setHasCustomFocus = useStore((state) => state.setHasCustomFocus);
+  const setFocusSettingActive = useStore((state) => state.setFocusSettingActive);
   const stereoEnabled = useStore((state) => state.stereoEnabled);
   const setStereoEnabled = useStore((state) => state.setStereoEnabled);
   const stereoEyeSep = useStore((state) => state.stereoEyeSep);
@@ -165,6 +164,13 @@ function CameraControls() {
       setFocusMode(FOCUS_MODE.IDLE);
     }
   }, [hasCustomFocus, focusMode]);
+
+  // Keep store flag in sync so outside-click handler can pause
+  useEffect(() => {
+    if (focusMode !== FOCUS_MODE.SETTING) {
+      setFocusSettingActive(false);
+    }
+  }, [focusMode, setFocusSettingActive]);
 
   /**
    * Handles click during focus-setting mode.
@@ -246,10 +252,11 @@ function CameraControls() {
     
     // Transition to "set" state briefly
     setFocusMode(FOCUS_MODE.SET);
+    setFocusSettingActive(false);
     setTimeout(() => {
       setFocusMode(hasCustomFocus ? FOCUS_MODE.CUSTOM : FOCUS_MODE.IDLE);
     }, 1500);
-  }, [addLog, currentFileName, hasCustomFocus, assets, currentAssetIndex, stereoEnabled, setStereoEyeSep]);
+  }, [addLog, currentFileName, hasCustomFocus, assets, currentAssetIndex, stereoEnabled, setStereoEyeSep, setFocusSettingActive]);
 
   /**
    * Activates focus-setting mode.
@@ -261,6 +268,7 @@ function CameraControls() {
       return;
     }
     setFocusMode(FOCUS_MODE.SETTING);
+    setFocusSettingActive(true);
     addLog('Click on the model to set focus depth');
   };
 
@@ -270,9 +278,10 @@ function CameraControls() {
   const handleCancelFocusMode = useCallback(() => {
     if (focusModeRef.current === FOCUS_MODE.SETTING) {
       setFocusMode(hasCustomFocus ? FOCUS_MODE.CUSTOM : FOCUS_MODE.IDLE);
+      setFocusSettingActive(false);
       addLog('Focus mode cancelled');
     }
-  }, [addLog, hasCustomFocus]);
+  }, [addLog, hasCustomFocus, setFocusSettingActive]);
 
   /**
    * Clears custom focus distance override.
@@ -324,9 +333,6 @@ function CameraControls() {
     }
   }, [focusMode, handleFocusClick, handleCancelFocusMode]);
 
-  // Track if we're actively adjusting FOV to pause immersive mode
-  const fovAdjustTimeoutRef = useRef(null);
-
   /**
    * Handles FOV slider changes with dolly-zoom compensation.
    * Maintains the apparent size of objects at the focus point by
@@ -335,19 +341,6 @@ function CameraControls() {
   const handleFovChange = (e) => {
     const newFov = Number(e.target.value);
     if (!Number.isFinite(newFov) || !camera || !controls) return;
-
-    // Pause immersive mode during adjustment to prevent judder
-    if (isImmersiveModeActive()) {
-      pauseImmersiveMode();
-      // Clear existing timeout and set a new one
-      if (fovAdjustTimeoutRef.current) {
-        clearTimeout(fovAdjustTimeoutRef.current);
-      }
-      fovAdjustTimeoutRef.current = setTimeout(() => {
-        resumeImmersiveMode();
-        fovAdjustTimeoutRef.current = null;
-      }, 300);
-    }
 
     setFov(newFov);
 
@@ -367,6 +360,9 @@ function CameraControls() {
     camera.updateProjectionMatrix();
     updateControlSpeedsForFov(newFov);
     controls.update();
+    if (isImmersiveModeActive()) {
+      syncImmersiveBaseline();
+    }
     requestRender();
   };
 
@@ -491,8 +487,10 @@ function CameraControls() {
   const handleImmersiveToggle = useCallback(async (e) => {
     const enabled = e.target.checked;
     if (enabled) {
-      // Set touch pan state before enabling (so it's used during enable)
-      setTouchPanEnabled(touchPanEnabled);
+      // Touch pan is always on now
+      setTouchPanEnabled(true);
+      // Sync touch pan scaling with current sensitivity
+      setImmersiveSensitivityMultiplier(immersiveSensitivity);
       
       const success = await enableImmersiveMode();
       if (success) {
@@ -513,7 +511,7 @@ function CameraControls() {
       setImmersiveMode(false);
       addLog('Immersive mode disabled');
     }
-  }, [setImmersiveMode, addLog, cameraRange, immersiveSensitivity, setCameraRange, touchPanEnabled]);
+  }, [setImmersiveMode, addLog, cameraRange, immersiveSensitivity, setCameraRange]);
 
   /**
    * Handles immersive sensitivity slider changes.
@@ -539,26 +537,6 @@ function CameraControls() {
       }
     }
   }, [setImmersiveSensitivity, cameraRange, setCameraRange]);
-
-  /**
-   * Handles touch panning toggle.
-   */
-  const handleTouchPanToggle = useCallback((e) => {
-    const enabled = e.target.checked;
-    setTouchPanEnabledStore(enabled);
-    setTouchPanEnabled(enabled);
-    addLog(`Touch pan ${enabled ? 'enabled' : 'disabled'}`);
-  }, [setTouchPanEnabledStore, addLog]);
-
-  /**
-   * Handles rotation (tilt orbit) toggle.
-   */
-  const handleRotationToggle = useCallback((e) => {
-    const enabled = e.target.checked;
-    setRotationEnabledStore(enabled);
-    setRotationEnabled(enabled);
-    addLog(`Tilt rotation ${enabled ? 'enabled' : 'disabled'}`);
-  }, [setRotationEnabledStore, addLog]);
 
   /**
    * Resets view with immersive mode support.
@@ -653,6 +631,7 @@ function CameraControls() {
         {/* Immersive mode toggle - mobile only */}
         {isMobile && (
           <>
+            {/*
             <div class="control-row animate-toggle-row">
               <span class="control-label">Immersive mode</span>
               <label class="switch">
@@ -664,7 +643,8 @@ function CameraControls() {
                 <span class="switch-track" aria-hidden="true" />
               </label>
             </div>
-            
+            */}
+
             {/* Immersive sensitivity slider - shown when immersive mode is active */}
             {immersiveMode && (
               <>
@@ -683,32 +663,6 @@ function CameraControls() {
                       {immersiveSensitivity.toFixed(1)}×
                     </span>
                   </div>
-                </div>
-                
-                {/* Tilt rotation toggle - shown when immersive mode is active */}
-                <div class="control-row">
-                  <span class="control-label">Tilt rotation</span>
-                  <label class="switch">
-                    <input
-                      type="checkbox"
-                      checked={rotationEnabled}
-                      onChange={handleRotationToggle}
-                    />
-                    <span class="switch-track" aria-hidden="true" />
-                  </label>
-                </div>
-                
-                {/* Touch panning toggle - shown when immersive mode is active */}
-                <div class="control-row">
-                  <span class="control-label">Touch pan</span>
-                  <label class="switch">
-                    <input
-                      type="checkbox"
-                      checked={touchPanEnabled}
-                      onChange={handleTouchPanToggle}
-                    />
-                    <span class="switch-track" aria-hidden="true" />
-                  </label>
                 </div>
               </>
             )}
@@ -824,7 +778,19 @@ function CameraControls() {
 
         {/* FOV control */}
         <div class="control-row">
-          <span class="control-label">FOV</span>
+          <span class="control-label fov-label">
+            FOV
+            <button
+              type="button"
+              class={`fov-toggle-btn ${viewerFovSlider ? 'is-on' : 'is-off'}`}
+              onClick={toggleViewerFovSlider}
+              title={viewerFovSlider ? 'Hide viewer FOV slider' : 'Show viewer FOV slider'}
+              aria-pressed={viewerFovSlider}
+              aria-label={viewerFovSlider ? 'Hide viewer FOV slider' : 'Show viewer FOV slider'}
+            >
+              <FontAwesomeIcon icon={viewerFovSlider ? faEye : faEyeSlash} />
+            </button>
+          </span>
           <div class="control-track">
             <input
               type="range"

@@ -12,9 +12,10 @@ import SidePanel from './SidePanel';
 import MobileSheet from './MobileSheet';
 import AssetSidebar from './AssetSidebar';
 import AssetNavigation from './AssetNavigation';
-import { initViewer, startRenderLoop, currentMesh } from '../viewer';
+import { initViewer, startRenderLoop, currentMesh, camera, controls, defaultCamera, defaultControls, dollyZoomBaseDistance, dollyZoomBaseFov, requestRender, THREE } from '../viewer';
 import { resize, loadFromStorageSource, loadNextAsset, loadPrevAsset, handleMultipleFiles } from '../fileLoader';
 import { resetViewWithImmersive } from '../cameraUtils';
+import { enableImmersiveMode, disableImmersiveMode, setImmersiveSensitivityMultiplier, setTouchPanEnabled, syncImmersiveBaseline } from '../immersiveMode';
 import { setupFullscreenHandler, moveElementsToFullscreen } from '../fullscreenHandler';
 import useOutsideClick from '../utils/useOutsideClick';
 import useSwipe from '../utils/useSwipe';
@@ -30,6 +31,14 @@ import ConnectStorageDialog from './ConnectStorageDialog';
 /** Delay before resize after panel toggle animation completes */
 const PANEL_TRANSITION_MS = 350;
 
+const updateControlSpeedsForFov = (fov) => {
+  if (!controls) return;
+  const fovScale = THREE.MathUtils.clamp(fov / defaultCamera.fov, 0.05, 2.0);
+  controls.rotateSpeed = Math.max(0.02, defaultControls.rotateSpeed * fovScale * 0.45);
+  controls.zoomSpeed = Math.max(0.05, defaultControls.zoomSpeed * fovScale * 0.8);
+  controls.panSpeed = Math.max(0.05, defaultControls.panSpeed * fovScale * 0.8);
+};
+
 function App() {
   // Store state
   const panelOpen = useStore((state) => state.panelOpen);
@@ -44,6 +53,13 @@ function App() {
   const toggleAssetSidebar = useStore((state) => state.toggleAssetSidebar);
   const setStatus = useStore((state) => state.setStatus);
   const addLog = useStore((state) => state.addLog);
+  const focusSettingActive = useStore((state) => state.focusSettingActive);
+  const fov = useStore((state) => state.fov);
+  const setFov = useStore((state) => state.setFov);
+  const viewerFovSlider = useStore((state) => state.viewerFovSlider);
+  const immersiveMode = useStore((state) => state.immersiveMode);
+  const setImmersiveMode = useStore((state) => state.setImmersiveMode);
+  const immersiveSensitivity = useStore((state) => state.immersiveSensitivity);
   
   // Local state for viewer initialization
   const [viewerReady, setViewerReady] = useState(false);
@@ -69,7 +85,7 @@ function App() {
   useOutsideClick(
     togglePanel,
     ['.side', '.mobile-sheet', '.panel-toggle', '.bottom-page-btn', '.bottom-controls'],
-    panelOpen
+    panelOpen && !focusSettingActive
   );
 
   // Setup fullscreen handler - re-run when controls mount
@@ -178,6 +194,53 @@ function App() {
     }
   }, []);
 
+  const handleOverlayFovChange = useCallback((event) => {
+    const newFov = Number(event.target.value);
+    if (!Number.isFinite(newFov) || !camera || !controls) return;
+
+    setFov(newFov);
+
+    if (dollyZoomBaseDistance && dollyZoomBaseFov) {
+      const baseTan = Math.tan(THREE.MathUtils.degToRad(dollyZoomBaseFov / 2));
+      const newTan = Math.tan(THREE.MathUtils.degToRad(newFov / 2));
+      const newDistance = dollyZoomBaseDistance * (baseTan / newTan);
+
+      const direction = new THREE.Vector3()
+        .subVectors(camera.position, controls.target)
+        .normalize();
+      camera.position.copy(controls.target).addScaledVector(direction, newDistance);
+    }
+
+    camera.fov = newFov;
+    camera.updateProjectionMatrix();
+    updateControlSpeedsForFov(newFov);
+    controls.update();
+    if (immersiveMode) {
+      syncImmersiveBaseline();
+    }
+    requestRender();
+  }, [setFov, immersiveMode]);
+
+  const handleImmersiveToggle = useCallback(async () => {
+    if (immersiveMode) {
+      disableImmersiveMode();
+      setImmersiveMode(false);
+      addLog('Immersive mode disabled');
+      return;
+    }
+
+    setTouchPanEnabled(true);
+    setImmersiveSensitivityMultiplier(immersiveSensitivity);
+    const success = await enableImmersiveMode();
+    if (success) {
+      setImmersiveMode(true);
+      addLog('Immersive mode enabled - tilt device to orbit');
+    } else {
+      setImmersiveMode(false);
+      addLog('Could not enable immersive mode');
+    }
+  }, [immersiveMode, setImmersiveMode, addLog, immersiveSensitivity]);
+
   /**
    * Title card actions: file picker
    */
@@ -232,53 +295,14 @@ function App() {
       await new Promise((r) => setTimeout(r, PANEL_TRANSITION_MS));
       let demo = getSource('demo-public-url');
       if (!demo) {
-        // DEVNOTE: route demo collection to local public/demo_sog assets during development
+        // Demo collection (cloud)
         const cloudUrls = [
-          'https://xifbwkfsvurtuugvseqi.supabase.co/storage/v1/object/public/testbucket/sog_folder/_DSF1672.sog',
-          'https://xifbwkfsvurtuugvseqi.supabase.co/storage/v1/object/public/testbucket/sog_folder/_DSF1749.sog',
-          'https://xifbwkfsvurtuugvseqi.supabase.co/storage/v1/object/public/testbucket/sog_folder/_DSF1891.sog',
-          'https://xifbwkfsvurtuugvseqi.supabase.co/storage/v1/object/public/testbucket/sog_folder/_DSF2158.sog',
-          'https://xifbwkfsvurtuugvseqi.supabase.co/storage/v1/object/public/testbucket/sog_folder/_DSF2784.sog',
-          'https://xifbwkfsvurtuugvseqi.supabase.co/storage/v1/object/public/testbucket/sog_folder/_DSF2810-Pano.sog',
-          'https://xifbwkfsvurtuugvseqi.supabase.co/storage/v1/object/public/testbucket/sog_folder/_DSF3354.sog',
-          'https://xifbwkfsvurtuugvseqi.supabase.co/storage/v1/object/public/testbucket/sog_folder/_DSF7664.sog',
-          'https://xifbwkfsvurtuugvseqi.supabase.co/storage/v1/object/public/testbucket/sog_folder/20221007203015_IMG_0329.sog',
-          'https://xifbwkfsvurtuugvseqi.supabase.co/storage/v1/object/public/testbucket/sog_folder/APC_0678.sog',
-          'https://xifbwkfsvurtuugvseqi.supabase.co/storage/v1/object/public/testbucket/sog_folder/IMG_9728.sog',
-          'https://xifbwkfsvurtuugvseqi.supabase.co/storage/v1/object/public/testbucket/sog_folder/PXL_20230822_061301870.sog',
-          'https://xifbwkfsvurtuugvseqi.supabase.co/storage/v1/object/public/testbucket/sog_folder/PXL_20240307_200213904.sog',
+          'https://pub-db16fc5228e844edb71f8282c2992658.r2.dev/splat_1/_DSF1672.sog',
+          'https://pub-db16fc5228e844edb71f8282c2992658.r2.dev/splat_1/_DSF1891.sog',
+          'https://pub-db16fc5228e844edb71f8282c2992658.r2.dev/splat_1/_DSF3354.sog',
         ];
 
-        const localUrls = [
-          '/demo_sog/_DSF1672.sog',
-          '/demo_sog/_DSF1749.sog',
-          '/demo_sog/_DSF1891.sog',
-          '/demo_sog/_DSF2158.sog',
-          '/demo_sog/_DSF2784.sog',
-          '/demo_sog/_DSF2810-Pano.sog',
-          '/demo_sog/_DSF3354.sog',
-          '/demo_sog/_DSF7664.sog',
-          '/demo_sog/20221007203015_IMG_0329.sog',
-          '/demo_sog/APC_0678.sog',
-          '/demo_sog/IMG_9728.sog',
-          '/demo_sog/PXL_20230822_061301870.sog',
-          '/demo_sog/PXL_20240307_200213904.sog',
-        ];
-
-        const checkUrlExists = async (url) => {
-          try {
-            const res = await fetch(url, { method: 'HEAD', cache: 'no-store' });
-            return res.ok;
-          } catch {
-            return false;
-          }
-        };
-
-        const localExists = await Promise.all(localUrls.map(checkUrlExists));
-        const existingLocal = localUrls.filter((_, i) => localExists[i]);
-        const demoUrls = existingLocal.length > 0 ? existingLocal : cloudUrls;
-
-        demo = createPublicUrlSource({ id: 'demo-public-url', name: 'Demo URL collection', assetPaths: demoUrls });
+        demo = createPublicUrlSource({ id: 'demo-public-url', name: 'Demo URL collection', assetPaths: cloudUrls });
         registerSource(demo);
         try { await saveSource(demo.toJSON()); } catch (err) { console.warn('Failed to persist demo source:', err); }
       }
@@ -427,25 +451,32 @@ function App() {
             </button>
           )}
         </div>
-
+{hasMesh && assets.length > 0 && (
+  <>
         {/* Center: Navigation buttons */}
         <div class="bottom-controls-center">
-          <AssetNavigation />
+          <div class="bottom-controls-center-inner">
+            <AssetNavigation />
+            {viewerFovSlider && (
+              <div class="fov-overlay" role="group" aria-label="Viewer FOV">
+                <input
+                  class="fov-overlay-slider"
+                  type="range"
+                  min="20"
+                  max="120"
+                  step="1"
+                  value={fov}
+                  onInput={handleOverlayFovChange}
+                />
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Right: Fullscreen and reset buttons */}
         <div class="bottom-controls-right">
-          {hasMesh && assets.length > 0 && (
             <>
-              <button
-                class="bottom-page-btn"
-                onClick={handleToggleFullscreen}
-                aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
-                title={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
-              >
-                <FontAwesomeIcon icon={isFullscreen ? faCompress : faExpand} />
-              </button>
-
+            
               <button 
                 class="bottom-page-btn" 
                 onClick={handleResetView}
@@ -454,9 +485,28 @@ function App() {
               >
                 <FontAwesomeIcon icon={faRotateRight} />
               </button>
+             
+              <button
+                class="bottom-page-btn"
+                onClick={handleToggleFullscreen}
+                aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+                title={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+              >
+                <FontAwesomeIcon icon={isFullscreen ? faCompress : faExpand} />
+              </button>
+{isMobile && <button
+                class={`bottom-page-btn immersive-toggle ${immersiveMode ? 'is-active' : 'is-inactive'}`}
+                onClick={handleImmersiveToggle}
+                aria-pressed={immersiveMode}
+                aria-label={immersiveMode ? 'Disable immersive mode' : 'Enable immersive mode'}
+                title={immersiveMode ? 'Disable immersive mode' : 'Enable immersive mode'}
+              >
+                Imm
+              </button>}
             </>
-          )}
         </div>
+        </>
+)}
       </div>
 
       <ConnectStorageDialog

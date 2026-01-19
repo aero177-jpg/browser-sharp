@@ -120,44 +120,5 @@ export const initializeSources = async () => {
     }
   }
 
-  // Ensure demo URL collection exists for all users
-  try {
-    const demoUrls = [
-      'https://xifbwkfsvurtuugvseqi.supabase.co/storage/v1/object/public/testbucket/sog_folder/_DSF1672.sog',
-      'https://xifbwkfsvurtuugvseqi.supabase.co/storage/v1/object/public/testbucket/sog_folder/_DSF1749.sog',
-      'https://xifbwkfsvurtuugvseqi.supabase.co/storage/v1/object/public/testbucket/sog_folder/_DSF1891.sog',
-      'https://xifbwkfsvurtuugvseqi.supabase.co/storage/v1/object/public/testbucket/sog_folder/_DSF2158.sog',
-      'https://xifbwkfsvurtuugvseqi.supabase.co/storage/v1/object/public/testbucket/sog_folder/_DSF2784.sog',
-      'https://xifbwkfsvurtuugvseqi.supabase.co/storage/v1/object/public/testbucket/sog_folder/_DSF2810-Pano.sog',
-      'https://xifbwkfsvurtuugvseqi.supabase.co/storage/v1/object/public/testbucket/sog_folder/_DSF3354.sog',
-      'https://xifbwkfsvurtuugvseqi.supabase.co/storage/v1/object/public/testbucket/sog_folder/_DSF7664.sog',
-      'https://xifbwkfsvurtuugvseqi.supabase.co/storage/v1/object/public/testbucket/sog_folder/20221007203015_IMG_0329.sog',
-      'https://xifbwkfsvurtuugvseqi.supabase.co/storage/v1/object/public/testbucket/sog_folder/APC_0678.sog',
-      'https://xifbwkfsvurtuugvseqi.supabase.co/storage/v1/object/public/testbucket/sog_folder/IMG_9728.sog',
-      'https://xifbwkfsvurtuugvseqi.supabase.co/storage/v1/object/public/testbucket/sog_folder/PXL_20230822_061301870.sog',
-      'https://xifbwkfsvurtuugvseqi.supabase.co/storage/v1/object/public/testbucket/sog_folder/PXL_20240307_200213904.sog',
-    ];
-    const hasDemo = sources.some(
-      (s) =>
-        s.type === 'public-url' &&
-        demoUrls.every((url) => s.config?.config?.assetPaths?.includes(url))
-    );
-
-    if (!hasDemo) {
-      const demoSource = _createPublicUrlSource({
-        id: 'demo-public-url',
-        name: 'Demo URL collection',
-        assetPaths: demoUrls,
-      });
-
-      _registerSource(demoSource);
-      sources.push(demoSource);
-      await _saveSource(demoSource.toJSON());
-      console.log('[Storage] Added demo URL collection with multiple assets');
-    }
-  } catch (err) {
-    console.warn('[Storage] Failed to add demo URL collection:', err);
-  }
-
   return sources;
 };

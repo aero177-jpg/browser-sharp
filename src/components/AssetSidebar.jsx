@@ -25,11 +25,14 @@ function AssetSidebar() {
   const [clearMetadata, setClearMetadata] = useState(false);
   const [deleteRemote, setDeleteRemote] = useState(false);
   const [brokenPreviews, setBrokenPreviews] = useState(new Set()); // Track broken preview indices
+  const [suppressInteractions, setSuppressInteractions] = useState(false);
   const sidebarRef = useRef(null);
   const fileInputRef = useRef(null);
   const hoverTargetRef = useRef(null);
   const openedByHoverRef = useRef(false);
   const hideTimeoutRef = useRef(null);
+  const hoverOpenTimeoutRef = useRef(null);
+  const suppressTimeoutRef = useRef(null);
   const repairingRef = useRef(new Set()); // Track indices being repaired
 
   const formatAccept = getFormatAccept();
@@ -67,6 +70,19 @@ function AssetSidebar() {
     openedByHoverRef.current = true;
   }, [setIsVisible]);
 
+  const showSidebarFromTap = useCallback(() => {
+    setIsVisible(true);
+    openedByHoverRef.current = false;
+    setSuppressInteractions(true);
+    if (suppressTimeoutRef.current) {
+      clearTimeout(suppressTimeoutRef.current);
+    }
+    suppressTimeoutRef.current = setTimeout(() => {
+      setSuppressInteractions(false);
+      suppressTimeoutRef.current = null;
+    }, 350);
+  }, [setIsVisible]);
+
   // Sidebar visibility is manual only - no auto-open on navigation
 
   // Cleanup hide timeout on unmount
@@ -75,6 +91,14 @@ function AssetSidebar() {
       if (hideTimeoutRef.current) {
         clearTimeout(hideTimeoutRef.current);
         hideTimeoutRef.current = null;
+      }
+      if (hoverOpenTimeoutRef.current) {
+        clearTimeout(hoverOpenTimeoutRef.current);
+        hoverOpenTimeoutRef.current = null;
+      }
+      if (suppressTimeoutRef.current) {
+        clearTimeout(suppressTimeoutRef.current);
+        suppressTimeoutRef.current = null;
       }
     };
   }, []);
@@ -135,6 +159,29 @@ function AssetSidebar() {
       hideTimeoutRef.current = null;
     }, 500);
   }, [clearHideTimeout]);
+
+  const handleHoverEnter = useCallback(() => {
+    if (hoverOpenTimeoutRef.current) {
+      clearTimeout(hoverOpenTimeoutRef.current);
+    }
+    hoverOpenTimeoutRef.current = setTimeout(() => {
+      showSidebar();
+      hoverOpenTimeoutRef.current = null;
+    }, 500);
+  }, [showSidebar]);
+
+  const handleHoverLeave = useCallback(() => {
+    if (hoverOpenTimeoutRef.current) {
+      clearTimeout(hoverOpenTimeoutRef.current);
+      hoverOpenTimeoutRef.current = null;
+    }
+  }, []);
+
+  const handleTapOpen = useCallback((event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    showSidebarFromTap();
+  }, [showSidebarFromTap]);
 
   /**
    * Attempts to repair a broken preview by reloading from IndexedDB
@@ -315,7 +362,9 @@ function AssetSidebar() {
       <div 
         ref={hoverTargetRef}
         class="sidebar-hover-target"
-        onMouseEnter={showSidebar}
+        onMouseEnter={handleHoverEnter}
+        onMouseLeave={handleHoverLeave}
+        onPointerDown={handleTapOpen}
       />
 
       {/* Trigger Button moved to App.jsx - bottom controls container */}
@@ -324,6 +373,7 @@ function AssetSidebar() {
       <div 
         ref={sidebarRef}
         class={`asset-sidebar ${isVisible ? 'visible' : ''}`}
+        style={suppressInteractions ? { pointerEvents: 'none' } : undefined}
         onMouseEnter={clearHideTimeout}
         onMouseLeave={scheduleHide}
       >

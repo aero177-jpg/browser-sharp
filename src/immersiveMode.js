@@ -53,6 +53,19 @@ const TOUCH_PAN_SENSITIVITY = {
 // Current sensitivity (can be scaled by multiplier)
 let currentSensitivity = { ...BASE_SENSITIVITY };
 
+// Touch pan scale multiplier (derived from immersive sensitivity)
+let touchPanScaleMultiplier = 1;
+
+/**
+ * Computes touch pan scaling based on immersive sensitivity multiplier.
+ * @param {number} multiplier - Multiplier between 1.0 and 5.0
+ * @returns {number} Scale multiplier for touch panning
+ */
+const getTouchPanScaleForMultiplier = (multiplier) => {
+  const t = (multiplier - 1.0) / 4.0; // 0..1
+  return 0.25 + 0.75 * Math.max(0, Math.min(1, t));
+};
+
 /**
  * Sets the sensitivity multiplier for immersive mode tilt.
  * @param {number} multiplier - Multiplier between 1.0 and 5.0
@@ -60,6 +73,7 @@ let currentSensitivity = { ...BASE_SENSITIVITY };
 export const setImmersiveSensitivityMultiplier = (multiplier) => {
   const clamped = Math.max(1.0, Math.min(5.0, multiplier));
   currentSensitivity.tilt = BASE_SENSITIVITY.tilt * clamped;
+  touchPanScaleMultiplier = getTouchPanScaleForMultiplier(clamped);
 };
 
 /**
@@ -254,8 +268,9 @@ const handleTouchMove = (event) => {
   const distance = baseSpherical?.radius ?? camera.position.distanceTo(controls.target);
   
   // Apply pan (negative X because dragging right should move view left)
-  panOffset.x -= deltaX * TOUCH_PAN_SENSITIVITY.scale * distance;
-  panOffset.y += deltaY * TOUCH_PAN_SENSITIVITY.scale * distance; // Y is inverted in screen coords
+  const panScale = TOUCH_PAN_SENSITIVITY.scale * touchPanScaleMultiplier;
+  panOffset.x -= deltaX * panScale * distance;
+  panOffset.y += deltaY * panScale * distance; // Y is inverted in screen coords
   
   // Clamp pan offset
   const maxPan = TOUCH_PAN_SENSITIVITY.maxPanOffset * distance;
@@ -559,6 +574,15 @@ export const resumeImmersiveMode = () => {
     resetImmersiveBaseline();
     isPaused = false;
   }
+};
+
+/**
+ * Syncs the immersive baseline to the current camera state without pausing input.
+ * Useful when external camera changes occur (e.g., FOV changes).
+ */
+export const syncImmersiveBaseline = () => {
+  if (!isActive) return;
+  resetImmersiveBaseline();
 };
 
 /**

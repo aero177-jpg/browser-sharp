@@ -3,7 +3,7 @@
  */
 import { loadPreviewBlob } from "./fileStorage.js";
 import { setCapturePreviewFn } from "./assetManager.js";
-import { scene, renderer, composer, currentMesh, forceRenderNow, THREE } from "./viewer.js";
+import { scene, renderer, composer, currentMesh, forceRenderNow, THREE, bgImageUrl } from "./viewer.js";
 
 /** Target height for generated previews (width auto-calculated) */
 const PREVIEW_TARGET_HEIGHT = 128;
@@ -16,10 +16,20 @@ const PREVIEW_JPEG_QUALITY = 0.35;
 
 const isObjectUrl = (value) => typeof value === 'string' && value.startsWith('blob:');
 
+const scheduleRevokeObjectUrl = (url, asset) => {
+  if (!url || !isObjectUrl(url)) return;
+  setTimeout(() => {
+    if (!asset || asset.preview === url) return;
+    if (bgImageUrl === url) return;
+    URL.revokeObjectURL(url);
+  }, 1200);
+};
+
 export const replacePreviewUrl = (asset, url) => {
   if (!asset) return;
-  if (asset.preview && isObjectUrl(asset.preview) && asset.preview !== url) {
-    URL.revokeObjectURL(asset.preview);
+  const previous = asset.preview;
+  if (previous && isObjectUrl(previous) && previous !== url) {
+    scheduleRevokeObjectUrl(previous, asset);
   }
   asset.preview = url;
 };

@@ -8,7 +8,7 @@
 import { createSourceId } from './types.js';
 
 /** Database name for storage sources */
-const DB_NAME = 'sharp-viewer-sources';
+const DB_NAME = 'radia-viewer-sources';
 const DB_VERSION = 1;
 const SOURCES_STORE = 'sources';
 const HANDLES_STORE = 'handles';

@@ -29,11 +29,13 @@ const getPersistedBoolean = (key, fallback = false) => {
   }
 };
 
-/** Default state for mobile devtools (on for mobile, persisted if set) */
-const defaultDevtoolsEnabled = (() => {
-  const isProbablyMobile = typeof navigator !== 'undefined' && /Mobi|Android|iP(ad|hone|od)/i.test(navigator.userAgent);
-  return getPersistedBoolean('mobileDevtoolsEnabled', isProbablyMobile);
-})();
+/** Default state for mobile devtools.
+ * - Default: OFF (safety-first)
+ * - Persisted user preference is still respected, but Eruda will not auto-init
+ *   on app startup — explicit user toggle (approval) is required to initialize.
+ */
+const defaultDevtoolsEnabled = getPersistedBoolean('mobileDevtoolsEnabled', false);
+
 
 /** Maximum number of log entries to keep */
 const MAX_LOG_ENTRIES = 14;
@@ -53,6 +55,7 @@ export const useStore = create(
   fov: 60,
   cameraRange: 8,
   dollyZoomEnabled: true,
+  viewerFovSlider: false,
   stereoEnabled: false,
   stereoEyeSep: 0.064,
   stereoAspect: 1.0,
@@ -84,6 +87,7 @@ export const useStore = create(
   // Custom focus state
   hasCustomFocus: false,
   focusDistanceOverride: null,
+  focusSettingActive: false,
   // Show FPS counter overlay
   showFps: false,
 
@@ -117,8 +121,6 @@ export const useStore = create(
   isPortrait: typeof window !== 'undefined' && window.innerHeight > window.innerWidth,
   immersiveMode: false,
   immersiveSensitivity: 1.0,
-  rotationEnabled: true,    // Enable tilt rotation by default
-  touchPanEnabled: true,    // Enable touch panning by default
   mobileDevtoolsEnabled: defaultDevtoolsEnabled,
   bgBlur: 40,
   
@@ -130,6 +132,12 @@ export const useStore = create(
   
   /** Sets camera field of view */
   setFov: (fov) => set({ fov }),
+
+  /** Shows/hides the viewer FOV slider overlay */
+  setViewerFovSlider: (visible) => set({ viewerFovSlider: visible }),
+
+  /** Toggles the viewer FOV slider overlay */
+  toggleViewerFovSlider: () => set((state) => ({ viewerFovSlider: !state.viewerFovSlider })),
   
   /** Sets camera orbit range in degrees */
   setCameraRange: (range) => set({ cameraRange: range }),
@@ -187,6 +195,7 @@ export const useStore = create(
   /** Sets custom focus state */
   setHasCustomFocus: (hasCustomFocus) => set({ hasCustomFocus }),
   setFocusDistanceOverride: (focusDistanceOverride) => set({ focusDistanceOverride }),
+  setFocusSettingActive: (focusSettingActive) => set({ focusSettingActive }),
   
   /** Updates file info (merges with existing) */
   setFileInfo: (info) => set((state) => ({ 
@@ -280,12 +289,6 @@ export const useStore = create(
   
   /** Sets immersive mode sensitivity multiplier */
   setImmersiveSensitivity: (sensitivity) => set({ immersiveSensitivity: sensitivity }),
-
-  /** Sets touch panning enabled/disabled */
-  setTouchPanEnabled: (enabled) => set({ touchPanEnabled: enabled }),
-
-  /** Sets rotation (orientation-based orbit) enabled/disabled */
-  setRotationEnabled: (enabled) => set({ rotationEnabled: enabled }),
 
   /** Sets visibility of FPS counter overlay */
   setShowFps: (show) => set({ showFps: show }),

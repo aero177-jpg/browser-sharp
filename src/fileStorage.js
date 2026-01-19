@@ -5,7 +5,7 @@
  */
 
 /** Database name */
-const DB_NAME = 'sharp-viewer-storage';
+const DB_NAME = 'radia-viewer-storage';
 
 /** Database version */
 const DB_VERSION = 2;

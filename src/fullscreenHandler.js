@@ -6,6 +6,7 @@
 
 import { resize, reloadCurrentAsset } from './fileLoader.js';
 import { requestRender, suspendRenderLoop, resumeRenderLoop } from './viewer.js';
+import { useStore } from './store.js';
 
 // Elements to move into fullscreen viewer (selector : key)
 const FULLSCREEN_ELEMENTS = [
@@ -130,6 +131,7 @@ export function setupFullscreenHandler(viewerEl, extraElement = null, onStateCha
 
   const handleViewerTap = (event) => {
     if (!isFullscreenOrImmersive(viewerEl)) return;
+    if (useStore.getState().focusSettingActive) return;
     if (event.target.closest(VISIBILITY_TOGGLE_SELECTORS.join(','))) return;
     uiHidden = !uiHidden;
     applyVisibilityHidden(viewerEl, uiHidden);

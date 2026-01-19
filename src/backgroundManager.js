@@ -3,9 +3,19 @@
  * Keeps background updates in one place so loaders only request set/clear/capture.
  */
 import { setBgImageUrl, updateBackgroundImage, requestRender, renderer, scene, THREE } from './viewer.js';
+import { getAssetList } from './assetManager.js';
 
 const isObjectUrl = (value) => typeof value === 'string' && value.startsWith('blob:');
 let lastBgObjectUrl = null;
+
+const isUrlInAssetPreviews = (url) => {
+  if (!url) return false;
+  try {
+    return getAssetList().some((asset) => asset?.preview === url);
+  } catch {
+    return false;
+  }
+};
 
 // Revoke the given blob URL after a short delay to avoid breaking in-flight loads
 const scheduleRevoke = (url) => {
@@ -13,7 +23,7 @@ const scheduleRevoke = (url) => {
   // Give the browser time to fetch/use the URL before revoking
   setTimeout(() => {
     // Only revoke if it is no longer the active one
-    if (url !== lastBgObjectUrl) {
+    if (url !== lastBgObjectUrl && !isUrlInAssetPreviews(url)) {
       URL.revokeObjectURL(url);
     }
   }, 1200);

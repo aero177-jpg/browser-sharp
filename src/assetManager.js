@@ -18,10 +18,22 @@ let capturePreviewFn = null;
 
 const isObjectUrl = (value) => typeof value === 'string' && value.startsWith('blob:');
 
+import { bgImageUrl } from './viewer.js';
+
+const scheduleRevokeObjectUrl = (url, asset) => {
+  if (!url || !isObjectUrl(url)) return;
+  setTimeout(() => {
+    if (!asset || asset.preview === url) return;
+    if (bgImageUrl === url) return;
+    URL.revokeObjectURL(url);
+  }, 1200);
+};
+
 const replaceAssetPreviewUrl = (asset, url) => {
   if (!asset) return;
-  if (asset.preview && isObjectUrl(asset.preview) && asset.preview !== url) {
-    URL.revokeObjectURL(asset.preview);
+  const previous = asset.preview;
+  if (previous && isObjectUrl(previous) && previous !== url) {
+    scheduleRevokeObjectUrl(previous, asset);
   }
   asset.preview = url;
 };

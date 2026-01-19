@@ -3,7 +3,7 @@
  * Hosts FPS overlay toggle, mobile devtools toggle, and a DB wipe action.
  */
 
-import { useCallback, useEffect, useState } from 'preact/hooks';
+import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faChevronDown } from '@fortawesome/free-solid-svg-icons';
 import { useStore } from '../store';
@@ -46,8 +46,17 @@ const enableMobileDevtools = async () => {
 /** Tear down Eruda devtools if present */
 const disableMobileDevtools = () => {
   const instance = typeof window !== 'undefined' ? window.eruda : null;
-  if (instance?.destroy) {
-    instance.destroy();
+  if (instance?.hide) instance.hide();
+  if (instance?.destroy) instance.destroy();
+  if (typeof window !== 'undefined') {
+    // Ensure any leftover DOM is removed
+    const erudaRoot = document.getElementById('eruda');
+    if (erudaRoot?.parentNode) {
+      erudaRoot.parentNode.removeChild(erudaRoot);
+    }
+    if (window.eruda) {
+      delete window.eruda;
+    }
   }
 };
 
@@ -64,6 +73,7 @@ function DebugSettings() {
   const addLog = useStore((state) => state.addLog);
   const bgBlur = useStore((state) => state.bgBlur);
   const setBgBlur = useStore((state) => state.setBgBlur);
+  const devtoolsUserApprovedRef = useRef(false);
 
   const [wipingDb, setWipingDb] = useState(false);
   const [clearingSupabaseCache, setClearingSupabaseCache] = useState(false);
@@ -90,23 +100,29 @@ function DebugSettings() {
   /** Enable/disable mobile devtools (Eruda) */
   const handleDevtoolsToggle = useCallback((e) => {
     const enabled = Boolean(e.target.checked);
+    // mark that the user explicitly approved initialization for this session
+    devtoolsUserApprovedRef.current = true;
     setMobileDevtoolsEnabled(enabled);
+    if (!enabled) {
+      // immediate teardown so the UI responds without waiting on effects
+      disableMobileDevtools();
+    }
   }, [setMobileDevtoolsEnabled]);
 
   /** Wipes IndexedDB image store and reloads */
   const handleWipeDb = useCallback(async () => {
-    const confirmed = window.confirm('Wipe IndexedDB "sharp-viewer-storage"? This cannot be undone.');
+    const confirmed = window.confirm('Wipe IndexedDB "radia-viewer-storage"? This cannot be undone.');
     if (!confirmed) return;
 
     setWipingDb(true);
     try {
       await new Promise((resolve, reject) => {
-        const request = indexedDB.deleteDatabase('sharp-viewer-storage');
+        const request = indexedDB.deleteDatabase('radia-viewer-storage');
         request.onsuccess = () => resolve();
         request.onerror = () => reject(request.error || new Error('Failed to delete database'));
         request.onblocked = () => console.warn('Delete blocked: close other tabs or reopen the app.');
       });
-      alert('IndexedDB sharp-viewer-storage wiped. Reloading...');
+      alert('IndexedDB radia-viewer-storage wiped. Reloading...');
       window.location.reload();
     } catch (err) {
       console.error('DB wipe failed:', err);
@@ -235,9 +251,15 @@ function DebugSettings() {
     addLog('[BatchPreview] Abort requested');
   }, [addLog]);
 
-  // React to devtools preference changes
+  // React to devtools preference changes — require explicit user approval to initialize
   useEffect(() => {
     if (mobileDevtoolsEnabled) {
+      if (!devtoolsUserApprovedRef.current) {
+        // persisted preference exists but user has not re-approved in this session;
+        // do not auto-initialize Eruda to avoid surprises.
+        console.info('[Devtools] Initialization deferred: user approval required (toggle to initialize).');
+        return;
+      }
       enableMobileDevtools().catch((err) => {
         console.warn('[Devtools] Failed to enable:', err);
         setMobileDevtoolsEnabled(false);
@@ -339,8 +361,8 @@ function DebugSettings() {
         </div>
 
         <div class="control-row">
-          <span class="control-label">BG blur</span>
-          <div class="slider-row">
+          <span class="control-label">Image glow</span>
+          <div class="control-track">
             <input
               type="range"
               min="0"
@@ -349,7 +371,7 @@ function DebugSettings() {
               value={bgBlur}
               onInput={(e) => setBgBlur(Number(e.target.value) || 0)}
             />
-            <span class="slider-value">{bgBlur}px</span>
+            <span class="control-value">{bgBlur}px</span>
           </div>
         </div>
 
