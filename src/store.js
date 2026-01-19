@@ -127,6 +127,9 @@ export const useStore = create(
   // Debug
   debugLoadingMode: false,
   debugSettingsExpanded: false,
+  debugStochasticRendering: false,
+  debugFpsLimitEnabled: true,
+  debugSparkMaxStdDev: Math.sqrt(5),
 
   // ============ Actions ============
   
@@ -307,6 +310,15 @@ export const useStore = create(
 
   /** Sets blur amount for background container */
   setBgBlur: (bgBlur) => set({ bgBlur }),
+
+  /** Enables/disables stochastic rendering in Spark */
+  setDebugStochasticRendering: (enabled) => set({ debugStochasticRendering: enabled }),
+
+  /** Enables/disables FPS limiting in the render loop */
+  setDebugFpsLimitEnabled: (enabled) => set({ debugFpsLimitEnabled: enabled }),
+
+  /** Sets Spark splat maxStdDev (rendering width) */
+  setDebugSparkMaxStdDev: (value) => set({ debugSparkMaxStdDev: value }),
   
   /** Toggles debug loading mode */
   toggleDebugLoadingMode: () => set((state) => ({ 

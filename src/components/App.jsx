@@ -20,8 +20,8 @@ import { setupFullscreenHandler, moveElementsToFullscreen } from '../fullscreenH
 import useOutsideClick from '../utils/useOutsideClick';
 import useSwipe from '../utils/useSwipe';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faRotateRight } from '@fortawesome/free-solid-svg-icons';
-import { faExpand, faCompress } from '@fortawesome/free-solid-svg-icons';
+import { faExpandAlt, faCompressAlt } from '@fortawesome/free-solid-svg-icons';
+import { FocusIcon, Rotate3DIcon } from '../icons/customIcons';
 import { initVrSupport } from '../vrMode';
 import { getSourcesArray } from '../storage/index.js';
 import { getSource, createPublicUrlSource, registerSource, saveSource } from '../storage/index.js';
@@ -483,7 +483,7 @@ function App() {
                 aria-label="Reset camera view"
                 title="Reset view (R)"
               >
-                <FontAwesomeIcon icon={faRotateRight} />
+                <FocusIcon size={18} />
               </button>
              
               <button
@@ -492,7 +492,7 @@ function App() {
                 aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
                 title={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
               >
-                <FontAwesomeIcon icon={isFullscreen ? faCompress : faExpand} />
+                <FontAwesomeIcon icon={isFullscreen ? faCompressAlt : faExpandAlt} />
               </button>
 {isMobile && <button
                 class={`bottom-page-btn immersive-toggle ${immersiveMode ? 'is-active' : 'is-inactive'}`}
@@ -501,7 +501,7 @@ function App() {
                 aria-label={immersiveMode ? 'Disable immersive mode' : 'Enable immersive mode'}
                 title={immersiveMode ? 'Disable immersive mode' : 'Enable immersive mode'}
               >
-                Imm
+                <Rotate3DIcon size={18} />
               </button>}
             </>
         </div>

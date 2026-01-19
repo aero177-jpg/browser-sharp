@@ -1800,11 +1800,12 @@ select option {
 /* Bottom page buttons (shared styles, no positioning) */
 .bottom-page-btn {
   width: 58px;
+  height: 30px;
   background: rgba(12, 16, 26, 0.164);
   backdrop-filter: blur(8px);
   border: 1px solid rgba(255, 255, 255, 0.15);
   color: rgba(255, 255, 255, 0.8);
-  padding: 6px 12px;
+  padding: 6px 6px;
   border-radius: 10px;
   font-size: 14px;
   font-weight: 600;

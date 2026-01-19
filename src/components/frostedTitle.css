@@ -10,7 +10,7 @@
   /* Initial blurred/hidden state - will transition to visible when class toggled */
   filter: blur(14px);
   opacity: 0;
-  transition: filter .8s linear 0.35s, opacity .5s ease-in 0.2s;
+  transition: filter .6s ease-out 0.35s, opacity .3s ease-out 0.2s;
 }
 
 /* When mounted, add `.is-visible` to ease the blur and opacity into place */

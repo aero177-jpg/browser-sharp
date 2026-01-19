@@ -49,6 +49,7 @@ let bgActivateRaf = null;
 let pendingBg = null;
 // FPS overlay element
 export let fpsContainer = null;
+let fpsLimitEnabled = true;
 
 export const setCurrentMesh = (mesh) => { currentMesh = mesh; };
 export const setActiveCamera = (cam) => { activeCamera = cam; };
@@ -82,6 +83,20 @@ export const setStereoAspect = (aspect) => {
     stereoCamera.aspect = aspect;
     requestRender();
   }
+};
+
+const applyStochasticRendering = (enabled) => {
+  if (!spark?.defaultView) return;
+  spark.defaultView.stochastic = Boolean(enabled);
+  requestRender();
+};
+
+const applySparkMaxStdDev = (value) => {
+  if (!spark) return;
+  const next = Math.max(0.5, Math.min(8, Number(value)));
+  if (!Number.isFinite(next)) return;
+  spark.maxStdDev = next;
+  requestRender();
 };
 
 /**
@@ -240,8 +255,8 @@ export const initViewer = (viewerEl) => {
     enablePan: controls.enablePan,
   };
 
-  // Spark renderer
-  spark = new SparkRenderer({ renderer });
+  // Spark renderer (lower maxStdDev for better performance)
+  spark = new SparkRenderer({ renderer, maxStdDev: Math.sqrt(5) });
   scene.add(spark);
 
   // Raycaster for double-click
@@ -264,6 +279,27 @@ export const initViewer = (viewerEl) => {
 
     applyBlur(useStore.getState().bgBlur);
     useStore.subscribe((s) => s.bgBlur, applyBlur);
+  }).catch(() => {});
+
+  // Subscribe to stochastic rendering debug toggle
+  import('./store.js').then(({ useStore }) => {
+    applyStochasticRendering(useStore.getState().debugStochasticRendering);
+    useStore.subscribe((s) => s.debugStochasticRendering, applyStochasticRendering);
+  }).catch(() => {});
+
+  // Subscribe to Spark maxStdDev slider
+  import('./store.js').then(({ useStore }) => {
+    applySparkMaxStdDev(useStore.getState().debugSparkMaxStdDev);
+    useStore.subscribe((s) => s.debugSparkMaxStdDev, applySparkMaxStdDev);
+  }).catch(() => {});
+
+  // Subscribe to FPS limit toggle
+  import('./store.js').then(({ useStore }) => {
+    fpsLimitEnabled = useStore.getState().debugFpsLimitEnabled;
+    useStore.subscribe((s) => s.debugFpsLimitEnabled, (enabled) => {
+      fpsLimitEnabled = Boolean(enabled);
+      requestRender();
+    });
   }).catch(() => {});
 
   // FPS overlay
@@ -321,12 +357,16 @@ export const startRenderLoop = () => {
     if (document.hidden) return;
 
     const now = performance.now();
-    const elapsedSinceRender = now - lastRenderTime;
-    if (elapsedSinceRender < targetFrameMs) {
-      return;
+    if (fpsLimitEnabled) {
+      const elapsedSinceRender = now - lastRenderTime;
+      if (elapsedSinceRender < targetFrameMs) {
+        return;
+      }
+      // Align to the frame boundary to reduce drift on high-refresh monitors
+      lastRenderTime = now - (elapsedSinceRender % targetFrameMs);
+    } else {
+      lastRenderTime = now;
     }
-    // Align to the frame boundary to reduce drift on high-refresh monitors
-    lastRenderTime = now - (elapsedSinceRender % targetFrameMs);
 
     if (renderSuspended || !renderer || !controls || !composer || !camera) {
       return;

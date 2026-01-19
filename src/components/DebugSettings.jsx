@@ -73,6 +73,12 @@ function DebugSettings() {
   const addLog = useStore((state) => state.addLog);
   const bgBlur = useStore((state) => state.bgBlur);
   const setBgBlur = useStore((state) => state.setBgBlur);
+  const debugStochasticRendering = useStore((state) => state.debugStochasticRendering);
+  const setDebugStochasticRendering = useStore((state) => state.setDebugStochasticRendering);
+  const debugFpsLimitEnabled = useStore((state) => state.debugFpsLimitEnabled);
+  const setDebugFpsLimitEnabled = useStore((state) => state.setDebugFpsLimitEnabled);
+  const debugSparkMaxStdDev = useStore((state) => state.debugSparkMaxStdDev);
+  const setDebugSparkMaxStdDev = useStore((state) => state.setDebugSparkMaxStdDev);
   const devtoolsUserApprovedRef = useRef(false);
 
   const [wipingDb, setWipingDb] = useState(false);
@@ -108,6 +114,23 @@ function DebugSettings() {
       disableMobileDevtools();
     }
   }, [setMobileDevtoolsEnabled]);
+
+  /** Toggle stochastic rendering */
+  const handleStochasticToggle = useCallback((e) => {
+    const enabled = Boolean(e.target.checked);
+    setDebugStochasticRendering(enabled);
+  }, [setDebugStochasticRendering]);
+
+  /** Toggle FPS limiting */
+  const handleFpsLimitToggle = useCallback((e) => {
+    const enabled = Boolean(e.target.checked);
+    setDebugFpsLimitEnabled(enabled);
+  }, [setDebugFpsLimitEnabled]);
+
+  const handleSparkStdDevChange = useCallback((e) => {
+    const value = Number(e.target.value);
+    setDebugSparkMaxStdDev(Number.isFinite(value) ? value : Math.sqrt(5));
+  }, [setDebugSparkMaxStdDev]);
 
   /** Wipes IndexedDB image store and reloads */
   const handleWipeDb = useCallback(async () => {
@@ -306,6 +329,45 @@ function DebugSettings() {
             />
             <span class="switch-track" aria-hidden="true" />
           </label>
+        </div>
+
+        <div class="control-row">
+          <span class="control-label">Stochastic rendering</span>
+          <label class="switch">
+            <input
+              type="checkbox"
+              checked={debugStochasticRendering}
+              onChange={handleStochasticToggle}
+            />
+            <span class="switch-track" aria-hidden="true" />
+          </label>
+        </div>
+
+        <div class="control-row">
+          <span class="control-label">Limit FPS (60)</span>
+          <label class="switch">
+            <input
+              type="checkbox"
+              checked={debugFpsLimitEnabled}
+              onChange={handleFpsLimitToggle}
+            />
+            <span class="switch-track" aria-hidden="true" />
+          </label>
+        </div>
+
+        <div class="control-row">
+          <span class="control-label">Splat width</span>
+          <div class="control-track">
+            <input
+              type="range"
+              min="0.5"
+              max="8"
+              step="0.1"
+              value={debugSparkMaxStdDev}
+              onInput={handleSparkStdDevChange}
+            />
+            <span class="control-value">{debugSparkMaxStdDev.toFixed(2)}</span>
+          </div>
         </div>
 
         <div class="control-row">
