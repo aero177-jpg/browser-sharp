@@ -1,9 +1,13 @@
-const API_URL = import.meta.env.VITE_SHARP_API_URL;
-const API_KEY = import.meta.env.VITE_SHARP_API_KEY;
+import { loadCloudGpuSettings } from './storage/cloudGpuSettings.js';
 
-export async function testSharpCloud(files, { prefix, onProgress } = {}) {
-  if (!API_URL || !API_KEY) {
-    console.error("❌ Missing API config: set VITE_SHARP_API_URL and VITE_SHARP_API_KEY");
+
+export async function testSharpCloud(files, { prefix, onProgress, apiUrl, apiKey } = {}) {
+  const saved = loadCloudGpuSettings();
+  const resolvedUrl = apiUrl || saved?.apiUrl 
+  const resolvedKey = apiKey || saved?.apiKey 
+
+  if (!resolvedUrl || !resolvedKey) {
+    console.error('❌ Missing Cloud GPU settings: configure API URL and API key in Add Cloud GPU.');
     return [];
   }
 
@@ -26,10 +30,10 @@ export async function testSharpCloud(files, { prefix, onProgress } = {}) {
         formData.append("prefix", prefix);
       }
 
-      const response = await fetch(API_URL, {
+      const response = await fetch(resolvedUrl, {
         method: "POST",
         headers: {
-          "X-API-KEY": API_KEY,
+          "X-API-KEY": resolvedKey,
         },
         body: formData,
       });

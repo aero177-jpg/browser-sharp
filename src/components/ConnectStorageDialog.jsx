@@ -34,6 +34,7 @@ import { loadSupabaseSettings, saveSupabaseSettings } from '../storage/supabaseS
 import { listExistingCollections, testBucketConnection } from '../storage/supabaseApi.js';
 import { getAssetList } from '../assetManager.js';
 import { getSupportedExtensions } from '../formats/index.js';
+import CloudGpuForm from './CloudGpuForm.jsx';
 
 const ICONS = {
   folder: faFolder,
@@ -1025,8 +1026,8 @@ function SupabaseForm({ onConnect, onBack, onClose }) {
   );
 }
 
-function ConnectStorageDialog({ isOpen, onClose, onConnect, editSource, onEditComplete }) {
-  const [selectedTier, setSelectedTier] = useState(editSource?.type || null);
+function ConnectStorageDialog({ isOpen, onClose, onConnect, editSource, onEditComplete, initialTier = null }) {
+  const [selectedTier, setSelectedTier] = useState(editSource?.type || initialTier || null);
   const localSupported = isFileSystemAccessSupported();
 
   useEffect(() => {
@@ -1034,6 +1035,12 @@ function ConnectStorageDialog({ isOpen, onClose, onConnect, editSource, onEditCo
       setSelectedTier(editSource.type);
     }
   }, [editSource]);
+
+  useEffect(() => {
+    if (!editSource && isOpen) {
+      setSelectedTier(initialTier || null);
+    }
+  }, [editSource, initialTier, isOpen]);
 
   const handleConnect = useCallback((source) => {
     onConnect?.(source);
@@ -1086,6 +1093,18 @@ function ConnectStorageDialog({ isOpen, onClose, onConnect, editSource, onEditCo
                 onSelect={setSelectedTier}
               />
             </div>
+
+            <div class="form-divider" style={{ marginTop: '20px' }}>
+              <span>Add Cloud GPU</span>
+            </div>
+
+            <div class="storage-tiers">
+              <TierCard
+                type="cloud-gpu"
+                selected={false}
+                onSelect={setSelectedTier}
+              />
+            </div>
           </>
         ) : selectedTier === 'local-folder' ? (
           <LocalFolderForm onConnect={handleConnect} onBack={handleBack} />
@@ -1099,6 +1118,8 @@ function ConnectStorageDialog({ isOpen, onClose, onConnect, editSource, onEditCo
             editMode={isEditMode}
             onSaveEdit={onEditComplete || onConnect}
           />
+        ) : selectedTier === 'cloud-gpu' ? (
+          <CloudGpuForm onBack={handleBack} />
         ) : null}
       </div>
     </div>

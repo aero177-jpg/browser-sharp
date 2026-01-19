@@ -6,7 +6,6 @@
  */
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'preact/hooks';
-import { createPortal } from 'preact/compat';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   faFolder,
@@ -21,7 +20,6 @@ import {
   faUnlock,
   faUpload,
   faLink,
-  faTimes,
   faPen,
   faEllipsisVertical,
 } from '@fortawesome/free-solid-svg-icons';
@@ -36,6 +34,7 @@ import { useStore } from '../store';
 import { getSupportedExtensions, getFormatAccept } from '../formats/index.js';
 import { testSharpCloud } from '../testSharpCloud';
 import ConnectStorageDialog from './ConnectStorageDialog';
+import UploadChoiceModal from './UploadChoiceModal';
 
 const TYPE_ICONS = {
   'local-folder': faFolder,
@@ -62,22 +61,26 @@ const formatEta = (seconds) => {
 /**
  * Individual source item with controls
  */
-function SourceItem({ source, onSelect, onRemove, onEditSource, expanded, onToggleExpand, isActive }) {
+function SourceItem({ source, onSelect, onRemove, onEditSource, expanded, onToggleExpand, isActive, onOpenCloudGpu }) {
   const [status, setStatus] = useState('checking');
   const [assetCount, setAssetCount] = useState(source.getAssets().length);
   const [isLoading, setIsLoading] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(null);
-  const [showConvertModal, setShowConvertModal] = useState(false);
-  const [pendingImageFiles, setPendingImageFiles] = useState([]);
-  const [pendingOtherFiles, setPendingOtherFiles] = useState([]);
+  const [showUploadChoiceModal, setShowUploadChoiceModal] = useState(false);
+  const [uploadMode, setUploadMode] = useState(null); // 'images' | 'assets'
   const uploadInputRef = useRef(null);
   const supportedExtensions = useMemo(() => getSupportedExtensions(), []);
   const acceptString = useMemo(() => getFormatAccept(), []);
+  const imageAccept = useMemo(() => `${IMAGE_EXTENSIONS.join(',')},image/*`, []);
   const combinedAccept = useMemo(() => {
-    const imageList = IMAGE_EXTENSIONS.join(',');
-    return acceptString ? `${acceptString},${imageList},image/*` : `${imageList},image/*`;
-  }, [acceptString]);
+    return acceptString ? `${acceptString},${imageAccept}` : imageAccept;
+  }, [acceptString, imageAccept]);
+  const uploadAccept = useMemo(() => {
+    if (uploadMode === 'images') return imageAccept;
+    if (uploadMode === 'assets') return acceptString || '';
+    return combinedAccept;
+  }, [acceptString, combinedAccept, imageAccept, uploadMode]);
   const collectionPrefix = useMemo(() => {
     const collectionId = source?.config?.config?.collectionId;
     return collectionId ? `collections/${collectionId}/assets` : 'collections/default/assets';
@@ -169,36 +172,16 @@ function SourceItem({ source, onSelect, onRemove, onEditSource, expanded, onTogg
     }
   }, [isImageFile, isSupportedFile, refreshAssets, source, supportedExtensions]);
 
-  const handleFilesSelected = useCallback(async (files) => {
-    if (!files?.length || source.type !== 'supabase-storage') return;
+  const handleImageConvert = useCallback(async (files) => {
+    if (!files?.length) return;
 
-    const imageFiles = files.filter(isImageFile);
-    const otherFiles = files.filter((file) => !isImageFile(file));
-
-    if (imageFiles.length > 0) {
-      setPendingImageFiles(imageFiles);
-      setPendingOtherFiles(otherFiles);
-      setShowConvertModal(true);
-      return;
-    }
-
-    await processUploads(files);
-  }, [isImageFile, processUploads, source.type]);
-
-  const handleConfirmConvert = useCallback(async () => {
-    if (!pendingImageFiles.length) {
-      setShowConvertModal(false);
-      return;
-    }
-
-    setShowConvertModal(false);
     setIsLoading(true);
     setIsUploading(true);
-    setUploadProgress({ completed: 0, total: pendingImageFiles.length });
-    console.log('convert start', { total: pendingImageFiles.length });
+    setUploadProgress({ completed: 0, total: files.length });
+    console.log('convert start', { total: files.length });
 
     try {
-      const results = await testSharpCloud(pendingImageFiles, {
+      const results = await testSharpCloud(files, {
         prefix: collectionPrefix,
         onProgress: (progress) => {
           console.log('convert progress', progress);
@@ -206,10 +189,6 @@ function SourceItem({ source, onSelect, onRemove, onEditSource, expanded, onTogg
         },
       });
       const failures = results.filter((r) => !r.ok);
-
-      if (pendingOtherFiles.length > 0) {
-        await processUploads(pendingOtherFiles);
-      }
 
       const anySuccess = results.some((r) => r.ok);
       if (anySuccess) {
@@ -222,24 +201,58 @@ function SourceItem({ source, onSelect, onRemove, onEditSource, expanded, onTogg
     } catch (err) {
       console.error('Convert/upload failed:', err);
     } finally {
-      setPendingImageFiles([]);
-      setPendingOtherFiles([]);
       setIsLoading(false);
       setIsUploading(false);
       setUploadProgress(null);
     }
-  }, [collectionPrefix, pendingImageFiles, pendingOtherFiles, processUploads, refreshAssets]);
+  }, [collectionPrefix, refreshAssets]);
 
-  const handleCancelConvert = useCallback(async () => {
-    setShowConvertModal(false);
-    if (pendingOtherFiles.length > 0) {
-      await processUploads(pendingOtherFiles);
+  const handleFilesForMode = useCallback(async (mode, files) => {
+    if (!files?.length || source.type !== 'supabase-storage') return;
+
+    if (mode === 'images') {
+      const imageFiles = files.filter(isImageFile);
+      if (imageFiles.length === 0) {
+        alert('No image files selected.');
+        return;
+      }
+      await handleImageConvert(imageFiles);
+      return;
     }
-    setPendingImageFiles([]);
-    setPendingOtherFiles([]);
-    setIsUploading(false);
-    setUploadProgress(null);
-  }, [pendingOtherFiles, processUploads]);
+
+    await processUploads(files);
+  }, [handleImageConvert, isImageFile, processUploads, source.type]);
+
+  const openPickerForMode = useCallback(async (mode) => {
+    if (source.type !== 'supabase-storage') return;
+
+    setUploadMode(mode);
+
+    if (typeof window.showOpenFilePicker === 'function') {
+      try {
+        const types = mode === 'images'
+          ? [{ description: 'Images', accept: { 'image/*': IMAGE_EXTENSIONS } }]
+          : [{ description: 'Supported splat assets', accept: { 'application/octet-stream': supportedExtensions } }];
+
+        const handles = await window.showOpenFilePicker({
+          multiple: true,
+          types,
+          excludeAcceptAllOption: false,
+        });
+
+        const files = await Promise.all(handles.map((handle) => handle.getFile()));
+        await handleFilesForMode(mode, files);
+        return;
+      } catch (err) {
+        if (err?.name === 'AbortError') return; // user cancelled
+        console.warn('showOpenFilePicker failed, falling back to input:', err);
+      }
+    }
+
+    requestAnimationFrame(() => {
+      uploadInputRef.current?.click();
+    });
+  }, [handleFilesForMode, source.type, supportedExtensions]);
 
   // Check connection status on mount
   useEffect(() => {
@@ -401,43 +414,17 @@ function SourceItem({ source, onSelect, onRemove, onEditSource, expanded, onTogg
   const handleUploadClick = useCallback(async (e) => {
     e.stopPropagation();
     if (source.type !== 'supabase-storage') return;
-
-    // Prefer the native file picker API to avoid "recent files" shortcuts in some browsers
-    if (typeof window.showOpenFilePicker === 'function') {
-      try {
-        const handles = await window.showOpenFilePicker({
-          multiple: true,
-          types: [
-            {
-              description: 'Supported splat assets',
-              accept: { 'application/octet-stream': supportedExtensions },
-            },
-            {
-              description: 'Images',
-              accept: { 'image/*': IMAGE_EXTENSIONS },
-            },
-          ],
-          excludeAcceptAllOption: false,
-        });
-
-        const files = await Promise.all(handles.map((handle) => handle.getFile()));
-        await handleFilesSelected(files);
-        return;
-      } catch (err) {
-        if (err?.name === 'AbortError') return; // user cancelled
-        console.warn('showOpenFilePicker failed, falling back to input:', err);
-      }
-    }
-
-    uploadInputRef.current?.click();
-  }, [handleFilesSelected, source.type, supportedExtensions]);
+    setShowUploadChoiceModal(true);
+  }, [source.type]);
 
   const handleUploadChange = useCallback(async (e) => {
     e.stopPropagation();
     const files = Array.from(e.target.files || []);
     e.target.value = '';
-    await handleFilesSelected(files);
-  }, [handleFilesSelected]);
+    const mode = uploadMode || 'assets';
+    setUploadMode(null);
+    await handleFilesForMode(mode, files);
+  }, [handleFilesForMode, uploadMode]);
 
   const handleRemove = useCallback(async (e) => {
     e.stopPropagation();
@@ -510,7 +497,7 @@ function SourceItem({ source, onSelect, onRemove, onEditSource, expanded, onTogg
         ref={uploadInputRef}
         type="file"
         multiple
-        accept={combinedAccept}
+        accept={uploadAccept}
         style={{ display: 'none' }}
         onChange={handleUploadChange}
       />
@@ -642,35 +629,24 @@ function SourceItem({ source, onSelect, onRemove, onEditSource, expanded, onTogg
       )}
       </div>
 
-      {showConvertModal && createPortal(
-        <div class="modal-overlay storage-dialog-overlay">
-          <div class="modal-content storage-dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '400px' }}>
-            <button class="modal-close" onClick={handleCancelConvert}>
-              <FontAwesomeIcon icon={faTimes} />
-            </button>
-
-            <h2>Convert images?</h2>
-            <p class="dialog-subtitle">
-              Convert and upload {pendingImageFiles.length} image{pendingImageFiles.length === 1 ? '' : 's'} to this Supabase collection?
-            </p>
-            
-            <div class="form-info">
-              <ul class="feature-list">
-                 <li><FontAwesomeIcon icon={faUpload} /> Files will be converted to splats in sog format via </li>
-                 <li><FontAwesomeIcon icon={faFolder} /><span>Saved to Supabase bucket at: <i>{collectionPrefix}</i></span> </li>
-              </ul>
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '24px' }}>
-              <button class="secondary-button" onClick={handleCancelConvert} style={{ height: '36px', padding: '0 16px', minWidth: '80px', marginTop: '0' }}>Cancel</button>
-              <button class="primary-button" onClick={handleConfirmConvert} style={{ height: '36px', padding: '0 16px' }}>
-                <FontAwesomeIcon icon={faUpload} /> Upload
-              </button>
-            </div>
-          </div>
-        </div>,
-        document.body
-      )}
+      <UploadChoiceModal
+        isOpen={showUploadChoiceModal}
+        onClose={() => setShowUploadChoiceModal(false)}
+        onPickAssets={() => {
+          setShowUploadChoiceModal(false);
+          openPickerForMode('assets');
+        }}
+        onPickImages={() => {
+          setShowUploadChoiceModal(false);
+          openPickerForMode('images');
+        }}
+        onOpenCloudGpu={() => {
+          setShowUploadChoiceModal(false);
+          onOpenCloudGpu?.();
+        }}
+        imageExtensions={IMAGE_EXTENSIONS}
+        supportedExtensions={supportedExtensions}
+      />
     </>
   );
 }
@@ -678,7 +654,7 @@ function SourceItem({ source, onSelect, onRemove, onEditSource, expanded, onTogg
 /**
  * Storage sources list with collapsible toggle and add button
  */
-function StorageSourceList({ onAddSource, onSelectSource }) {
+function StorageSourceList({ onAddSource, onSelectSource, onOpenCloudGpu }) {
   const [sources, setSources] = useState([]);
   const [expandedId, setExpandedId] = useState(null);
   const [isListExpanded, setIsListExpanded] = useState(true);
@@ -755,6 +731,7 @@ function StorageSourceList({ onAddSource, onSelectSource }) {
                 onSelect={onSelectSource}
                 onEditSource={handleEditSource}
                 onRemove={handleRemove}
+                onOpenCloudGpu={onOpenCloudGpu}
               />
             ))}
           </div>

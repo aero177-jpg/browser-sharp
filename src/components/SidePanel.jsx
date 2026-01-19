@@ -52,13 +52,21 @@ function SidePanel() {
   
   // Storage dialog state
   const [storageDialogOpen, setStorageDialogOpen] = useState(false);
+  const [storageDialogInitialTier, setStorageDialogInitialTier] = useState(null);
   
   const handleOpenStorageDialog = useCallback(() => {
+    setStorageDialogInitialTier(null);
+    setStorageDialogOpen(true);
+  }, []);
+
+  const handleOpenCloudGpuDialog = useCallback(() => {
+    setStorageDialogInitialTier('cloud-gpu');
     setStorageDialogOpen(true);
   }, []);
   
   const handleCloseStorageDialog = useCallback(() => {
     setStorageDialogOpen(false);
+    setStorageDialogInitialTier(null);
   }, []);
   
   const handleSourceConnect = useCallback((source) => {
@@ -122,6 +130,7 @@ function SidePanel() {
         <StorageSourceList 
           onAddSource={handleOpenStorageDialog}
           onSelectSource={handleSelectSource}
+          onOpenCloudGpu={handleOpenCloudGpuDialog}
         />
         <DebugSettings />
       </div>
@@ -131,6 +140,7 @@ function SidePanel() {
         isOpen={storageDialogOpen}
         onClose={handleCloseStorageDialog}
         onConnect={handleSourceConnect}
+        initialTier={storageDialogInitialTier}
       />
     </>
   );

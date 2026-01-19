@@ -140,6 +140,14 @@ export const SOURCE_TIERS = {
     requirements: ['Direct HTTP/HTTPS links to .sog/.ply assets'],
     icon: 'link',
   },
+  'cloud-gpu': {
+    tier: 4,
+    label: 'Cloud GPU',
+    description: 'Configure a custom GPU conversion endpoint',
+    benefits: ['Bring your own GPU endpoint', 'Convert images to splats'],
+    requirements: ['API URL and API key'],
+    icon: 'cloud',
+  },
 };
 
 /**

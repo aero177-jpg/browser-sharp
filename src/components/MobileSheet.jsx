@@ -31,13 +31,21 @@ function MobileSheet() {
 
   // Storage dialog state
   const [storageDialogOpen, setStorageDialogOpen] = useState(false);
+  const [storageDialogInitialTier, setStorageDialogInitialTier] = useState(null);
 
   const handleOpenStorageDialog = useCallback(() => {
+    setStorageDialogInitialTier(null);
+    setStorageDialogOpen(true);
+  }, []);
+
+  const handleOpenCloudGpuDialog = useCallback(() => {
+    setStorageDialogInitialTier('cloud-gpu');
     setStorageDialogOpen(true);
   }, []);
 
   const handleCloseStorageDialog = useCallback(() => {
     setStorageDialogOpen(false);
+    setStorageDialogInitialTier(null);
   }, []);
 
   const handleSourceConnect = useCallback((source) => {
@@ -105,6 +113,7 @@ function MobileSheet() {
         <StorageSourceList 
           onAddSource={handleOpenStorageDialog}
           onSelectSource={handleSelectSource}
+          onOpenCloudGpu={handleOpenCloudGpuDialog}
         />
                 <DebugSettings />
 
@@ -116,6 +125,7 @@ function MobileSheet() {
         isOpen={storageDialogOpen}
         onClose={handleCloseStorageDialog}
         onConnect={handleSourceConnect}
+        initialTier={storageDialogInitialTier}
       />
     </div>
   );

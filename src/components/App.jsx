@@ -74,6 +74,7 @@ function App() {
   // File input + storage dialog state for title card actions
   const fileInputRef = useRef(null);
   const [storageDialogOpen, setStorageDialogOpen] = useState(false);
+  const [storageDialogInitialTier, setStorageDialogInitialTier] = useState(null);
 
   // Fullscreen state
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -268,16 +269,19 @@ function App() {
   const handleOpenStorage = useCallback(() => {
     (async () => {
       await new Promise((r) => setTimeout(r, PANEL_TRANSITION_MS));
+      setStorageDialogInitialTier(null);
       setStorageDialogOpen(true);
     })();
   }, []);
 
   const handleCloseStorage = useCallback(() => {
     setStorageDialogOpen(false);
+    setStorageDialogInitialTier(null);
   }, []);
 
   const handleSourceConnect = useCallback(async (source) => {
     setStorageDialogOpen(false);
+    setStorageDialogInitialTier(null);
     try {
       await loadFromStorageSource(source);
     } catch (err) {
@@ -513,6 +517,7 @@ function App() {
         isOpen={storageDialogOpen}
         onClose={handleCloseStorage}
         onConnect={handleSourceConnect}
+        initialTier={storageDialogInitialTier}
       />
     </div>
   );
