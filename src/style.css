@@ -10,7 +10,9 @@ html,
     #0b0d12;
   font-family: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
 
-  --faded-blue: var(--faded-blue);
+  --faded-blue: rgb(92, 133, 161);
+    -webkit-tap-highlight-color: transparent;
+
 }
 
 body {
@@ -583,7 +585,7 @@ button, a, input, .sidebar-btn, .panel-toggle {
 .primary {
   appearance: none;
   border: none;
-  background: linear-gradient(120deg, var(--faded-blue), #7c3aed);
+  background: linear-gradient(120deg, #5896b5, #265268);
   color: #0b0d12;
   padding: 10px 16px;
   border-radius: 10px;
@@ -711,7 +713,7 @@ button, a, input, .sidebar-btn, .panel-toggle {
   width: 18px;
   height: 18px;
   border-radius: 50%;
-  background: linear-gradient(120deg, var(--faded-blue), #7c3aed);
+  background: linear-gradient(120deg, #5896b5, #265268);
   cursor: pointer;
   transition: transform 0.15s ease;
 }
@@ -733,7 +735,7 @@ button, a, input, .sidebar-btn, .panel-toggle {
   width: 18px;
   height: 18px;
   border-radius: 50%;
-  background: linear-gradient(120deg, var(--faded-blue), #7c3aed);
+  background: linear-gradient(120deg, #5896b5, #265268);
   border: none;
   cursor: pointer;
   transition: transform 0.15s ease;
@@ -879,7 +881,7 @@ button, a, input, .sidebar-btn, .panel-toggle {
 }
 
 .switch input:checked + .switch-track {
-  background: linear-gradient(120deg, var(--faded-blue), #7c3aed);
+  background: rgb(61, 98, 112);
 }
 
 .switch input:checked + .switch-track::after {
@@ -2930,6 +2932,12 @@ select option {
   cursor: pointer;
   transition: all 0.2s ease;
   flex-wrap: wrap;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.source-item:focus,
+.source-item:focus-visible {
+  outline: none;
 }
 
 .source-item:hover {

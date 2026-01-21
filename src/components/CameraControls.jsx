@@ -5,7 +5,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'preact/hooks';
 import { useStore } from '../store';
-import { camera, controls, defaultCamera, defaultControls, dollyZoomBaseDistance, dollyZoomBaseFov, requestRender, THREE, setStereoEffectEnabled, setStereoEyeSeparation, setStereoAspect as setStereoAspectRatio, getFocusDistance, calculateOptimalEyeSeparation } from '../viewer';
+import { camera, controls, defaultCamera, defaultControls, dollyZoomBaseDistance, dollyZoomBaseFov, requestRender, THREE, setStereoEyeSeparation, setStereoAspect as setStereoAspectRatio, getFocusDistance, calculateOptimalEyeSeparation } from '../viewer';
 import { applyCameraRangeDegrees, restoreHomeView, resetViewWithImmersive } from '../cameraUtils';
 import { currentMesh, raycaster, SplatMesh, scene } from '../viewer';
 import { updateDollyZoomBaselineFromCamera } from '../viewer';
@@ -15,7 +15,7 @@ import { saveFocusDistance, clearFocusDistance } from '../fileStorage';
 import { updateFocusDistanceInCache, clearFocusDistanceInCache } from '../splatManager';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faChevronDown, faEye, faEyeSlash } from '@fortawesome/free-solid-svg-icons';
-import { resize, loadSplatFile } from '../fileLoader';
+import { loadSplatFile } from '../fileLoader';
 import { captureCurrentAssetPreview, getAssetList, getCurrentAssetIndex } from '../assetManager';
 import { savePreviewBlob } from '../fileStorage';
 import {
@@ -160,6 +160,8 @@ function CameraControls() {
   const setCustomModelScale = useStore((state) => state.setCustomModelScale);
   const setCustomMetadataAvailable = useStore((state) => state.setCustomMetadataAvailable);
   const setMetadataMissing = useStore((state) => state.setMetadataMissing);
+  const qualityPreset = useStore((state) => state.qualityPreset);
+  const setQualityPreset = useStore((state) => state.setQualityPreset);
 
   // Ref for camera range slider to avoid DOM queries
   const rangeSliderRef = useRef(null);
@@ -622,71 +624,6 @@ function CameraControls() {
     resetViewWithImmersive();
   }, []);
 
-  /** Toggle side-by-side stereo effect; enter fullscreen when enabling */
-  const handleStereoToggle = useCallback(async (e) => {
-    const enabled = e.target.checked;
-    const viewerEl = document.getElementById('viewer');
-    if (!viewerEl) return;
-
-    try {
-      if (enabled) {
-        // Hide background images when entering stereo mode
-        const bgContainers = document.querySelectorAll('.bg-image-container');
-        bgContainers.forEach(el => el.classList.add('stereo-hidden'));
-        
-        if (document.fullscreenElement !== viewerEl) {
-          await viewerEl.requestFullscreen();
-        }
-        setStereoEffectEnabled(true);
-        setStereoEnabled(true);
-        resize();
-        addLog('Side-by-side stereo enabled');
-      } else {
-        // Restore background images when exiting stereo mode
-        const bgContainers = document.querySelectorAll('.bg-image-container');
-        bgContainers.forEach(el => el.classList.remove('stereo-hidden'));
-        
-        setStereoEffectEnabled(false);
-        setStereoEnabled(false);
-        requestRender();
-        if (document.fullscreenElement === viewerEl) {
-          await document.exitFullscreen();
-        }
-        resize();
-        addLog('Stereo mode disabled');
-      }
-    } catch (err) {
-      // Restore background images on error
-      const bgContainers = document.querySelectorAll('.bg-image-container');
-      bgContainers.forEach(el => el.classList.remove('stereo-hidden'));
-      
-      setStereoEffectEnabled(false);
-      setStereoEnabled(false);
-      e.target.checked = false;
-      addLog('Stereo toggle failed');
-      console.warn('Stereo toggle failed:', err);
-    }
-  }, [setStereoEnabled, addLog]);
-
-  // If fullscreen is exited while stereo is on, disable stereo to avoid misalignment
-  useEffect(() => {
-    const handleFsChange = () => {
-      const viewerEl = document.getElementById('viewer');
-      const inFullscreen = document.fullscreenElement === viewerEl;
-      if (stereoEnabled && !inFullscreen) {
-        // Restore background images on exit
-        const bgContainers = document.querySelectorAll('.bg-image-container');
-        bgContainers.forEach(el => el.classList.remove('stereo-hidden'));
-        setStereoEffectEnabled(false);
-        setStereoEnabled(false);
-        requestRender();
-        resize();
-      }
-    };
-    document.addEventListener('fullscreenchange', handleFsChange);
-    return () => document.removeEventListener('fullscreenchange', handleFsChange);
-  }, [stereoEnabled, setStereoEnabled]);
-
   return (
     <div class="settings-group">
       {/* Collapsible header */}
@@ -731,19 +668,6 @@ function CameraControls() {
           </>
         )}
 
-        {/* Stereo toggle */}
-        <div class="control-row">
-          <span class="control-label">Side-by-side stereo</span>
-          <label class="switch">
-            <input
-              type="checkbox"
-              checked={stereoEnabled}
-              onChange={handleStereoToggle}
-            />
-            <span class="switch-track" aria-hidden="true" />
-          </label>
-        </div>
-
         {/* VR button - shown when VR is supported and an asset is loaded */}
         {vrSupported && hasAssetLoaded && (
           <div class="control-row">
@@ -757,6 +681,26 @@ function CameraControls() {
             </button>
           </div>
         )}
+
+        {/* Quality preset */}
+        <div class="control-row">
+          <span class="control-label">Quality</span>
+          <div class="control-track">
+            <select
+              class="quality-select"
+              value={qualityPreset}
+              onChange={(e) => setQualityPreset(e.target.value)}
+            >
+              <option value="high">High</option>
+              <option value="default">Default</option>
+              <option value="performance">Performance</option>
+              <option value="experimental">Experimental</option>
+              {qualityPreset === 'debug-custom' && (
+                <option value="debug-custom">Debug custom</option>
+              )}
+            </select>
+          </div>
+        </div>
 
         {/* Eye separation slider - shown when stereo is enabled */}
         {stereoEnabled && (

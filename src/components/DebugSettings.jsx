@@ -11,8 +11,9 @@ import { captureCurrentAssetPreview, getAssetList, getCurrentAssetIndex } from '
 import { savePreviewBlob } from '../fileStorage';
 import { clearSupabaseManifestCache } from '../storage/supabaseSettings.js';
 import { generateAllPreviews, abortBatchPreview } from '../batchPreview';
-import { setDebugForceZoomOut, reloadCurrentAsset } from '../fileLoader';
+import { setDebugForceZoomOut, reloadCurrentAsset, resize } from '../fileLoader';
 import { clearCustomMetadataForAsset } from '../customMetadata.js';
+import { requestRender, setStereoEffectEnabled } from '../viewer';
 
 let erudaInitPromise = null;
 
@@ -80,9 +81,12 @@ function DebugSettings() {
   const setDebugFpsLimitEnabled = useStore((state) => state.setDebugFpsLimitEnabled);
   const debugSparkMaxStdDev = useStore((state) => state.debugSparkMaxStdDev);
   const setDebugSparkMaxStdDev = useStore((state) => state.setDebugSparkMaxStdDev);
+  const setQualityPreset = useStore((state) => state.setQualityPreset);
   const customMetadataAvailable = useStore((state) => state.customMetadataAvailable);
   const setCustomMetadataAvailable = useStore((state) => state.setCustomMetadataAvailable);
   const setCustomMetadataControlsVisible = useStore((state) => state.setCustomMetadataControlsVisible);
+  const stereoEnabled = useStore((state) => state.stereoEnabled);
+  const setStereoEnabled = useStore((state) => state.setStereoEnabled);
   const devtoolsUserApprovedRef = useRef(false);
 
   const {
@@ -130,19 +134,68 @@ function DebugSettings() {
   /** Toggle stochastic rendering */
   const handleStochasticToggle = useCallback((e) => {
     const enabled = Boolean(e.target.checked);
+    setQualityPreset('debug-custom');
     setDebugStochasticRendering(enabled);
-  }, [setDebugStochasticRendering]);
+  }, [setDebugStochasticRendering, setQualityPreset]);
 
   /** Toggle FPS limiting */
   const handleFpsLimitToggle = useCallback((e) => {
     const enabled = Boolean(e.target.checked);
+    setQualityPreset('debug-custom');
     setDebugFpsLimitEnabled(enabled);
-  }, [setDebugFpsLimitEnabled]);
+  }, [setDebugFpsLimitEnabled, setQualityPreset]);
+
+  /** Toggle side-by-side stereo effect; enter fullscreen when enabling */
+  const handleStereoToggle = useCallback(async (e) => {
+    const enabled = e.target.checked;
+    const viewerEl = document.getElementById('viewer');
+    if (!viewerEl) return;
+
+    try {
+      if (enabled) {
+        // Hide background images when entering stereo mode
+        const bgContainers = document.querySelectorAll('.bg-image-container');
+        bgContainers.forEach(el => el.classList.add('stereo-hidden'));
+
+        if (document.fullscreenElement !== viewerEl) {
+          await viewerEl.requestFullscreen();
+        }
+        setStereoEffectEnabled(true);
+        setStereoEnabled(true);
+        resize();
+        addLog('Side-by-side stereo enabled');
+      } else {
+        // Restore background images when exiting stereo mode
+        const bgContainers = document.querySelectorAll('.bg-image-container');
+        bgContainers.forEach(el => el.classList.remove('stereo-hidden'));
+
+        setStereoEffectEnabled(false);
+        setStereoEnabled(false);
+        requestRender();
+        if (document.fullscreenElement === viewerEl) {
+          await document.exitFullscreen();
+        }
+        resize();
+        addLog('Stereo mode disabled');
+      }
+    } catch (err) {
+      // Restore background images on error
+      const bgContainers = document.querySelectorAll('.bg-image-container');
+      bgContainers.forEach(el => el.classList.remove('stereo-hidden'));
+
+      setStereoEffectEnabled(false);
+      setStereoEnabled(false);
+      e.target.checked = false;
+      addLog('Stereo toggle failed');
+      console.warn('Stereo toggle failed:', err);
+    }
+  }, [setStereoEnabled, addLog]);
 
   const handleSparkStdDevChange = useCallback((e) => {
     const value = Number(e.target.value);
+    setQualityPreset('debug-custom');
     setDebugSparkMaxStdDev(Number.isFinite(value) ? value : Math.sqrt(5));
-  }, [setDebugSparkMaxStdDev]);
+  }, [setDebugSparkMaxStdDev, setQualityPreset]);
 
   const handleClearCustomMetadata = useCallback(async () => {
     if (!currentAssetName || isClearing) return;
@@ -320,6 +373,25 @@ function DebugSettings() {
     }
   }, [mobileDevtoolsEnabled, setMobileDevtoolsEnabled]);
 
+  // If fullscreen is exited while stereo is on, disable stereo to avoid misalignment
+  useEffect(() => {
+    const handleFsChange = () => {
+      const viewerEl = document.getElementById('viewer');
+      const inFullscreen = document.fullscreenElement === viewerEl;
+      if (stereoEnabled && !inFullscreen) {
+        // Restore background images on exit
+        const bgContainers = document.querySelectorAll('.bg-image-container');
+        bgContainers.forEach(el => el.classList.remove('stereo-hidden'));
+        setStereoEffectEnabled(false);
+        setStereoEnabled(false);
+        requestRender();
+        resize();
+      }
+    };
+    document.addEventListener('fullscreenchange', handleFsChange);
+    return () => document.removeEventListener('fullscreenchange', handleFsChange);
+  }, [stereoEnabled, setStereoEnabled]);
+
   return (
     <div class="settings-group">
       <button
@@ -378,6 +450,18 @@ function DebugSettings() {
               type="checkbox"
               checked={debugFpsLimitEnabled}
               onChange={handleFpsLimitToggle}
+            />
+            <span class="switch-track" aria-hidden="true" />
+          </label>
+        </div>
+
+        <div class="control-row">
+          <span class="control-label">Side-by-side stereo</span>
+          <label class="switch">
+            <input
+              type="checkbox"
+              checked={stereoEnabled}
+              onChange={handleStereoToggle}
             />
             <span class="switch-track" aria-hidden="true" />
           </label>
