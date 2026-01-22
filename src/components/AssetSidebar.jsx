@@ -433,6 +433,7 @@ function AssetSidebar() {
               const isCollection = !!asset?.sourceId;
               const source = asset?.sourceId ? getSource(asset.sourceId) : null;
               const isLocalCollection = sourceType === 'local-folder';
+              const isAppStorage = sourceType === 'app-storage';
               const isUrlCollection = sourceType === 'public-url';
               const isSupabase = sourceType === 'supabase-storage';
 
@@ -444,6 +445,14 @@ function AssetSidebar() {
                 return (
                   <p class="modal-note">
                     Removing here only clears it from the app; delete the file in the folder to remove it on your device.
+                  </p>
+                );
+              }
+
+              if (isAppStorage) {
+                return (
+                  <p class="modal-note">
+                    Removing here only clears it from the viewer; the file remains in app storage.
                   </p>
                 );
               }

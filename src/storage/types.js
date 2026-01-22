@@ -6,7 +6,7 @@
  */
 
 /**
- * @typedef {'local-folder' | 'public-url' | 'supabase-storage'} SourceType
+ * @typedef {'local-folder' | 'public-url' | 'supabase-storage' | 'app-storage'} SourceType
  */
 
 /**
@@ -51,6 +51,12 @@
  * @property {string} collectionId - Collection identifier under collections/{collectionId}
  * @property {string} [collectionName] - Display name for the collection
  * @property {boolean} hasManifest - Whether manifest.json exists
+ */
+
+/**
+ * @typedef {Object} AppStorageConfig
+ * @property {string} collectionId - Collection identifier stored in app storage
+ * @property {string} [collectionName] - Display name for the collection
  */
 
 /**
@@ -123,6 +129,14 @@ export const SOURCE_TIERS = {
     benefits: ['Works offline', 'Fast loading', 'No setup required'],
     requirements: ['Browser must support File System Access API'],
     icon: 'folder',
+  },
+  'app-storage': {
+    tier: 1,
+    label: 'App Storage',
+    description: 'Store collections inside the app for offline use',
+    benefits: ['Runs fully offline', 'No re-authorization required', 'Private to the app'],
+    requirements: ['Available on Android/iOS app builds'],
+    icon: 'database',
   },
   'supabase-storage': {
     tier: 2,

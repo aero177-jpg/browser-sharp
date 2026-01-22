@@ -23,6 +23,12 @@ export {
   restoreLocalFolderSource,
 } from './LocalFolderSource.js';
 
+export {
+  AppStorageSource,
+  createAppStorageSource,
+  restoreAppStorageSource,
+} from './AppStorageSource.js';
+
 export { 
   PublicUrlSource, 
   createPublicUrlSource, 
@@ -37,6 +43,7 @@ export {
 
 // Import restore functions for local use in restoreSource()
 import { restoreLocalFolderSource as _restoreLocalFolderSource } from './LocalFolderSource.js';
+import { restoreAppStorageSource as _restoreAppStorageSource } from './AppStorageSource.js';
 import { restorePublicUrlSource as _restorePublicUrlSource } from './PublicUrlSource.js';
 import { restoreSupabaseStorageSource as _restoreSupabaseStorageSource } from './SupabaseStorageSource.js';
 import { createPublicUrlSource as _createPublicUrlSource } from './PublicUrlSource.js';
@@ -91,6 +98,8 @@ export const restoreSource = (config) => {
   switch (config.type) {
     case 'local-folder':
       return _restoreLocalFolderSource(config);
+    case 'app-storage':
+      return _restoreAppStorageSource(config);
     case 'public-url':
       return _restorePublicUrlSource(config);
     case 'supabase-storage':

@@ -4,7 +4,7 @@
  * Modal dialog for adding new collections backed by Local Folder or Supabase Storage.
  */
 
-import { useState, useCallback, useEffect, useMemo } from 'preact/hooks';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'preact/hooks';
 import { createPortal } from 'preact/compat';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
@@ -20,11 +20,13 @@ import {
   faLink,
   faQuestion,
   faFolderOpen,
+  faDatabase,
 } from '@fortawesome/free-solid-svg-icons';
 import {
   SOURCE_TIERS,
   isFileSystemAccessSupported,
   createLocalFolderSource,
+  createAppStorageSource,
   createPublicUrlSource,
   createSupabaseStorageSource,
   registerSource,
@@ -33,13 +35,15 @@ import {
 import { loadSupabaseSettings, saveSupabaseSettings } from '../storage/supabaseSettings.js';
 import { listExistingCollections, testBucketConnection } from '../storage/supabaseApi.js';
 import { getAssetList } from '../assetManager.js';
-import { getSupportedExtensions } from '../formats/index.js';
+import { getFormatAccept, getSupportedExtensions } from '../formats/index.js';
 import CloudGpuForm from './CloudGpuForm.jsx';
+import { Capacitor } from '@capacitor/core';
 
 const ICONS = {
   folder: faFolder,
   cloud: faCloud,
   link: faLink,
+  database: faDatabase,
 };
 
 function TierCard({ type, selected, onSelect, disabled }) {
@@ -165,6 +169,152 @@ function LocalFolderForm({ onConnect, onBack }) {
       <p class="form-note">
         Your browser will ask for permission to access the folder.
         The app only reads files and never uploads data.
+      </p>
+    </div>
+  );
+}
+
+function AppStorageForm({ onConnect, onBack }) {
+  const [status, setStatus] = useState('idle');
+  const [error, setError] = useState(null);
+  const [collectionName, setCollectionName] = useState('');
+  const [selectedFiles, setSelectedFiles] = useState([]);
+  const fileInputRef = useRef(null);
+  const acceptString = useMemo(() => getFormatAccept() || '', []);
+  const supportedExtensions = useMemo(() => getSupportedExtensions(), []);
+
+  const handlePickFiles = useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
+
+  const handleFileChange = useCallback((event) => {
+    const files = Array.from(event.target.files || []);
+    setSelectedFiles(files);
+  }, []);
+
+  const handleCreate = useCallback(async () => {
+    setStatus('connecting');
+    setError(null);
+
+    try {
+      const source = createAppStorageSource({
+        name: collectionName.trim() || 'App collection',
+        collectionName: collectionName.trim() || 'App collection',
+      });
+
+      const result = await source.connect();
+      if (!result.success) {
+        setError(result.error || 'Failed to connect');
+        setStatus('error');
+        return;
+      }
+
+      if (selectedFiles.length > 0) {
+        const validFiles = selectedFiles.filter((file) => {
+          const ext = file.name.toLowerCase().match(/\.[^.]+$/)?.[0] || '';
+          return supportedExtensions.includes(ext);
+        });
+
+        if (validFiles.length === 0) {
+          setError('No supported files selected.');
+          setStatus('error');
+          return;
+        }
+
+        const importResult = await source.importFiles(validFiles);
+        if (!importResult.success) {
+          setError(importResult.error || 'Failed to import files');
+          setStatus('error');
+          return;
+        }
+      }
+
+      registerSource(source);
+      await saveSource(source.toJSON());
+      await source.listAssets();
+
+      setStatus('success');
+      setTimeout(() => onConnect(source), 500);
+    } catch (err) {
+      setError(err.message);
+      setStatus('error');
+    }
+  }, [collectionName, selectedFiles, supportedExtensions, onConnect]);
+
+  return (
+    <div class="storage-form">
+      <button class="back-button" onClick={onBack}>
+        {'Back'}
+      </button>
+
+      <h3>Create app storage collection</h3>
+
+      <div class="form-field">
+        <label>Collection name</label>
+        <input
+          type="text"
+          placeholder="Offline collection"
+          value={collectionName}
+          onInput={(e) => setCollectionName(e.target.value)}
+        />
+      </div>
+
+      <div class="form-info">
+        <ul class="feature-list">
+          <li><FontAwesomeIcon icon={faCheck} /> Stored inside the app (private)</li>
+          <li><FontAwesomeIcon icon={faCheck} /> Works fully offline</li>
+          <li><FontAwesomeIcon icon={faCheck} /> No re-authorization prompts</li>
+        </ul>
+      </div>
+
+      <div class="form-field">
+        <label>Import assets (optional)</label>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept={acceptString}
+          multiple
+          style={{ display: 'none' }}
+          onChange={handleFileChange}
+        />
+        <button class="secondary-button" onClick={handlePickFiles} type="button" style={{ marginTop: '8px' }}>
+          {selectedFiles.length > 0 ? `Selected ${selectedFiles.length} file(s)` : 'Pick files'}
+        </button>
+        <span class="field-hint">Supported: {supportedExtensions.join(', ')}</span>
+      </div>
+
+      {error && (
+        <div class="form-error">
+          <FontAwesomeIcon icon={faExclamationTriangle} />
+          {' '}{error}
+        </div>
+      )}
+
+      <button
+        class="primary-button"
+        onClick={handleCreate}
+        disabled={status === 'connecting'}
+      >
+        {status === 'connecting' ? (
+          <>
+            <FontAwesomeIcon icon={faSpinner} spin />
+            {' '}Creating...
+          </>
+        ) : status === 'success' ? (
+          <>
+            <FontAwesomeIcon icon={faCheck} />
+            {' '}Created!
+          </>
+        ) : (
+          <>
+            <FontAwesomeIcon icon={faDatabase} />
+            {' '}Create Collection
+          </>
+        )}
+      </button>
+
+      <p class="form-note">
+        Collections are stored in the app’s private storage and remain available offline.
       </p>
     </div>
   );
@@ -1029,6 +1179,7 @@ function SupabaseForm({ onConnect, onBack, onClose }) {
 function ConnectStorageDialog({ isOpen, onClose, onConnect, editSource, onEditComplete, initialTier = null }) {
   const [selectedTier, setSelectedTier] = useState(editSource?.type || initialTier || null);
   const localSupported = isFileSystemAccessSupported();
+  const appStorageSupported = Capacitor?.isNativePlatform?.() || false;
 
   useEffect(() => {
     if (editSource) {
@@ -1083,6 +1234,12 @@ function ConnectStorageDialog({ isOpen, onClose, onConnect, editSource, onEditCo
                 disabled={!localSupported}
               />
               <TierCard
+                type="app-storage"
+                selected={false}
+                onSelect={setSelectedTier}
+                disabled={!appStorageSupported}
+              />
+              <TierCard
                 type="supabase-storage"
                 selected={false}
                 onSelect={setSelectedTier}
@@ -1108,6 +1265,8 @@ function ConnectStorageDialog({ isOpen, onClose, onConnect, editSource, onEditCo
           </>
         ) : selectedTier === 'local-folder' ? (
           <LocalFolderForm onConnect={handleConnect} onBack={handleBack} />
+        ) : selectedTier === 'app-storage' ? (
+          <AppStorageForm onConnect={handleConnect} onBack={handleBack} />
         ) : selectedTier === 'supabase-storage' ? (
           <SupabaseForm onConnect={handleConnect} onBack={handleBack} onClose={handleClose} />
         ) : selectedTier === 'public-url' ? (

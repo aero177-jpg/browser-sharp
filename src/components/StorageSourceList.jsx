@@ -22,6 +22,7 @@ import {
   faLink,
   faPen,
   faEllipsisVertical,
+  faDatabase,
 } from '@fortawesome/free-solid-svg-icons';
 import {
   getSourcesArray,
@@ -38,12 +39,14 @@ import UploadChoiceModal from './UploadChoiceModal';
 
 const TYPE_ICONS = {
   'local-folder': faFolder,
+  'app-storage': faDatabase,
   'supabase-storage': faCloud,
   'public-url': faLink,
 };
 
 const TYPE_LABELS = {
   'local-folder': 'Local',
+  'app-storage': 'App',
   'supabase-storage': 'Supabase',
   'public-url': 'URL',
 };
@@ -77,10 +80,11 @@ function SourceItem({ source, onSelect, onRemove, onEditSource, expanded, onTogg
     return acceptString ? `${acceptString},${imageAccept}` : imageAccept;
   }, [acceptString, imageAccept]);
   const uploadAccept = useMemo(() => {
+    if (source.type === 'app-storage') return acceptString || '';
     if (uploadMode === 'images') return imageAccept;
     if (uploadMode === 'assets') return acceptString || '';
     return combinedAccept;
-  }, [acceptString, combinedAccept, imageAccept, uploadMode]);
+  }, [acceptString, combinedAccept, imageAccept, uploadMode, source.type]);
   const collectionPrefix = useMemo(() => {
     const collectionId = source?.config?.config?.collectionId;
     return collectionId ? `collections/${collectionId}/assets` : 'collections/default/assets';
@@ -421,10 +425,39 @@ function SourceItem({ source, onSelect, onRemove, onEditSource, expanded, onTogg
     e.stopPropagation();
     const files = Array.from(e.target.files || []);
     e.target.value = '';
+    if (source.type === 'app-storage') {
+      setIsLoading(true);
+      try {
+        if (typeof source.importFiles !== 'function') return;
+        const result = await source.importFiles(files);
+        if (!result?.success) {
+          setStatus('error');
+          if (result?.error) {
+            alert(result.error);
+          }
+          return;
+        }
+        await refreshAssets();
+      } catch (err) {
+        console.error('App storage import failed:', err);
+        setStatus('error');
+      } finally {
+        setIsLoading(false);
+      }
+      return;
+    }
     const mode = uploadMode || 'assets';
     setUploadMode(null);
     await handleFilesForMode(mode, files);
-  }, [handleFilesForMode, uploadMode]);
+  }, [handleFilesForMode, refreshAssets, source, uploadMode]);
+
+  const handleAppStoragePick = useCallback((e) => {
+    e.stopPropagation();
+    if (source.type !== 'app-storage') return;
+    requestAnimationFrame(() => {
+      uploadInputRef.current?.click();
+    });
+  }, [source.type]);
 
   const handleRemove = useCallback(async (e) => {
     e.stopPropagation();
@@ -603,6 +636,16 @@ function SourceItem({ source, onSelect, onRemove, onEditSource, expanded, onTogg
             >
               <FontAwesomeIcon icon={faPen} />
               <span>Edit</span>
+            </button>
+          )}
+          {source.type === 'app-storage' && (
+            <button
+              class="source-action-btn"
+              onClick={handleAppStoragePick}
+              title="Add files to app storage"
+            >
+              <FontAwesomeIcon icon={faUpload} />
+              <span>Add files</span>
             </button>
           )}
           {source.type === 'supabase-storage' && (
