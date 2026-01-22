@@ -62,8 +62,8 @@ export const restoreHomeView = () => {
   };
 
   // Check if in fullscreen portrait mode or immersive fullscreen - skip animation to avoid zoom/stutter issues
-  const viewerEl = document.getElementById('viewer');
-  const isFullscreen = document.fullscreenElement === viewerEl;
+  const fullscreenRoot = document.getElementById('app');
+  const isFullscreen = document.fullscreenElement === fullscreenRoot;
   const isFullscreenPortrait = isFullscreen && window.innerHeight > window.innerWidth;
   const isImmersiveFullscreen = isFullscreen && immersiveModeModule?.isImmersiveModeActive?.();
 

@@ -16,7 +16,7 @@ import { initViewer, startRenderLoop, currentMesh, camera, controls, defaultCame
 import { resize, loadFromStorageSource, loadNextAsset, loadPrevAsset, handleMultipleFiles } from '../fileLoader';
 import { resetViewWithImmersive } from '../cameraUtils';
 import { enableImmersiveMode, disableImmersiveMode, setImmersiveSensitivityMultiplier, setTouchPanEnabled, syncImmersiveBaseline } from '../immersiveMode';
-import { setupFullscreenHandler, moveElementsToFullscreen } from '../fullscreenHandler';
+import { setupFullscreenHandler } from '../fullscreenHandler';
 import useOutsideClick from '../utils/useOutsideClick';
 import useSwipe from '../utils/useSwipe';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -78,7 +78,6 @@ function App() {
 
   // Fullscreen state
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const controlsRef = useRef(null);
   const bottomControlsRef = useRef(null);
   const swipeTargetRef = useRef(null);
 
@@ -91,24 +90,12 @@ function App() {
 
   // Setup fullscreen handler - re-run when controls mount
   useEffect(() => {
+    const fullscreenRoot = document.getElementById('app');
     const viewerEl = document.getElementById('viewer');
-    if (!viewerEl) return;
+    if (!fullscreenRoot || !viewerEl) return;
 
-    return setupFullscreenHandler(viewerEl, controlsRef.current, setIsFullscreen);
+    return setupFullscreenHandler(fullscreenRoot, viewerEl, setIsFullscreen);
   }, [hasMesh]); // Re-run when hasMesh changes (when controls appear/disappear)
-
-  // Ensure fullscreen UI elements are re-parented after orientation changes
-  // Use requestAnimationFrame to wait for React to render the new SidePanel/MobileSheet
-  useEffect(() => {
-    const viewerEl = document.getElementById('viewer');
-    if (!viewerEl) return;
-    if (document.fullscreenElement !== viewerEl) return;
-
-    const frameId = requestAnimationFrame(() => {
-      moveElementsToFullscreen(viewerEl, controlsRef.current);
-    });
-    return () => cancelAnimationFrame(frameId);
-  }, [isMobile, isPortrait, isFullscreen]);
 
   /**
    * Track mesh loading state with stability to prevent flickering.
@@ -180,18 +167,47 @@ function App() {
   });
 
   const handleToggleFullscreen = useCallback(async () => {
-    // Use the viewer element itself for fullscreen so the canvas expands
+    // Use the app root for fullscreen so all UI stays visible
+    const fullscreenRoot = document.getElementById('app');
     const viewerEl = document.getElementById('viewer');
-    if (!viewerEl) return;
+    if (!fullscreenRoot) return;
 
     try {
-      if (document.fullscreenElement === viewerEl) {
+      // Fade out before toggling
+      if (viewerEl) {
+        viewerEl.classList.remove('fs-fade-in');
+        viewerEl.classList.add('fs-fade-out');
+      }
+      
+      // Wait for fade-out to complete
+      await new Promise((r) => setTimeout(r, 150));
+      
+      if (document.fullscreenElement === fullscreenRoot) {
         await document.exitFullscreen();
       } else {
-        await viewerEl.requestFullscreen();
+        await fullscreenRoot.requestFullscreen();
       }
+      
+      // After fullscreen settles, resize then fade in
+      setTimeout(() => {
+        requestAnimationFrame(() => {
+          resize();
+          requestRender();
+          if (viewerEl) {
+            viewerEl.classList.remove('fs-fade-out');
+            viewerEl.classList.add('fs-fade-in');
+            // Clean up class after transition
+            setTimeout(() => viewerEl.classList.remove('fs-fade-in'), 250);
+          }
+        });
+      }, 500);
     } catch (err) {
       console.warn('Fullscreen toggle failed:', err);
+      // Ensure we restore visibility on error
+      if (viewerEl) {
+        viewerEl.classList.remove('fs-fade-out');
+        viewerEl.classList.add('fs-fade-in');
+      }
     }
   }, []);
 

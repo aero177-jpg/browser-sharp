@@ -89,10 +89,52 @@ button, a, input, .sidebar-btn, .panel-toggle {
   transition: width 220ms ease, height 220ms ease;
 }
 
-/* When viewer is fullscreen, ensure proper stacking */
-#viewer:fullscreen,
-#viewer:-webkit-full-screen {
+/* When app is fullscreen, ensure proper stacking and layout */
+#app:fullscreen #viewer,
+#app:-webkit-full-screen #viewer {
   z-index: 0;
+}
+
+#app:fullscreen .page,
+#app:-webkit-full-screen .page {
+  padding: 0;
+  align-items: stretch;
+  justify-content: stretch;
+}
+
+#app:fullscreen .viewer,
+#app:-webkit-full-screen .viewer {
+  width: 100vw;
+  height: 100vh;
+  border-radius: 0;
+  border: none;
+  box-shadow: none;
+  overflow: hidden;
+}
+
+#app:fullscreen .viewer canvas,
+#app:-webkit-full-screen .viewer canvas {
+  border-radius: 0;
+}
+
+#app:fullscreen.fullscreen-ui-hidden .asset-sidebar,
+#app:fullscreen.fullscreen-ui-hidden .bottom-controls,
+#app:fullscreen.fullscreen-ui-hidden .side,
+#app:fullscreen.fullscreen-ui-hidden .panel-toggle,
+#app:fullscreen.fullscreen-ui-hidden .mobile-sheet,
+#app:fullscreen.fullscreen-ui-hidden .sidebar-hover-target,
+#app:fullscreen.fullscreen-ui-hidden .sidepanel-hover-target,
+#app:fullscreen.fullscreen-ui-hidden .bottom-swipe-target,
+#app:-webkit-full-screen.fullscreen-ui-hidden .asset-sidebar,
+#app:-webkit-full-screen.fullscreen-ui-hidden .bottom-controls,
+#app:-webkit-full-screen.fullscreen-ui-hidden .side,
+#app:-webkit-full-screen.fullscreen-ui-hidden .panel-toggle,
+#app:-webkit-full-screen.fullscreen-ui-hidden .mobile-sheet,
+#app:-webkit-full-screen.fullscreen-ui-hidden .sidebar-hover-target,
+#app:-webkit-full-screen.fullscreen-ui-hidden .sidepanel-hover-target,
+#app:-webkit-full-screen.fullscreen-ui-hidden .bottom-swipe-target {
+  opacity: 0;
+  pointer-events: none;
 }
 
 
@@ -202,6 +244,19 @@ button, a, input, .sidebar-btn, .panel-toggle {
 
 .viewer.slide-in .bg-image-container:not(.active) {
   opacity: 0;
+}
+
+/* Fullscreen toggle fade transition */
+.viewer.fs-fade-out canvas,
+.viewer.fs-fade-out .bg-image-container {
+  opacity: 0;
+  transition: opacity 150ms ease-out;
+}
+
+.viewer.fs-fade-in canvas,
+.viewer.fs-fade-in .bg-image-container {
+  opacity: 1;
+  transition: opacity 200ms ease-in;
 }
 
 /* .viewer.loading canvas {
@@ -1128,56 +1183,56 @@ button, a, input, .sidebar-btn, .panel-toggle {
 
 
 /* In fullscreen, enhance the glow effect with more blur and scale */
-#viewer:fullscreen .bg-image-container,
-#viewer:-webkit-full-screen .bg-image-container {
+#app:fullscreen .bg-image-container,
+#app:-webkit-full-screen .bg-image-container {
   background-size: auto 100%;
   transform: scaleX(130%);
   filter: blur(40px)!important;
 }
 
 /* Fullscreen: UI elements moved inside viewer need explicit positioning and z-index */
-#viewer:fullscreen .panel-toggle,
-#viewer:-webkit-full-screen .panel-toggle {
+#app:fullscreen .panel-toggle,
+#app:-webkit-full-screen .panel-toggle {
   position: fixed;
   z-index: 100;
 }
 
-#viewer:fullscreen .side,
-#viewer:-webkit-full-screen .side {
+#app:fullscreen .side,
+#app:-webkit-full-screen .side {
   position: fixed;
   z-index: 98;
 }
 
-#viewer:fullscreen .asset-sidebar,
-#viewer:-webkit-full-screen .asset-sidebar {
+#app:fullscreen .asset-sidebar,
+#app:-webkit-full-screen .asset-sidebar {
   position: fixed;
   z-index: 95;
 }
 
-#viewer:fullscreen .sidebar-hover-target,
-#viewer:-webkit-full-screen .sidebar-hover-target {
+#app:fullscreen .sidebar-hover-target,
+#app:-webkit-full-screen .sidebar-hover-target {
   position: fixed;
   z-index: 94;
 }
 
 
 
-#viewer:fullscreen .mobile-sheet,
-#viewer:-webkit-full-screen .mobile-sheet {
+#app:fullscreen .mobile-sheet,
+#app:-webkit-full-screen .mobile-sheet {
   position: fixed;
     background: transparent !important;
   z-index: 92;
 }
 
 /* Make bottom page buttons transparent in fullscreen for unobtrusive UI */
-#viewer:fullscreen .bottom-page-btn,
-#viewer:-webkit-full-screen .bottom-page-btn {
+#app:fullscreen .bottom-page-btn,
+#app:-webkit-full-screen .bottom-page-btn {
   background: transparent !important;
   color: rgba(217, 222, 232, 0.66) !important;
 }
 
-#viewer:fullscreen .modal-overlay,
-#viewer:-webkit-full-screen .modal-overlay {
+#app:fullscreen .modal-overlay,
+#app:-webkit-full-screen .modal-overlay {
   position: fixed;
   inset: 0;
   z-index: 110;
@@ -2195,14 +2250,14 @@ select option {
   cursor: pointer;
 }
 
-.fov-overlay-slider::-webkit-slider-thumb {
-  width: 20px;
-  height: 20px;
-}
-
-.fov-overlay-slider::-moz-range-thumb {
-  width: 20px;
-  height: 20px;
+.fov-overlay input[type="range"]::-webkit-slider-thumb {
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: linear-gradient(120deg, #5896b5, #265268);
+  cursor: pointer;
+  transition: transform 0.15s ease;
 }
 
 .bottom-controls-right {
@@ -2222,22 +2277,22 @@ select option {
 }
 
 /* Fullscreen mode adjustments */
-#viewer:fullscreen .bottom-controls,
-#viewer:-webkit-full-screen .bottom-controls {
+#app:fullscreen .bottom-controls,
+#app:-webkit-full-screen .bottom-controls {
   position: fixed;
   z-index: 10;
 }
 
 /* Mobile fullscreen adjustments */
 @media screen and (max-width: 768px) {
-  #viewer:fullscreen .bottom-controls,
-  #viewer:-webkit-full-screen .bottom-controls {
+  #app:fullscreen .bottom-controls,
+  #app:-webkit-full-screen .bottom-controls {
     bottom: 18px !important;
   }
 
   @media (orientation: portrait) {
-    #viewer:fullscreen .bottom-controls,
-    #viewer:-webkit-full-screen .bottom-controls {
+    #app:fullscreen .bottom-controls,
+    #app:-webkit-full-screen .bottom-controls {
       bottom: 70px !important;
     }
   }

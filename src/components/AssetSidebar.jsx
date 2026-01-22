@@ -41,10 +41,10 @@ function AssetSidebar() {
   const [portalTarget, setPortalTarget] = useState(null);
 
   useEffect(() => {
-    // Use viewer element if in fullscreen, otherwise document body
+    // Use app root if in fullscreen, otherwise document body
     const getPortalTarget = () => {
-      const viewerEl = document.getElementById('viewer');
-      return document.fullscreenElement === viewerEl ? viewerEl : document.body;
+      const fullscreenRoot = document.getElementById('app');
+      return document.fullscreenElement === fullscreenRoot ? fullscreenRoot : document.body;
     };
 
     setPortalTarget(getPortalTarget());

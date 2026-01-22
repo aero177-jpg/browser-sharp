@@ -145,11 +145,18 @@ function DebugSettings() {
     setDebugFpsLimitEnabled(enabled);
   }, [setDebugFpsLimitEnabled, setQualityPreset]);
 
+  /** Force viewer refresh for fullscreen resize debugging */
+  const handleForceViewerRefresh = useCallback(async () => {
+    resize();
+    requestRender();
+    addLog('Forced viewer refresh (resize + render)');
+  }, [addLog]);
+
   /** Toggle side-by-side stereo effect; enter fullscreen when enabling */
   const handleStereoToggle = useCallback(async (e) => {
     const enabled = e.target.checked;
-    const viewerEl = document.getElementById('viewer');
-    if (!viewerEl) return;
+    const fullscreenRoot = document.getElementById('app');
+    if (!fullscreenRoot) return;
 
     try {
       if (enabled) {
@@ -157,8 +164,8 @@ function DebugSettings() {
         const bgContainers = document.querySelectorAll('.bg-image-container');
         bgContainers.forEach(el => el.classList.add('stereo-hidden'));
 
-        if (document.fullscreenElement !== viewerEl) {
-          await viewerEl.requestFullscreen();
+        if (document.fullscreenElement !== fullscreenRoot) {
+          await fullscreenRoot.requestFullscreen();
         }
         setStereoEffectEnabled(true);
         setStereoEnabled(true);
@@ -172,7 +179,7 @@ function DebugSettings() {
         setStereoEffectEnabled(false);
         setStereoEnabled(false);
         requestRender();
-        if (document.fullscreenElement === viewerEl) {
+        if (document.fullscreenElement === fullscreenRoot) {
           await document.exitFullscreen();
         }
         resize();
@@ -376,8 +383,8 @@ function DebugSettings() {
   // If fullscreen is exited while stereo is on, disable stereo to avoid misalignment
   useEffect(() => {
     const handleFsChange = () => {
-      const viewerEl = document.getElementById('viewer');
-      const inFullscreen = document.fullscreenElement === viewerEl;
+      const fullscreenRoot = document.getElementById('app');
+      const inFullscreen = document.fullscreenElement === fullscreenRoot;
       if (stereoEnabled && !inFullscreen) {
         // Restore background images on exit
         const bgContainers = document.querySelectorAll('.bg-image-container');
@@ -442,6 +449,14 @@ function DebugSettings() {
             <span class="switch-track" aria-hidden="true" />
           </label>
         </div>
+
+        <button
+          class="secondary"
+          type="button"
+          onClick={handleForceViewerRefresh}
+        >
+          Force viewer refresh
+        </button>
 
         <div class="control-row">
           <span class="control-label">Limit FPS (60)</span>

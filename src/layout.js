@@ -115,16 +115,24 @@ export const updateViewerAspectRatio = () => {
   if (!viewerEl) return;
   
   const { isMobile, isPortrait, panelOpen } = getStoreState();
+  const fullscreenRoot = document.getElementById('app');
+  const isFullscreen = document.fullscreenElement === fullscreenRoot;
   
-  let availableWidth = Math.max(0, window.innerWidth - PAGE_PADDING);
-  let availableHeight = Math.max(0, window.innerHeight - PAGE_PADDING);
+  let availableWidth = Math.max(0, window.innerWidth - (isFullscreen ? 0 : PAGE_PADDING));
+  let availableHeight = Math.max(0, window.innerHeight - (isFullscreen ? 0 : PAGE_PADDING));
   
   // In mobile portrait mode, subtract the mobile sheet height from available space
-  if (isMobile && isPortrait) {
+  if (!isFullscreen && isMobile && isPortrait) {
     // Always use closed height to prevent viewer resize/camera reset when opening sheet
     // The sheet will overlay the bottom of the viewer
     const sheetHeight = MOBILE_SHEET_CLOSED_HEIGHT;
     availableHeight = Math.max(0, window.innerHeight - sheetHeight - (PAGE_PADDING / 2));
+  }
+
+  if (isFullscreen) {
+    viewerEl.style.width = `${availableWidth}px`;
+    viewerEl.style.height = `${availableHeight}px`;
+    return;
   }
 
   if (originalImageAspect && originalImageAspect > 0) {
