@@ -1553,6 +1553,19 @@ button, a, input, .sidebar-btn, .panel-toggle {
   display: flex;
   align-items: center;
   justify-content: center;
+  position: relative;
+}
+
+.asset-cache-dot {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  right: 4px;
+  bottom: 4px;
+  background: #3bd671;
+  box-shadow: 0 0 6px rgba(59, 214, 113, 0.75);
+  border: 1px solid rgba(0, 0, 0, 0.4);
 }
 
 .asset-preview img {

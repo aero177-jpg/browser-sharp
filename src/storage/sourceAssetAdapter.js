@@ -6,7 +6,8 @@
  */
 
 import { getSource, touchSource } from './sourceManager.js';
-import { loadFileSettings } from '../fileStorage.js';
+import { loadFileSettings, saveCachedStatus } from '../fileStorage.js';
+import { loadCachedAssetFile } from './assetCache.js';
 
 /**
  * Adapts a RemoteAssetDescriptor to the internal asset format.
@@ -28,6 +29,7 @@ export const adaptRemoteAsset = (remoteAsset) => {
     preview: remoteAsset.preview || null,
     previewSource: remoteAsset.previewSource || null,
     loaded: false,
+    isCached: false,
     // Size from remote if known
     size: remoteAsset.size || null,
   };
@@ -44,6 +46,21 @@ export const loadAssetFile = async (asset) => {
   // Already loaded
   if (asset.file) {
     return asset.file;
+  }
+
+  // Cache-first by file name
+  if (asset?.name) {
+    try {
+      const cachedFile = await loadCachedAssetFile(asset.name);
+      if (cachedFile) {
+        asset.file = cachedFile;
+        asset.isCached = true;
+        await saveCachedStatus(asset.name, true);
+        return cachedFile;
+      }
+    } catch (err) {
+      console.warn('[AssetCache] Failed to load cached file, falling back to source', err);
+    }
   }
 
   // No remote info - can't load

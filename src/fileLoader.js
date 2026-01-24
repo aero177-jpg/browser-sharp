@@ -20,7 +20,7 @@ import {
   THREE,
 } from "./viewer.js";
 import { applyPreviewBackground, captureAndApplyBackground, clearBackground } from "./backgroundManager.js";
-import { savePreviewBlob } from "./fileStorage.js";
+import { savePreviewBlob, listCachedFileNames } from "./fileStorage.js";
 import {
   fitViewToMesh,
   applyMetadataCamera,
@@ -1010,7 +1010,18 @@ export const loadFromStorageSource = async (source) => {
     
     // Set the adapted assets in the asset manager
     const result = setAdaptedAssets(adaptedAssets);
-    
+
+    // Hydrate cached flags from IndexedDB settings
+    try {
+      const cachedNames = await listCachedFileNames();
+      const cachedSet = new Set(cachedNames);
+      result.assets.forEach((asset) => {
+        asset.isCached = cachedSet.has(asset.name);
+      });
+    } catch (err) {
+      console.warn('[FileLoader] Failed to hydrate cache flags', err);
+    }
+
     // Update store with assets
     store.setAssets(result.assets);
     

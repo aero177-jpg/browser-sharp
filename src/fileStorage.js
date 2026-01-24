@@ -28,6 +28,7 @@ const PREVIEW_VERSION = 1;
  * @property {AnimationSettings} [animation] - Load animation preferences
  * @property {number} [focusDistance] - Optional user-set focus distance override
  * @property {CustomCameraMetadata} [customMetadata] - Optional user-set camera metadata override
+ * @property {boolean} [isCached] - Whether this file is cached in IndexedDB
  */
 
 /**
@@ -219,6 +220,26 @@ export const saveCustomMetadata = async (fileName, customMetadata) => {
 };
 
 /**
+ * Saves cached status for a file.
+ * @param {string} fileName - File name
+ * @param {boolean} isCached - Cached flag
+ * @returns {Promise<boolean>} Success status
+ */
+export const saveCachedStatus = async (fileName, isCached) => {
+  return await saveFileSettings(fileName, { isCached: Boolean(isCached) });
+};
+
+/**
+ * Loads cached status for a file.
+ * @param {string} fileName - File name
+ * @returns {Promise<boolean>}
+ */
+export const loadCachedStatus = async (fileName) => {
+  const settings = await loadFileSettings(fileName);
+  return Boolean(settings?.isCached);
+};
+
+/**
  * Loads custom camera metadata for a file.
  * @param {string} fileName - File name
  * @returns {Promise<CustomCameraMetadata|null>} Custom metadata or null
@@ -345,6 +366,15 @@ export const listAllFileSettings = async () => {
     console.error('Failed to list file settings:', error);
     return [];
   }
+};
+
+/**
+ * Lists all file names marked as cached.
+ * @returns {Promise<string[]>}
+ */
+export const listCachedFileNames = async () => {
+  const settings = await listAllFileSettings();
+  return settings.filter((item) => item?.isCached).map((item) => item.fileName);
 };
 
 /**

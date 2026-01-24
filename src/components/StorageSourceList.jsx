@@ -30,8 +30,13 @@ import {
   deleteSource,
   touchSource,
   setDefaultSource,
+  cacheCollectionAssets,
+  syncCollectionCache,
+  clearCollectionCache,
 } from '../storage/index.js';
 import { useStore } from '../store';
+import { getAssetList } from '../assetManager.js';
+import { listCachedFileNames } from '../fileStorage.js';
 import { getSupportedExtensions, getFormatAccept } from '../formats/index.js';
 import { testSharpCloud } from '../testSharpCloud';
 import ConnectStorageDialog from './ConnectStorageDialog';
@@ -90,6 +95,33 @@ function SourceItem({ source, onSelect, onRemove, onEditSource, expanded, onTogg
     return collectionId ? `collections/${collectionId}/assets` : 'collections/default/assets';
   }, [source?.config?.config?.collectionId]);
 
+  const activeSourceId = useStore((state) => state.activeSourceId);
+  const setAssets = useStore((state) => state.setAssets);
+
+  const refreshCacheFlagsForSource = useCallback(async () => {
+    try {
+      const cachedNames = await listCachedFileNames();
+      const cachedSet = new Set(cachedNames);
+      const assetList = getAssetList();
+      let changed = false;
+
+      assetList.forEach((asset) => {
+        if (asset?.sourceId !== source.id) return;
+        const next = cachedSet.has(asset.name);
+        if (asset.isCached !== next) {
+          asset.isCached = next;
+          changed = true;
+        }
+      });
+
+      if (changed && activeSourceId === source.id) {
+        setAssets([...assetList]);
+      }
+    } catch (err) {
+      console.warn('[Storage] Failed to refresh cache flags', err);
+    }
+  }, [activeSourceId, setAssets, source.id]);
+
 
   const refreshAssets = useCallback(async () => {
     setIsLoading(true);
@@ -105,6 +137,11 @@ function SourceItem({ source, onSelect, onRemove, onEditSource, expanded, onTogg
       const assets = await source.listAssets();
       setAssetCount(assets.length);
       setStatus('connected');
+
+      // Best-effort: sync local cache manifest with remote assets
+      syncCollectionCache(source, assets)
+        .then(() => refreshCacheFlagsForSource())
+        .catch((err) => console.warn('[Storage] Cache sync failed', err));
       return true;
     } catch (err) {
       console.error('Refresh failed:', err);
@@ -113,7 +150,45 @@ function SourceItem({ source, onSelect, onRemove, onEditSource, expanded, onTogg
     } finally {
       setIsLoading(false);
     }
-  }, [source]);
+  }, [refreshCacheFlagsForSource, source]);
+
+  const handleCacheAll = useCallback(async (e) => {
+    e.stopPropagation();
+    setIsLoading(true);
+    try {
+      if (!source.isConnected()) {
+        const result = await source.connect(false);
+        if (!result.success) {
+          setStatus('error');
+          return;
+        }
+      }
+
+      const assets = await source.listAssets();
+      setAssetCount(assets.length);
+      await cacheCollectionAssets(source, assets);
+      await refreshCacheFlagsForSource();
+    } catch (err) {
+      console.error('Cache all failed:', err);
+      setStatus('error');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [refreshCacheFlagsForSource, source]);
+
+  const handleClearCache = useCallback(async (e) => {
+    e.stopPropagation();
+    setIsLoading(true);
+    try {
+      await clearCollectionCache(source.id);
+      await refreshCacheFlagsForSource();
+    } catch (err) {
+      console.error('Clear cache failed:', err);
+      setStatus('error');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [refreshCacheFlagsForSource, source.id]);
 
   const isSupportedFile = useCallback((file) => {
     if (!file?.name) return false;
@@ -665,6 +740,22 @@ function SourceItem({ source, onSelect, onRemove, onEditSource, expanded, onTogg
               <span>Upload</span>
             </button>
           )}
+          <button
+            class="source-action-btn"
+            onClick={handleCacheAll}
+            title="Cache all assets locally"
+          >
+            <FontAwesomeIcon icon={faDatabase} />
+            <span>Cache</span>
+          </button>
+          <button
+            class="source-action-btn"
+            onClick={handleClearCache}
+            title="Clear cached assets for this collection"
+          >
+            <FontAwesomeIcon icon={faTrash} />
+            <span>Clear Cache</span>
+          </button>
           <button 
             class="source-action-btn danger" 
             onClick={handleRemove}

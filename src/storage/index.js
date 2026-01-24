@@ -86,6 +86,21 @@ export {
   loadAllSourceAssets,
 } from './sourceAssetAdapter.js';
 
+// Asset cache
+export {
+  loadCachedAssetBlob,
+  loadCachedAssetFile,
+  hasCachedAsset,
+  saveCachedAssetBlob,
+  deleteCachedAssetBlob,
+  loadCollectionManifest,
+  saveCollectionManifest,
+  deleteCollectionManifest,
+  cacheCollectionAssets,
+  syncCollectionCache,
+  clearCollectionCache,
+} from './assetCache.js';
+
 
 /**
  * Restore a source from persisted config based on its type.

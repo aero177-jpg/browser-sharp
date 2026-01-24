@@ -3,6 +3,11 @@ import { loadCloudGpuSettings } from './storage/cloudGpuSettings.js';
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
+export const isAndroidUserAgent = (ua) => {
+  const userAgent = ua || (typeof navigator !== 'undefined' ? navigator.userAgent : '');
+  return /Android/i.test(userAgent || '');
+};
+
 const extractBoundary = (contentType) => {
   const match = contentType.match(/boundary=([^;]+)/i);
   return match ? match[1].trim() : null;

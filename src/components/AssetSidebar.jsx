@@ -397,6 +397,7 @@ function AssetSidebar() {
                 ) : (
                   <div class="preview-spinner" />
                 )}
+                {asset.isCached && <span class="asset-cache-dot" />}
               </div>
             </button>
           ))}
