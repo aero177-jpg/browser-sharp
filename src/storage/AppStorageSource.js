@@ -236,7 +236,6 @@ export class AppStorageSource extends AssetSource {
       }
     }
 
-    assets.sort((a, b) => a.name.localeCompare(b.name));
     this._assets = assets;
     return assets;
   }
@@ -261,6 +260,57 @@ export class AppStorageSource extends AssetSource {
   }
 
   /**
+   * Delete assets from app storage and update manifest.
+   * Previews and metadata are stored separately and preserved.
+   * @param {Array|string} items
+   * @returns {Promise<{success: boolean, removed?: string[], failed?: Array}>}
+   */
+  async deleteAssets(items) {
+    if (!this._connected) {
+      const result = await this.connect();
+      if (!result.success) return result;
+    }
+
+    const manifest = this._manifest;
+    const toDelete = (Array.isArray(items) ? items : [items])
+      .map(item => typeof item === 'string' ? item : item?.path)
+      .filter(Boolean)
+      .map(p => stripLeadingSlash(p));
+
+    const removed = [];
+    const failed = [];
+
+    for (const path of toDelete) {
+      try {
+        await Filesystem.deleteFile({
+          path: this._assetFsPath(path),
+          directory: Directory.Data,
+        });
+        removed.push(path);
+      } catch (err) {
+        // File may not exist; still remove from manifest
+        if (!err?.message?.includes('ENOENT')) {
+          failed.push({ path, error: err?.message });
+        }
+        removed.push(path);
+      }
+    }
+
+    if (removed.length) {
+      const removedSet = new Set(removed);
+      manifest.assets = manifest.assets.filter(
+        a => !removedSet.has(stripLeadingSlash(a.path))
+      );
+      await this._saveManifest(manifest);
+      this._assets = this._assets.filter(
+        a => !removedSet.has(stripLeadingSlash(a.path))
+      );
+    }
+
+    return { success: failed.length === 0, removed, failed };
+  }
+
+  /**
    * Import files into app storage and update manifest.
    * @param {File[]} files
    * @returns {Promise<{success: boolean, error?: string, imported?: number}>}
@@ -279,8 +329,7 @@ export class AppStorageSource extends AssetSource {
         return { success: false, error: 'No supported files selected.' };
       }
 
-      await this._ensureManifestLoaded();
-      const manifest = this._manifest || { version: MANIFEST_VERSION, assets: [] };
+      const manifest = this._manifest;
 
       const updatedAssets = Array.isArray(manifest.assets) ? [...manifest.assets] : [];
 

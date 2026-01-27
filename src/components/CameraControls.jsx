@@ -144,6 +144,9 @@ function CameraControls() {
   const hasCustomFocus = useStore((state) => state.hasCustomFocus);
   const setHasCustomFocus = useStore((state) => state.setHasCustomFocus);
   const setFocusSettingActive = useStore((state) => state.setFocusSettingActive);
+  const anchorActive = useStore((state) => state.anchorActive);
+  const anchorDistance = useStore((state) => state.anchorDistance);
+  const setAnchorState = useStore((state) => state.setAnchorState);
   const updateAssetPreview = useStore((state) => state.updateAssetPreview);
   const stereoEnabled = useStore((state) => state.stereoEnabled);
   const setStereoEnabled = useStore((state) => state.setStereoEnabled);
@@ -305,6 +308,45 @@ function CameraControls() {
   }, [addLog, hasCustomFocus, setFocusSettingActive]);
 
   /**
+   * Uses the temporary anchor depth to set and save a custom focus distance.
+   */
+  const handleSetFocusFromAnchor = useCallback(() => {
+    if (!anchorActive) return;
+    if (!Number.isFinite(anchorDistance)) {
+      addLog('No anchor depth available');
+      return;
+    }
+
+    const hitDistance = anchorDistance;
+    addLog(`Focus depth set: ${hitDistance.toFixed(2)} units (from anchor)`);
+
+    if (stereoEnabled) {
+      const optimal = calculateOptimalEyeSeparation(hitDistance);
+      setStereoEyeSep(optimal);
+      setStereoEyeSeparation(optimal);
+      addLog(`Auto eye separation: ${(optimal * 1000).toFixed(0)}mm`);
+    }
+
+    if (currentFileName && currentFileName !== '-') {
+      saveFocusDistance(currentFileName, hitDistance).catch(err => {
+        console.warn('Failed to save focus distance:', err);
+      });
+      const asset = assets[currentAssetIndex];
+      if (asset?.id) {
+        updateFocusDistanceInCache(asset.id, hitDistance);
+      }
+      setHasCustomFocus(true);
+    }
+
+    setAnchorState({ active: false, distance: null });
+    setFocusMode(FOCUS_MODE.SET);
+    setFocusSettingActive(false);
+    setTimeout(() => {
+      setFocusMode(hasCustomFocus ? FOCUS_MODE.CUSTOM : FOCUS_MODE.IDLE);
+    }, 1500);
+  }, [anchorActive, anchorDistance, addLog, stereoEnabled, setStereoEyeSep, currentFileName, assets, currentAssetIndex, setHasCustomFocus, setAnchorState, setFocusSettingActive, hasCustomFocus]);
+
+  /**
    * Clears custom focus distance override.
    * Removes stored focus distance and reloads the file to apply default focus.
    */
@@ -411,11 +453,8 @@ function CameraControls() {
     }
 
     const degrees = sliderValueToDegrees(val);
-    const enforcedDegrees = isImmersiveModeActive()
-      ? enforceImmersiveRange(degrees, immersiveSensitivity)
-      : degrees;
-    setCameraRange(enforcedDegrees);
-    applyCameraRangeDegrees(enforcedDegrees);
+    setCameraRange(degrees);
+    applyCameraRangeDegrees(degrees);
   };
 
   /**
@@ -430,6 +469,9 @@ function CameraControls() {
    * Returns the appropriate button text based on focus mode state.
    */
   const getFocusButtonText = () => {
+    if (anchorActive && focusMode !== FOCUS_MODE.SETTING && focusMode !== FOCUS_MODE.SET) {
+      return 'Set anchor as focus';
+    }
     switch (focusMode) {
       case FOCUS_MODE.SETTING:
         return 'Click model...';
@@ -441,6 +483,22 @@ function CameraControls() {
         return 'Set focus depth';
     }
   };
+
+  const handleFocusButtonClick = () => {
+    if (focusMode === FOCUS_MODE.SETTING) {
+      handleCancelFocusMode();
+      return;
+    }
+    if (anchorActive) {
+      handleSetFocusFromAnchor();
+      return;
+    }
+    handleStartFocusMode();
+  };
+
+  const focusButtonLabel = anchorActive && focusMode !== FOCUS_MODE.SETTING && focusMode !== FOCUS_MODE.SET
+    ? 'Set anchor as focus depth'
+    : (focusMode === FOCUS_MODE.CUSTOM ? 'Custom focus - click to set a new focus' : 'Set focus depth');
 
 
   // Initialize camera range on mount
@@ -527,12 +585,7 @@ function CameraControls() {
       const success = await enableImmersiveMode();
       if (success) {
         setImmersiveMode(true);
-        // Ensure a comfortable orbit floor when tilt control is active
-        const boostedRange = enforceImmersiveRange(cameraRange, immersiveSensitivity);
-        if (boostedRange !== cameraRange) {
-          setCameraRange(boostedRange);
-          applyCameraRangeDegrees(boostedRange);
-        }
+        // Keep current range as-is; floor is applied only on sensitivity changes
         addLog('Immersive mode enabled - tilt device to orbit');
       } else {
         e.target.checked = false;
@@ -867,9 +920,9 @@ function CameraControls() {
                 focusMode === FOCUS_MODE.SET ? 'is-set' : 
                 focusMode === FOCUS_MODE.CUSTOM ? 'is-custom' : ''
               }`}
-              onClick={focusMode === FOCUS_MODE.SETTING ? handleCancelFocusMode : handleStartFocusMode}
+              onClick={handleFocusButtonClick}
               disabled={focusMode === FOCUS_MODE.SET}
-              aria-label={focusMode === FOCUS_MODE.CUSTOM ? "Custom focus - click to set a new focus" : "Set focus depth"}
+              aria-label={focusButtonLabel}
             >
               {getFocusButtonText()}
             </button>

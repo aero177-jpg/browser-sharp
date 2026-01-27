@@ -150,6 +150,9 @@ export const useStore = create(
   hasCustomFocus: false,
   focusDistanceOverride: null,
   focusSettingActive: false,
+  // Temporary anchor state (set via double-click)
+  anchorActive: false,
+  anchorDistance: null,
   // Custom camera metadata state
   metadataMissing: false,
   customMetadataAvailable: false,
@@ -279,6 +282,12 @@ export const useStore = create(
   setHasCustomFocus: (hasCustomFocus) => set({ hasCustomFocus }),
   setFocusDistanceOverride: (focusDistanceOverride) => set({ focusDistanceOverride }),
   setFocusSettingActive: (focusSettingActive) => set({ focusSettingActive }),
+
+  /** Sets temporary anchor state */
+  setAnchorState: ({ active, distance }) => set({
+    anchorActive: Boolean(active),
+    anchorDistance: distance ?? null,
+  }),
 
   /** Custom metadata flags */
   setMetadataMissing: (metadataMissing) => set({ metadataMissing }),

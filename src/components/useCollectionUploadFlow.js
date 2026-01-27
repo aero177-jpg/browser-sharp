@@ -6,10 +6,10 @@
  */
 
 import { h } from 'preact';
-import { useCallback, useMemo, useRef, useState } from 'preact/hooks';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { getFormatAccept, getSupportedExtensions } from '../formats/index.js';
 import { isAndroidUserAgent, testSharpCloud } from '../testSharpCloud.js';
-import { handleAddFiles, handleMultipleFiles } from '../fileLoader.js';
+import { handleAddFiles, handleMultipleFiles, loadFromStorageSource } from '../fileLoader.js';
 import { useStore } from '../store.js';
 import { getSource } from '../storage/index.js';
 import UploadChoiceModal from './UploadChoiceModal.jsx';
@@ -30,6 +30,32 @@ const SUPPORTED_EXTENSIONS = getSupportedExtensions();
 const FORMAT_ACCEPT = getFormatAccept();
 const IMAGE_ACCEPT = `${DEFAULT_IMAGE_EXTENSIONS.join(',')},image/*`;
 const IS_ANDROID = isAndroidUserAgent();
+const AUTO_RELOAD_DELAY_MS = 500;
+const SUPABASE_RESCAN_INTERVAL_MS = 500;
+const SUPABASE_RESCAN_ATTEMPTS = 6;
+
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const waitForSupabaseRescan = async (source, { expectedMin = 1 } = {}) => {
+  if (!source || source?.type !== 'supabase-storage' || typeof source?.rescan !== 'function') {
+    return false;
+  }
+
+  for (let attempt = 0; attempt < SUPABASE_RESCAN_ATTEMPTS; attempt += 1) {
+    try {
+      const result = await source.rescan({ applyChanges: true });
+      const addedCount = result?.added?.length || 0;
+      if (addedCount >= expectedMin || addedCount > 0) {
+        return true;
+      }
+    } catch (err) {
+      console.warn('[UploadFlow] Supabase rescan failed', err);
+    }
+    await delay(SUPABASE_RESCAN_INTERVAL_MS);
+  }
+
+  return false;
+};
 
 // Helper functions moved outside hook - no dependencies on hook state
 const isSupportedFile = (file) => {
@@ -126,6 +152,7 @@ export function useCollectionUploadFlow({
   };
 
   const activeSourceId = useStore((state) => state.activeSourceId);
+  const activeAssetsLength = useStore((state) => state.assets.length);
   const setUploadState = useStore((state) => state.setUploadState);
   const resolvedSource = useMemo(
     () => source || (activeSourceId ? getSource(activeSourceId) : null),
@@ -133,23 +160,55 @@ export function useCollectionUploadFlow({
   );
 
   const [showUploadChoiceModal, setShowUploadChoiceModal] = useState(false);
+  const [uploadAccept, setUploadAccept] = useState(undefined);
   const uploadModeRef = useRef(null);
   const uploadInputRef = useRef(null);
+  const autoReloadTimeoutRef = useRef(null);
 
-  // Compute accept strings based on allowed modes
-  const combinedAccept = useMemo(() => {
+  useEffect(() => {
+    return () => {
+      if (autoReloadTimeoutRef.current) {
+        clearTimeout(autoReloadTimeoutRef.current);
+        autoReloadTimeoutRef.current = null;
+      }
+    };
+  }, []);
+
+  const scheduleAutoReload = useCallback((sourceToReload, preferredIndex = null) => {
+    if (!sourceToReload?.id) return;
+    if (!activeSourceId || activeSourceId !== sourceToReload.id) return;
+
+    if (autoReloadTimeoutRef.current) {
+      clearTimeout(autoReloadTimeoutRef.current);
+    }
+
+    autoReloadTimeoutRef.current = setTimeout(async () => {
+      autoReloadTimeoutRef.current = null;
+      try {
+        await loadFromStorageSource(sourceToReload, { preferredIndex });
+      } catch (err) {
+        console.warn('[UploadFlow] Auto reload failed', err);
+      }
+    }, AUTO_RELOAD_DELAY_MS);
+  }, [activeSourceId]);
+
+  const getPreferredIndex = useCallback((addedCount) => {
+    if (!addedCount || addedCount <= 0) return null;
+    const baseIndex = Number.isFinite(activeAssetsLength) ? activeAssetsLength : 0;
+    return Math.max(0, baseIndex);
+  }, [activeAssetsLength]);
+
+  // Helper to compute accept string based on mode
+  const computeAcceptForMode = (mode) => {
+    // Android needs no filter for 3D files to reach the generic file browser
+    if (IS_ANDROID && mode === 'assets') return undefined;
+    if (mode === 'images') return IMAGE_ACCEPT;
+    if (mode === 'assets') return FORMAT_ACCEPT || undefined;
+    // Default: combine both if allowed
     if (allowAssets && allowImages) return FORMAT_ACCEPT ? `${FORMAT_ACCEPT},${IMAGE_ACCEPT}` : IMAGE_ACCEPT;
     if (allowImages) return IMAGE_ACCEPT;
-    return FORMAT_ACCEPT || '';
-  }, [allowAssets, allowImages]);
-
-  const uploadAccept = useMemo(() => {
-    const mode = uploadModeRef.current;
-    if (IS_ANDROID && mode === 'assets') return '';
-    if (mode === 'images') return IMAGE_ACCEPT;
-    if (mode === 'assets') return FORMAT_ACCEPT || '';
-    return combinedAccept;
-  }, [combinedAccept]);
+    return FORMAT_ACCEPT || undefined;
+  };
 
 
   const handleQueueAssets = useCallback(async (files) => {
@@ -186,6 +245,8 @@ export function useCollectionUploadFlow({
         }
         await onRefreshAssets?.();
         await onAssetsUpdated?.({ mode: 'assets', source: resolvedSource, files: valid });
+        const addedCount = result?.uploaded?.length ?? valid.length;
+        scheduleAutoReload(resolvedSource, getPreferredIndex(addedCount));
         return;
       }
 
@@ -198,6 +259,8 @@ export function useCollectionUploadFlow({
         }
         await onRefreshAssets?.();
         await onAssetsUpdated?.({ mode: 'assets', source: resolvedSource, files: valid });
+        const addedCount = result?.imported ?? valid.length;
+        scheduleAutoReload(resolvedSource, getPreferredIndex(addedCount));
         return;
       }
 
@@ -208,7 +271,7 @@ export function useCollectionUploadFlow({
     } finally {
       onLoadingChange?.(false);
     }
-  }, [handleQueueAssets, onAssetsUpdated, onLoadingChange, onPreparedFiles, onRefreshAssets, onStatus, prepareOnly, resolvedSource]);
+  }, [handleQueueAssets, onAssetsUpdated, onLoadingChange, onPreparedFiles, onRefreshAssets, onStatus, prepareOnly, resolvedSource, scheduleAutoReload, getPreferredIndex]);
 
   const handleImages = useCallback(async (files) => {
     const imageFiles = files.filter(isImageFile);
@@ -266,12 +329,20 @@ export function useCollectionUploadFlow({
           await onRefreshAssets?.();
         }
         await onAssetsUpdated?.({ mode: 'images', source: resolvedSource, files: storedFiles });
+        const addedCount = importResult?.imported ?? storedFiles.length;
+        scheduleAutoReload(resolvedSource, getPreferredIndex(addedCount));
         return;
       }
 
       if (type === 'supabase-storage' && anySuccess) {
         await onRefreshAssets?.();
         await onAssetsUpdated?.({ mode: 'images', source: resolvedSource, files: imageFiles });
+        const addedCount = results.reduce((sum, result) => sum + (result?.ok ? 1 : 0), 0) || imageFiles.length;
+        const didRescan = await waitForSupabaseRescan(resolvedSource, { expectedMin: addedCount });
+        if (!didRescan) {
+          console.warn('[UploadFlow] Supabase rescan timed out; falling back to delayed refresh');
+        }
+        scheduleAutoReload(resolvedSource, getPreferredIndex(addedCount));
         return;
       }
 
@@ -293,7 +364,7 @@ export function useCollectionUploadFlow({
       onUploadProgress?.(null);
       reportUploadState({ isUploading: false, uploadProgress: null });
     }
-  }, [handleQueueAssets, onAssetsUpdated, onLoadingChange, onPreparedFiles, onRefreshAssets, onStatus, onUploadProgress, onUploadState, onUploadingChange, prepareOnly, resolvedSource, setUploadState]);
+  }, [handleQueueAssets, onAssetsUpdated, onLoadingChange, onPreparedFiles, onRefreshAssets, onStatus, onUploadProgress, onUploadState, onUploadingChange, prepareOnly, resolvedSource, scheduleAutoReload, getPreferredIndex, setUploadState]);
 
   const handleFilesForMode = useCallback(async (mode, files) => {
     if (!files?.length) return;
@@ -311,10 +382,15 @@ export function useCollectionUploadFlow({
   const openPickerForMode = useCallback(async (mode) => {
     uploadModeRef.current = mode;
 
+    // Compute and set accept value based on mode - this triggers re-render
+    const accept = computeAcceptForMode(mode);
+    setUploadAccept(accept);
+
     if (IS_ANDROID && mode === 'assets') {
-      requestAnimationFrame(() => {
+      // Use setTimeout to ensure state update has flushed to DOM
+      setTimeout(() => {
         uploadInputRef.current?.click();
-      });
+      }, 0);
       return;
     }
 
@@ -339,9 +415,10 @@ export function useCollectionUploadFlow({
       }
     }
 
-    requestAnimationFrame(() => {
+    // For non-Android fallback, also wait for state to flush
+    setTimeout(() => {
       uploadInputRef.current?.click();
-    });
+    }, 0);
   }, [handleFilesForMode]);
 
   const openUploadPicker = useCallback(() => {
@@ -380,7 +457,6 @@ export function useCollectionUploadFlow({
       openPickerForMode('images');
     },
     onOpenCloudGpu,
-    imageExtensions: DEFAULT_IMAGE_EXTENSIONS,
     supportedExtensions: SUPPORTED_EXTENSIONS,
     title: uploadCopy.title,
     subtitle: uploadCopy.subtitle,

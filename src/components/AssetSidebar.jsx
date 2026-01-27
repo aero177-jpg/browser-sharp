@@ -268,12 +268,11 @@ function AssetSidebar() {
     const newAssets = getAssetList();
     const newIndex = getCurrentAssetIndex();
     setAssets([...newAssets]);
-    setCurrentAssetIndex(newIndex);
-    
     if (newAssets.length > 0) {
-        loadAssetByIndex(newIndex);
+      setCurrentAssetIndex(newIndex);
+      loadAssetByIndex(newIndex);
     } else {
-        window.location.reload();
+      setCurrentAssetIndex(-1);
     }
   };
 
@@ -352,7 +351,7 @@ function AssetSidebar() {
       <input 
         ref={uploadInputRef}
         type="file" 
-        accept={uploadAccept}
+        {...(uploadAccept ? { accept: uploadAccept } : {})}
         multiple 
         hidden 
         onChange={handleUploadChange}

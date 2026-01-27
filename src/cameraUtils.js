@@ -51,6 +51,7 @@ export const restoreHomeView = () => {
   if (!homeView) return;
 
   const store = getStoreState();
+  store.setAnchorState({ active: false, distance: null });
   const targetState = {
     position: homeView.cameraPosition.clone(),
     quaternion: homeView.cameraQuaternion.clone(),

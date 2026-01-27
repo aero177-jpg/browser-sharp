@@ -973,9 +973,12 @@ export const loadAssetByIndex = async (index) => {
  * 
  * @param {import('./storage/AssetSource.js').AssetSource} source
  */
-export const loadFromStorageSource = async (source) => {
+export const loadFromStorageSource = async (source, options = {}) => {
   const store = getStoreState();
-  
+  const { preferredIndex } = options || {};
+
+  store.setIsLoading(true);
+
   try {
     store.setStatus(`Loading assets from ${source.name}...`);
     
@@ -991,7 +994,17 @@ export const loadFromStorageSource = async (source) => {
     
     if (adaptedAssets.length === 0) {
       store.setStatus(`No supported assets found in ${source.name}`);
-      store.clearActiveSource();
+      store.setAssets([]);
+      store.setCurrentAssetIndex(-1);
+      resetSplatManager();
+      setCurrentMesh(null);
+      hasLoadedFirstAsset = false;
+      spark.update({ scene });
+      clearBackground();
+      const pageEl = document.querySelector(".page");
+      if (pageEl) {
+        pageEl.classList.remove("has-glow");
+      }
       return;
     }
     
@@ -1052,17 +1065,22 @@ export const loadFromStorageSource = async (source) => {
     };
     loadPreviews(); // Don't await, run in background
     
-    // Load first asset
+    // Load preferred asset (fallback to first)
     if (result.assets.length > 0) {
-      setCurrentAssetIndexManager(0);
-      store.setCurrentAssetIndex(0);
-      await loadSplatFile(result.assets[0]);
+      const fallbackIndex = 0;
+      const candidate = Number.isInteger(preferredIndex) ? preferredIndex : fallbackIndex;
+      const indexToLoad = candidate >= 0 && candidate < result.assets.length ? candidate : fallbackIndex;
+      setCurrentAssetIndexManager(indexToLoad);
+      store.setCurrentAssetIndex(indexToLoad);
+      await loadSplatFile(result.assets[indexToLoad]);
     }
     
   } catch (error) {
     console.error('Failed to load from storage source:', error);
     store.setStatus(`Failed to load from ${source.name}: ${error.message}`);
     store.clearActiveSource();
+  } finally {
+    store.setIsLoading(false);
   }
 };
 

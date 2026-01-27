@@ -280,7 +280,7 @@ function AppStorageForm({ onConnect, onBack }) {
         <input
           ref={uploadInputRef}
           type="file"
-          accept={uploadAccept}
+          {...(uploadAccept ? { accept: uploadAccept } : {})}
           multiple
           style={{ display: 'none' }}
           onChange={handleUploadChange}
@@ -1237,18 +1237,20 @@ function ConnectStorageDialog({ isOpen, onClose, onConnect, editSource, onEditCo
             </p>
 
             <div class="storage-tiers">
-              <TierCard
-                type="local-folder"
-                selected={false}
-                onSelect={setSelectedTier}
-                disabled={!localSupported}
-              />
-              <TierCard
-                type="app-storage"
-                selected={false}
-                onSelect={setSelectedTier}
-                disabled={!appStorageSupported}
-              />
+              {!appStorageSupported && localSupported && (
+                <TierCard
+                  type="local-folder"
+                  selected={false}
+                  onSelect={setSelectedTier}
+                />
+              )}
+              {appStorageSupported && (
+                <TierCard
+                  type="app-storage"
+                  selected={false}
+                  onSelect={setSelectedTier}
+                />
+              )}
               <TierCard
                 type="supabase-storage"
                 selected={false}

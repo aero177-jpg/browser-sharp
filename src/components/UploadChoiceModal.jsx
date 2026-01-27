@@ -59,7 +59,6 @@ function UploadChoiceModal({
   onPickAssets,
   onPickImages,
   onOpenCloudGpu,
-  imageExtensions = [],
   supportedExtensions = [],
   title = 'Upload files',
   subtitle = 'Choose what you want to upload.',
@@ -163,7 +162,7 @@ function UploadChoiceModal({
             style={{ height: '36px', padding: '0 16px' }}
           >
             <FontAwesomeIcon icon={faUpload} />
-            {' '}Upload
+            {' '}browse files
           </button>
         </div>
       </div>

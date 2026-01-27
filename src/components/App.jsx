@@ -53,6 +53,7 @@ function App() {
   const toggleAssetSidebar = useStore((state) => state.toggleAssetSidebar);
   const setStatus = useStore((state) => state.setStatus);
   const addLog = useStore((state) => state.addLog);
+  const activeSourceId = useStore((state) => state.activeSourceId);
   const focusSettingActive = useStore((state) => state.focusSettingActive);
   const fov = useStore((state) => state.fov);
   const setFov = useStore((state) => state.setFov);
@@ -64,7 +65,7 @@ function App() {
   // Local state for viewer initialization
   const [viewerReady, setViewerReady] = useState(false);
   // Landing screen visibility (controls TitleCard fade-in/out)
-  const [landingVisible, setLandingVisible] = useState(() => assets.length === 0);
+  const [landingVisible, setLandingVisible] = useState(() => assets.length === 0 && !activeSourceId);
   
   // Track mesh state
   const [hasMesh, setHasMesh] = useState(false);
@@ -466,10 +467,12 @@ function App() {
 
   // Keep landingVisible in sync: show when no assets, hide when assets present
   useEffect(() => {
-    if (assets.length === 0) {
+    if (assets.length === 0 && !activeSourceId) {
       setLandingVisible(true);
+    } else if (activeSourceId) {
+      setLandingVisible(false);
     }
-  }, [assets.length]);
+  }, [assets.length, activeSourceId]);
 
   return (
     <div class={`page ${panelOpen ? 'panel-open' : ''}`}>
@@ -477,13 +480,13 @@ function App() {
       <input 
         ref={uploadInputRef}
         type="file" 
-        accept={uploadAccept}
+        {...(uploadAccept ? { accept: uploadAccept } : {})}
         multiple 
         hidden 
         onChange={handleUploadChange}
       />
       <TitleCard
-        show={landingVisible && assets.length === 0}
+        show={landingVisible && assets.length === 0 && !activeSourceId}
         onPickFile={handlePickFile}
         onOpenStorage={handleOpenStorage}
         onLoadDemo={handleLoadDemo}

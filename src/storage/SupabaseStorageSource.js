@@ -98,17 +98,42 @@ export class SupabaseStorageSource extends AssetSource {
       : options;
 
     const { refreshManifest = true, verifyUpload = false } = normalized;
-    const storage = this._storage();
+    const isOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
 
+    // Always try to load cached manifest first (cache-first strategy)
+    if (refreshManifest || !this._manifest) {
+      await this._loadManifest({ allowStale: true });
+    }
+
+    // If offline or we already have a manifest, skip network check
+    if (isOffline) {
+      if (this._manifest) {
+        this._connected = true;
+        await saveSource(this.toJSON());
+        return { success: true, offline: true };
+      }
+      return { success: false, error: 'Offline and no cached manifest available', offline: true };
+    }
+
+    // Try network connectivity check, but fall back to cache on failure
     try {
-      // Quick bucket accessibility check
+      const storage = this._storage();
       const { error: listError } = await storage.list(this._basePrefix(), { limit: 1 });
+      
       if (listError) {
+        // Network error - if we have cached manifest, use it
+        if (this._manifest) {
+          console.log('[Supabase] Bucket check failed, using cached manifest');
+          this._connected = true;
+          await saveSource(this.toJSON());
+          return { success: true, offline: true };
+        }
         return { success: false, error: `Bucket access failed: ${listError.message}` };
       }
 
+      // Online and connected - refresh manifest if needed
       if (refreshManifest) {
-        await this._loadManifest();
+        await this._loadManifest({ bypassCache: false });
       }
 
       // Ensure manifest exists for this collection
@@ -126,31 +151,48 @@ export class SupabaseStorageSource extends AssetSource {
       await saveSource(this.toJSON());
       return { success: true };
     } catch (error) {
+      // Network error (e.g., ERR_NAME_NOT_RESOLVED) - fall back to cache
+      if (this._manifest) {
+        console.log('[Supabase] Network error, using cached manifest:', error.message);
+        this._connected = true;
+        await saveSource(this.toJSON());
+        return { success: true, offline: true };
+      }
       return { success: false, error: error.message };
     }
   }
 
-  async _loadManifest({ bypassCache = false } = {}) {
-    try {
-      const cacheKey = {
-        supabaseUrl: this.config.config.supabaseUrl,
-        bucket: this.config.config.bucket,
-        collectionId: this.config.config.collectionId,
-      };
+  async _loadManifest({ bypassCache = false, allowStale = false } = {}) {
+    const cacheKey = {
+      supabaseUrl: this.config.config.supabaseUrl,
+      bucket: this.config.config.bucket,
+      collectionId: this.config.config.collectionId,
+    };
+    const isOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
 
-      if (!bypassCache) {
-        const cachedManifest = loadSupabaseManifestCache(cacheKey);
-        if (cachedManifest) {
-          this._manifest = cachedManifest;
-          this.config.config.hasManifest = true;
-          if (cachedManifest.name) {
-            this.name = cachedManifest.name;
-            this.config.name = cachedManifest.name;
-          }
-          return cachedManifest;
+    // Try cache first
+    if (!bypassCache) {
+      const cachedManifest = isOffline || allowStale
+        ? loadSupabaseManifestCache(cacheKey, { maxAgeMs: -1 })
+        : loadSupabaseManifestCache(cacheKey);
+      if (cachedManifest) {
+        this._manifest = cachedManifest;
+        this.config.config.hasManifest = true;
+        if (cachedManifest.name) {
+          this.name = cachedManifest.name;
+          this.config.name = cachedManifest.name;
         }
+        return cachedManifest;
       }
+    }
 
+    // If offline and no cache, we can't fetch
+    if (isOffline) {
+      return null;
+    }
+
+    // Try to fetch from network
+    try {
       const manifestPath = this._toStoragePath('manifest.json');
       const { data, error } = await this._storage().download(manifestPath);
       if (error) {
@@ -177,9 +219,9 @@ export class SupabaseStorageSource extends AssetSource {
 
       return manifest;
     } catch (error) {
-      this.config.config.hasManifest = false;
-      this._manifest = null;
-      return null;
+      // Network error - keep any existing manifest
+      console.warn('[Supabase] Failed to load manifest from network:', error.message);
+      return this._manifest || null;
     }
   }
 
@@ -203,10 +245,11 @@ export class SupabaseStorageSource extends AssetSource {
 
   async _ensureManifestLoaded() {
     if (!this._manifest && this.config.config.hasManifest !== false) {
-      await this._loadManifest();
+      await this._loadManifest({ allowStale: true });
     }
-    // If still missing, create a minimal manifest for this collection
-    if (!this._manifest) {
+    const isOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
+    // If still missing, create a minimal manifest for this collection (online only)
+    if (!this._manifest && !isOffline) {
       const manifest = {
         version: MANIFEST_VERSION,
         name: this.config.config.collectionName || this.config.config.collectionId,

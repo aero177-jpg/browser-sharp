@@ -1,7 +1,6 @@
 /**
  * Viewer component.
  * Three.js canvas wrapper that handles:
- * - Drag and drop file loading
  * - Mouse/touch interactions (double-click to set anchor)
  * - Keyboard shortcuts for navigation and view control
  */
@@ -15,6 +14,7 @@ import {
   raycaster,
   scene,
   currentMesh, 
+  setCurrentMesh,
   updateDollyZoomBaselineFromCamera,
   requestRender,
   THREE,
@@ -23,7 +23,11 @@ import {
 import { restoreHomeView, resetViewWithImmersive } from '../cameraUtils';
 import { startAnchorTransition } from '../cameraAnimations';
 import { cancelLoadZoomAnimation } from '../customAnimations';
-import { loadNextAsset, loadPrevAsset, resize, initDragDrop } from '../fileLoader';
+import { loadNextAsset, loadPrevAsset, resize } from '../fileLoader';
+import { resetSplatManager } from '../splatManager';
+import { clearBackground } from '../backgroundManager';
+import { getSource } from '../storage/index.js';
+import ViewerEmptyState from './ViewerEmptyState.jsx';
 
 
 /** Tags that should not trigger keyboard shortcuts */
@@ -61,6 +65,10 @@ function Viewer({ viewerReady }) {
   const metadataMissing = useStore((state) => state.metadataMissing);
   const isUploading = useStore((state) => state.isUploading);
   const uploadProgress = useStore((state) => state.uploadProgress);
+  const isLoading = useStore((state) => state.isLoading);
+  const assets = useStore((state) => state.assets);
+  const activeSourceId = useStore((state) => state.activeSourceId);
+  const setAnchorState = useStore((state) => state.setAnchorState);
   
   // Store actions
   const addLog = useStore((state) => state.addLog);
@@ -73,6 +81,9 @@ function Viewer({ viewerReady }) {
   const hasMeshRef = useRef(false);
 
   const { hasOriginalMetadata, customMetadataMode } = useStore();
+
+  const showEmptyState = Boolean(activeSourceId) && assets.length === 0 && !isLoading;
+  const activeSource = activeSourceId ? getSource(activeSourceId) : null;
 
   const showUploadProgress = isUploading && uploadProgress?.total;
   const [etaSeconds, setEtaSeconds] = useState(0);
@@ -98,6 +109,20 @@ function Viewer({ viewerReady }) {
 
     return () => clearInterval(intervalId);
   }, [showUploadProgress, uploadProgress?.completed, uploadProgress?.total]);
+
+  useEffect(() => {
+    if (!showEmptyState) return;
+    if (!currentMesh) return;
+
+    resetSplatManager();
+    setCurrentMesh(null);
+    clearBackground();
+    const pageEl = document.querySelector('.page');
+    if (pageEl) {
+      pageEl.classList.remove('has-glow');
+    }
+    requestRender();
+  }, [showEmptyState]);
 
   /**
    * Track mesh loading state - only update state when value changes
@@ -136,9 +161,6 @@ function Viewer({ viewerReady }) {
     if (!viewerReady || !controls || !renderer) {
       return;
     }
-
-    // Initialize drag/drop (file picker is handled in SidePanel)
-    initDragDrop();
 
     /**
      * Cancels any running load zoom animation.
@@ -183,6 +205,10 @@ function Viewer({ viewerReady }) {
             updateDollyZoomBaselineFromCamera();
             requestRender();
           },
+        });
+        setAnchorState({
+          active: true,
+          distance: typeof splatHit.distance === 'number' ? splatHit.distance : null,
         });
         const distanceText = splatHit.distance != null 
           ? ` (distance: ${splatHit.distance.toFixed(2)})` 
@@ -245,7 +271,7 @@ function Viewer({ viewerReady }) {
       }
       document.removeEventListener('keydown', handleKeydown);
     };
-  }, [viewerReady, addLog, togglePanel]);
+  }, [viewerReady, addLog, togglePanel, setAnchorState]);
 
   const etaLabel = showUploadProgress ? formatEta(etaSeconds) : '';
   const progressPercent = showUploadProgress && uploadProgress?.total
@@ -253,7 +279,10 @@ function Viewer({ viewerReady }) {
     : 0;
 
   return (
-    <div id="viewer" class={`viewer ${debugLoadingMode ? 'loading' : ''}`} ref={viewerRef}>
+    <div id="viewer" class={`viewer ${debugLoadingMode ? 'loading' : ''} ${showEmptyState ? 'is-empty' : ''}`} ref={viewerRef}>
+      {showEmptyState && (
+        <ViewerEmptyState source={activeSource} />
+      )}
       {showUploadProgress && (
         <div class="viewer-upload-overlay">
           <div class="viewer-upload-title">Uploading</div>

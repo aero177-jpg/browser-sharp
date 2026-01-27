@@ -7,7 +7,7 @@
 
 import { getSource, touchSource } from './sourceManager.js';
 import { loadFileSettings, saveCachedStatus } from '../fileStorage.js';
-import { loadCachedAssetFile } from './assetCache.js';
+import { loadCachedAssetFile, loadCollectionManifest } from './assetCache.js';
 
 /**
  * Adapts a RemoteAssetDescriptor to the internal asset format.
@@ -183,20 +183,55 @@ export const isSourceAsset = (asset) => {
 
 /**
  * Load all assets from a storage source and adapt them.
+ * Falls back to local cache manifest when offline or source unavailable.
  * 
  * @param {import('./AssetSource.js').AssetSource} source
  * @returns {Promise<Object[]>} Array of adapted assets
  */
 export const loadSourceAssets = async (source) => {
-  if (!source.isConnected()) {
-    const result = await source.connect(false);
-    if (!result.success) {
-      throw new Error(result.error || 'Failed to connect to source');
+  // Helper to build assets from cached manifest
+  const buildAssetsFromCache = async () => {
+    const cachedManifest = await loadCollectionManifest(source.id);
+    if (cachedManifest?.assets?.length) {
+      console.log(`[SourceAdapter] Using ${cachedManifest.assets.length} cached assets for ${source.id}`);
+      return cachedManifest.assets.map((asset) => adaptRemoteAsset({
+        id: `${source.id}/${asset.path || asset.name}`,
+        name: asset.name,
+        path: asset.path || asset.name,
+        sourceId: source.id,
+        sourceType: source.type,
+        size: asset.size,
+        preview: null,
+        previewSource: null,
+        loaded: false,
+      }));
     }
-  }
+    return null;
+  };
 
-  const remoteAssets = await source.listAssets();
-  return remoteAssets.map(adaptRemoteAsset);
+  // Try connecting to source
+  try {
+    if (!source.isConnected()) {
+      const result = await source.connect(false);
+      if (!result.success) {
+        // Connection failed - try cache
+        console.log('[SourceAdapter] Source connection failed, trying cache');
+        const cached = await buildAssetsFromCache();
+        if (cached) return cached;
+        throw new Error(result.error || 'Failed to connect to source');
+      }
+    }
+
+    // Source is connected, try to list assets
+    const remoteAssets = await source.listAssets();
+    return remoteAssets.map(adaptRemoteAsset);
+  } catch (err) {
+    // Any error (network, etc.) - try cache as fallback
+    console.log('[SourceAdapter] Error loading assets, trying cache:', err.message);
+    const cached = await buildAssetsFromCache();
+    if (cached) return cached;
+    throw err;
+  }
 };
 
 /**

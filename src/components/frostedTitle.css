@@ -98,7 +98,7 @@
   inset: -30px; /* oversize to avoid edge showing when rotated */
   background-image: var(--bg);
   background-size: 200% 220%;
-  filter: blur(40px) saturate(.8) brightness(3.8) contrast(1.8);
+  filter: blur(40px) saturate(.5) brightness(2.8) contrast(1.4);
   transform-origin: center;
   will-change: transform, background-position;
 
