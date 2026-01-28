@@ -212,7 +212,8 @@ export const loadSourceAssets = async (source) => {
   // Try connecting to source
   try {
     if (!source.isConnected()) {
-      const result = await source.connect(false);
+      const connectOptions = source.type === 'local-folder' ? false : { refreshManifest: true };
+      const result = await source.connect(connectOptions);
       if (!result.success) {
         // Connection failed - try cache
         console.log('[SourceAdapter] Source connection failed, trying cache');

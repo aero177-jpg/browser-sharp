@@ -19,7 +19,7 @@ import {
   requestRender,
   THREE,
 } from "./viewer.js";
-import { applyPreviewBackground, captureAndApplyBackground, clearBackground } from "./backgroundManager.js";
+import { applyPreviewBackground, captureAndApplyBackground, clearBackground, hasBackgroundForPreview } from "./backgroundManager.js";
 import { savePreviewBlob, listCachedFileNames } from "./fileStorage.js";
 import {
   fitViewToMesh,
@@ -589,7 +589,8 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
           // Also skip background capture in VR/stereo mode
           const bgStoreState = getStoreState();
           const isDistortedBg = bgStoreState.stereoEnabled || bgStoreState.vrSessionActive;
-          if (!isDistortedBg) {
+          const backgroundMatchesPreview = hasBackgroundForPreview(asset.preview);
+          if (!isDistortedBg && !backgroundMatchesPreview) {
             bgCaptured = true;
             captureAndApplyBackground({ renderer, composer, scene, THREE });
           }

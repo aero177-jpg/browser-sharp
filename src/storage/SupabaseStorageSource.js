@@ -196,6 +196,10 @@ export class SupabaseStorageSource extends AssetSource {
       const manifestPath = this._toStoragePath('manifest.json');
       const { data, error } = await this._storage().download(manifestPath);
       if (error) {
+        if (this._manifest) {
+          console.warn('[Supabase] Manifest fetch failed, using cached manifest:', error.message);
+          return this._manifest;
+        }
         this.config.config.hasManifest = false;
         this._manifest = null;
         return null;

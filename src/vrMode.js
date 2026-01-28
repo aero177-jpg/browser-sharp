@@ -21,6 +21,14 @@ let initialModelScale = null;
 let initialModelPosition = null;
 let initialModelQuaternion = null; // Store initial rotation
 let keyListenerAttached = false;
+let controller1 = null;
+let controller2 = null;
+let grabRaycaster = null;
+let grabTempMatrix = null;
+let grabTempMatrix2 = null;
+let grabTargetPos = null;
+let grabTargetQuat = null;
+let grabTargetScale = null;
 
 // Quest controller button indices (xr-standard mapping, per controller)
 const BTN_TRIGGER = 0;
@@ -45,6 +53,8 @@ const ROTATION_SPEED = 0.6; // radians per second for model rotation
 const AXIS_LOCK_THRESHOLD = 0.25; // minimum deflection to lock axis
 const MIN_VR_SCREEN_WIDTH = 768;
 const MIN_VR_SCREEN_HEIGHT = 480;
+const GRAB_SMOOTH_POSITION = 0.25; // 0..1 lerp per frame
+const GRAB_SMOOTH_ROTATION = 0.2; // 0..1 slerp per frame
 
 // Axis locking state for rotation
 let lockedRotationAxis = null; // 'x', 'y', or null
@@ -151,6 +161,126 @@ const ensureHands = () => {
   }
 };
 
+const ensureGrabControllers = () => {
+  if (!renderer || !scene) return;
+
+  if (!grabRaycaster) {
+    grabRaycaster = new THREE.Raycaster();
+    grabTempMatrix = new THREE.Matrix4();
+    grabTempMatrix2 = new THREE.Matrix4();
+    grabTargetPos = new THREE.Vector3();
+    grabTargetQuat = new THREE.Quaternion();
+    grabTargetScale = new THREE.Vector3();
+  }
+
+  if (!controller1) {
+    controller1 = renderer.xr.getController(0);
+    controller1.addEventListener("selectstart", handleGrabSelectStart);
+    controller1.addEventListener("selectend", handleGrabSelectEnd);
+    scene.add(controller1);
+  }
+
+  if (!controller2) {
+    controller2 = renderer.xr.getController(1);
+    controller2.addEventListener("selectstart", handleGrabSelectStart);
+    controller2.addEventListener("selectend", handleGrabSelectEnd);
+    scene.add(controller2);
+  }
+};
+
+const disposeGrabControllers = () => {
+  if (controller1) {
+    controller1.removeEventListener("selectstart", handleGrabSelectStart);
+    controller1.removeEventListener("selectend", handleGrabSelectEnd);
+    if (scene?.children?.includes(controller1)) scene.remove(controller1);
+  }
+  if (controller2) {
+    controller2.removeEventListener("selectstart", handleGrabSelectStart);
+    controller2.removeEventListener("selectend", handleGrabSelectEnd);
+    if (scene?.children?.includes(controller2)) scene.remove(controller2);
+  }
+  controller1 = null;
+  controller2 = null;
+};
+
+const getControllerIntersections = (controller) => {
+  if (!currentMesh || !grabRaycaster || !grabTempMatrix) return [];
+
+  controller.updateMatrixWorld();
+  grabTempMatrix.identity().extractRotation(controller.matrixWorld);
+  grabRaycaster.ray.origin.setFromMatrixPosition(controller.matrixWorld);
+  grabRaycaster.ray.direction.set(0, 0, -1).applyMatrix4(grabTempMatrix);
+
+  return grabRaycaster.intersectObject(currentMesh, true);
+};
+
+const handleGrabSelectStart = (event) => {
+  if (!currentMesh) return;
+
+  const controller = event.target;
+  if (controller?.userData?.handedness === "left") return;
+  const intersections = getControllerIntersections(controller);
+  if (!intersections.length) return;
+
+  controller.userData.selected = currentMesh;
+  controller.userData.selectedParent = currentMesh.parent || scene;
+  controller.updateMatrixWorld();
+  grabTempMatrix.copy(controller.matrixWorld).invert();
+  controller.userData.grabOffset = grabTempMatrix.multiply(currentMesh.matrixWorld).clone();
+  controller.userData.filteredPos = null;
+  controller.userData.filteredQuat = null;
+  controller.userData.targetRayMode = event?.data?.targetRayMode;
+  requestRender();
+};
+
+const handleGrabSelectEnd = (event) => {
+  const controller = event.target;
+  const selected = controller.userData.selected;
+  if (!selected) return;
+
+  const parent = controller.userData.selectedParent || scene;
+  if (selected.parent !== parent) {
+    parent.attach(selected);
+  }
+  controller.userData.selected = undefined;
+  controller.userData.selectedParent = undefined;
+  controller.userData.grabOffset = undefined;
+  controller.userData.filteredPos = null;
+  controller.userData.filteredQuat = null;
+  requestRender();
+};
+
+const updateGrabbedObjects = () => {
+  if (!grabTempMatrix2 || !grabTargetPos || !grabTargetQuat || !grabTargetScale) return;
+
+  const controllers = [controller1, controller2];
+  for (const controller of controllers) {
+    if (!controller?.userData?.selected || !controller.userData.grabOffset) continue;
+
+    const selected = controller.userData.selected;
+    controller.updateMatrixWorld();
+
+    grabTempMatrix2.copy(controller.matrixWorld).multiply(controller.userData.grabOffset);
+    grabTempMatrix2.decompose(grabTargetPos, grabTargetQuat, grabTargetScale);
+
+    if (!controller.userData.filteredPos) {
+      controller.userData.filteredPos = grabTargetPos.clone();
+    } else {
+      controller.userData.filteredPos.lerp(grabTargetPos, GRAB_SMOOTH_POSITION);
+    }
+
+    if (!controller.userData.filteredQuat) {
+      controller.userData.filteredQuat = grabTargetQuat.clone();
+    } else {
+      controller.userData.filteredQuat.slerp(grabTargetQuat, GRAB_SMOOTH_ROTATION);
+    }
+
+    selected.position.copy(controller.userData.filteredPos);
+    selected.quaternion.copy(controller.userData.filteredQuat);
+    requestRender();
+  }
+};
+
 const removeHands = () => {
   if (xrHandMesh && scene.children.includes(xrHandMesh)) {
     scene.remove(xrHandMesh);
@@ -169,6 +299,7 @@ const setupVrAnimationLoop = () => {
     }
 
     handleVrGamepadInput(dt);
+    updateGrabbedObjects();
 
     renderer.render(scene, camera);
   });
@@ -208,10 +339,16 @@ const handleVrGamepadInput = (dt) => {
   camera.getWorldDirection(forward).normalize();
   right.crossVectors(forward, up).normalize();
 
-  for (const source of session.inputSources) {
+  for (const [index, source] of session.inputSources.entries()) {
     const gp = source?.gamepad;
     const hand = source?.handedness || "unknown";
     if (!gp) continue;
+
+    if (index === 0 && controller1) {
+      controller1.userData.handedness = hand;
+    } else if (index === 1 && controller2) {
+      controller2.userData.handedness = hand;
+    }
 
     const axes = gp.axes || [];
     const buttons = gp.buttons || [];
@@ -276,32 +413,26 @@ const handleVrGamepadInput = (dt) => {
       }
     }
 
-    // ===== TRIGGERS FOR DEPTH (both controllers) =====
-    // Trigger pulls model closer, so we sum both triggers
-    const triggerValue = buttons[BTN_TRIGGER]?.value ?? 0;
-    if (currentMesh && triggerValue > 0.1) {
-      const currentScale = useStore.getState().vrModelScale || 1;
-      const scaledDepthSpeed = DEPTH_SPEED * currentScale;
-      // Pull model toward camera when trigger pressed
-      const depthDelta = -triggerValue * scaledDepthSpeed * dt;
-      currentMesh.position.addScaledVector(forward, depthDelta);
-      requestRender();
-    }
-
-    // Grip pushes model away
-    const gripValue = buttons[BTN_GRIP]?.value ?? 0;
-    if (currentMesh && gripValue > 0.1) {
-      const currentScale = useStore.getState().vrModelScale || 1;
-      const scaledDepthSpeed = DEPTH_SPEED * currentScale;
-      // Push model away from camera when grip pressed
-      const depthDelta = gripValue * scaledDepthSpeed * dt;
-      currentMesh.position.addScaledVector(forward, depthDelta);
-      requestRender();
-    }
-
     // ===== LEFT CONTROLLER =====
     if (hand === "left") {
       if (currentMesh) {
+        const triggerValue = buttons[BTN_TRIGGER]?.value ?? 0;
+        const triggerPressed = triggerValue > 0.1;
+        const stickYDepth = Math.abs(stickY) > STICK_DEADZONE ? stickY : 0;
+        const depthInput = triggerPressed ? stickYDepth : 0;
+        if (Math.abs(depthInput) > 0.01) {
+          const currentScale = useStore.getState().vrModelScale || 1;
+          const scaledDepthSpeed = DEPTH_SPEED * currentScale;
+          const depthDelta = depthInput * scaledDepthSpeed * dt;
+          currentMesh.position.addScaledVector(forward, depthDelta);
+          requestRender();
+        }
+      }
+
+      const triggerValue = buttons[BTN_TRIGGER]?.value ?? 0;
+      const triggerPressed = triggerValue > 0.1;
+
+      if (currentMesh && !triggerPressed) {
         // Get rotation pivot point (use model center or controls target)
         const pivot = controls?.target?.clone() ?? currentMesh.position.clone();
 
@@ -309,12 +440,9 @@ const handleVrGamepadInput = (dt) => {
         const absY = Math.abs(stickY);
         const stickMagnitude = Math.sqrt(stickX * stickX + stickY * stickY);
 
-        // Determine axis lock when stick first deflects past threshold
         if (stickMagnitude < STICK_DEADZONE) {
-          // Stick returned to center, release lock
           lockedRotationAxis = null;
         } else if (lockedRotationAxis === null && stickMagnitude > AXIS_LOCK_THRESHOLD) {
-          // Lock to whichever axis has greater deflection
           lockedRotationAxis = absX > absY ? 'x' : 'y';
         }
 
@@ -338,15 +466,15 @@ const handleVrGamepadInput = (dt) => {
         // Flipped: Stick forward = tilt backward, stick back = tilt forward
         if (lockedRotationAxis === 'y' && absY > STICK_DEADZONE) {
           const rotationAmount = -stickY * ROTATION_SPEED * dt; // flipped direction
-          
+
           // Rotate model around the pivot on the right axis (pitch)
           const offset = currentMesh.position.clone().sub(pivot);
           offset.applyAxisAngle(right, rotationAmount);
           currentMesh.position.copy(pivot).add(offset);
-          
+
           // Also rotate the model itself
           currentMesh.rotateOnWorldAxis(right, rotationAmount);
-          
+
           requestRender();
         }
       }
@@ -405,6 +533,7 @@ const handleSessionStart = () => {
   initialModelQuaternion = currentMesh?.quaternion?.clone() ?? null; // Store initial rotation
   store.setVrModelScale(1);
   ensureHands();
+  ensureGrabControllers();
   setupVrAnimationLoop();
 
   if (!keyListenerAttached) {
@@ -420,6 +549,7 @@ const handleSessionEnd = () => {
   renderer.xr.enabled = false;
   if (controls) controls.enabled = true;
   restoreModelTransform();
+  disposeGrabControllers();
   removeHands();
   if (keyListenerAttached) {
     window.removeEventListener("keydown", handleScaleKeydown);

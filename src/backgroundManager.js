@@ -2,7 +2,7 @@
  * Background manager centralizes preview/blur application and animation hand-off.
  * Keeps background updates in one place so loaders only request set/clear/capture.
  */
-import { setBgImageUrl, updateBackgroundImage, requestRender, renderer, scene, THREE } from './viewer.js';
+import { bgImageUrl, setBgImageUrl, updateBackgroundImage, requestRender, renderer, scene, THREE } from './viewer.js';
 import { getAssetList } from './assetManager.js';
 
 const isObjectUrl = (value) => typeof value === 'string' && value.startsWith('blob:');
@@ -74,6 +74,15 @@ export const clearBackground = () => applyBackground(null);
 
 /** Apply a preview image as the background. */
 export const applyPreviewBackground = (previewUrl) => applyBackground(previewUrl);
+
+/** Returns true if a background image is currently applied. */
+export const hasBackgroundImage = () => Boolean(bgImageUrl);
+
+/** Returns true if the current background matches the given preview URL. */
+export const hasBackgroundForPreview = (previewUrl) => {
+  if (!previewUrl) return false;
+  return bgImageUrl === previewUrl;
+};
 
 /**
  * Capture a blurred background from the renderer and apply it.
