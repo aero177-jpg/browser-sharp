@@ -41,11 +41,18 @@ export {
   restoreSupabaseStorageSource,
 } from './SupabaseStorageSource.js';
 
+export {
+  R2BucketSource,
+  createR2BucketSource,
+  restoreR2BucketSource,
+} from './R2BucketSource.js';
+
 // Import restore functions for local use in restoreSource()
 import { restoreLocalFolderSource as _restoreLocalFolderSource } from './LocalFolderSource.js';
 import { restoreAppStorageSource as _restoreAppStorageSource } from './AppStorageSource.js';
 import { restorePublicUrlSource as _restorePublicUrlSource } from './PublicUrlSource.js';
 import { restoreSupabaseStorageSource as _restoreSupabaseStorageSource } from './SupabaseStorageSource.js';
+import { restoreR2BucketSource as _restoreR2BucketSource } from './R2BucketSource.js';
 import { createPublicUrlSource as _createPublicUrlSource } from './PublicUrlSource.js';
 
 // Source manager - import for local use
@@ -119,6 +126,8 @@ export const restoreSource = (config) => {
       return _restorePublicUrlSource(config);
     case 'supabase-storage':
       return _restoreSupabaseStorageSource(config);
+    case 'r2-bucket':
+      return _restoreR2BucketSource(config);
     default:
       console.warn(`Unknown source type: ${config.type}`);
       return null;

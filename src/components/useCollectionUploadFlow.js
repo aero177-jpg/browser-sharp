@@ -33,15 +33,20 @@ const IS_ANDROID = isAndroidUserAgent();
 const AUTO_RELOAD_DELAY_MS = 500;
 const SUPABASE_RESCAN_INTERVAL_MS = 500;
 const SUPABASE_RESCAN_ATTEMPTS = 6;
+const R2_RESCAN_INTERVAL_MS = 500;
+const R2_RESCAN_ATTEMPTS = 6;
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-const waitForSupabaseRescan = async (source, { expectedMin = 1 } = {}) => {
-  if (!source || source?.type !== 'supabase-storage' || typeof source?.rescan !== 'function') {
+const waitForRemoteRescan = async (source, { expectedMin = 1 } = {}) => {
+  if (!source || !['supabase-storage', 'r2-bucket'].includes(source?.type) || typeof source?.rescan !== 'function') {
     return false;
   }
 
-  for (let attempt = 0; attempt < SUPABASE_RESCAN_ATTEMPTS; attempt += 1) {
+  const attempts = source?.type === 'r2-bucket' ? R2_RESCAN_ATTEMPTS : SUPABASE_RESCAN_ATTEMPTS;
+  const interval = source?.type === 'r2-bucket' ? R2_RESCAN_INTERVAL_MS : SUPABASE_RESCAN_INTERVAL_MS;
+
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
     try {
       const result = await source.rescan({ applyChanges: true });
       const addedCount = result?.added?.length || 0;
@@ -49,9 +54,9 @@ const waitForSupabaseRescan = async (source, { expectedMin = 1 } = {}) => {
         return true;
       }
     } catch (err) {
-      console.warn('[UploadFlow] Supabase rescan failed', err);
+      console.warn('[UploadFlow] Remote rescan failed', err);
     }
-    await delay(SUPABASE_RESCAN_INTERVAL_MS);
+    await delay(interval);
   }
 
   return false;
@@ -83,6 +88,18 @@ const getCollectionUploadCopy = (source) => {
       assetSubtitle: 'Uploads supported 3DGS assets to Supabase storage.',
       imageTitle: 'Images to convert',
       imageSubtitle: 'Sends images to Cloud GPU and uploads the results to Supabase.',
+      note: '',
+    };
+  }
+
+  if (type === 'r2-bucket') {
+    return {
+      title: 'Upload to R2',
+      subtitle: `Choose what you want to upload to "${collectionName}".`,
+      assetTitle: '3dgs asset upload',
+      assetSubtitle: 'Uploads supported 3DGS assets to R2 storage.',
+      imageTitle: 'Images to convert',
+      imageSubtitle: 'Sends images to Cloud GPU and uploads the results to R2.',
       note: '',
     };
   }
@@ -236,7 +253,7 @@ export function useCollectionUploadFlow({
 
     onLoadingChange?.(true);
     try {
-      if (type === 'supabase-storage' && typeof resolvedSource?.uploadAssets === 'function') {
+      if ((type === 'supabase-storage' || type === 'r2-bucket') && typeof resolvedSource?.uploadAssets === 'function') {
         const result = await resolvedSource.uploadAssets(valid);
         if (!result?.success) {
           onStatus?.('error');
@@ -282,9 +299,10 @@ export function useCollectionUploadFlow({
     }
 
     const type = resolvedSource?.type;
-    const prefix = type === 'supabase-storage' ? getCollectionPrefix(resolvedSource) : undefined;
-    const returnMode = type === 'supabase-storage' ? undefined : 'direct';
+    const prefix = type === 'supabase-storage' || type === 'r2-bucket' ? getCollectionPrefix(resolvedSource) : undefined;
+    const returnMode = type === 'supabase-storage' || type === 'r2-bucket' ? undefined : 'direct';
     const downloadMode = type === 'app-storage' || (!resolvedSource && !prepareOnly) || prepareOnly ? 'store' : undefined;
+    const r2Config = type === 'r2-bucket' ? resolvedSource?.config?.config : null;
 
     onLoadingChange?.(true);
     onUploadingChange?.(true);
@@ -301,6 +319,12 @@ export function useCollectionUploadFlow({
         prefix,
         returnMode,
         downloadMode,
+        storageTarget: r2Config ? 'r2' : undefined,
+        s3Endpoint: r2Config?.endpoint,
+        s3AccessKeyId: r2Config?.accessKeyId,
+        s3SecretAccessKey: r2Config?.secretAccessKey,
+        s3Bucket: r2Config?.bucket,
+        s3PublicUrlBase: r2Config?.publicBaseUrl,
         onProgress: (progress) => {
           onUploadProgress?.(progress);
           reportUploadState({ isUploading: true, uploadProgress: progress });
@@ -309,6 +333,7 @@ export function useCollectionUploadFlow({
 
       const storedFiles = results.flatMap((result) => result?.data?.files || []);
       const anySuccess = results.some((r) => r.ok);
+      const silentOnly = results.length > 0 && results.every((r) => r.ok || r.silentFailure);
 
       if (prepareOnly) {
         if (storedFiles.length > 0) {
@@ -334,13 +359,13 @@ export function useCollectionUploadFlow({
         return;
       }
 
-      if (type === 'supabase-storage' && anySuccess) {
+      if ((type === 'supabase-storage' || type === 'r2-bucket') && anySuccess) {
         await onRefreshAssets?.();
         await onAssetsUpdated?.({ mode: 'images', source: resolvedSource, files: imageFiles });
         const addedCount = results.reduce((sum, result) => sum + (result?.ok ? 1 : 0), 0) || imageFiles.length;
-        const didRescan = await waitForSupabaseRescan(resolvedSource, { expectedMin: addedCount });
+        const didRescan = await waitForRemoteRescan(resolvedSource, { expectedMin: addedCount });
         if (!didRescan) {
-          console.warn('[UploadFlow] Supabase rescan timed out; falling back to delayed refresh');
+          console.warn('[UploadFlow] Remote rescan timed out; falling back to delayed refresh');
         }
         scheduleAutoReload(resolvedSource, getPreferredIndex(addedCount));
         return;
@@ -353,7 +378,9 @@ export function useCollectionUploadFlow({
 
       if (!anySuccess) {
         onStatus?.('error');
-        reportError('Image conversion failed.');
+        if (!silentOnly) {
+          reportError('Image conversion failed.');
+        }
       }
     } catch (err) {
       onStatus?.('error');

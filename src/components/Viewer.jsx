@@ -85,30 +85,7 @@ function Viewer({ viewerReady }) {
   const showEmptyState = Boolean(activeSourceId) && assets.length === 0 && !isLoading;
   const activeSource = activeSourceId ? getSource(activeSourceId) : null;
 
-  const showUploadProgress = isUploading && uploadProgress?.total;
-  const [etaSeconds, setEtaSeconds] = useState(0);
-
-  useEffect(() => {
-    if (!showUploadProgress || !uploadProgress) {
-      setEtaSeconds(0);
-      return;
-    }
-
-    const remaining = Math.max(0, (uploadProgress.total - (uploadProgress.completed || 0)) * 40);
-    setEtaSeconds(remaining);
-
-    const intervalId = setInterval(() => {
-      setEtaSeconds((s) => {
-        if (s <= 1) {
-          clearInterval(intervalId);
-          return 0;
-        }
-        return s - 1;
-      });
-    }, 1000);
-
-    return () => clearInterval(intervalId);
-  }, [showUploadProgress, uploadProgress?.completed, uploadProgress?.total]);
+  const showUploadProgress = isUploading && (uploadProgress?.total || uploadProgress?.upload?.total || uploadProgress?.estimate);
 
   useEffect(() => {
     if (!showEmptyState) return;
@@ -273,10 +250,64 @@ function Viewer({ viewerReady }) {
     };
   }, [viewerReady, addLog, togglePanel, setAnchorState]);
 
-  const etaLabel = showUploadProgress ? formatEta(etaSeconds) : '';
-  const progressPercent = showUploadProgress && uploadProgress?.total
-    ? Math.min(100, Math.round(((uploadProgress.completed || 0) / uploadProgress.total) * 100))
+  const uploadStage = uploadProgress?.stage || (uploadProgress?.estimate ? 'processing' : 'upload');
+  const uploadDone = Boolean(uploadProgress?.upload?.done);
+  const estimate = uploadProgress?.estimate || null;
+  const hasFileCount = Number.isFinite(uploadProgress?.total);
+  const fileCompleted = hasFileCount ? (uploadProgress?.completed || 0) : 0;
+  const fileTotal = hasFileCount ? uploadProgress?.total : 0;
+  const uploadBytesTotal = uploadProgress?.upload?.total || 0;
+  const uploadBytesLoaded = uploadProgress?.upload?.loaded || 0;
+
+  const uploadPercent = uploadBytesTotal
+    ? Math.min(100, Math.round((uploadBytesLoaded / uploadBytesTotal) * 100))
+    : null;
+  const estimatePercent = estimate?.stageProgress != null
+    ? Math.min(100, Math.round(estimate.stageProgress * 100))
+    : null;
+  const fallbackPercent = fileTotal
+    ? Math.min(100, Math.round((fileCompleted / fileTotal) * 100))
     : 0;
+
+  const progressPercent = uploadStage === 'upload'
+    ? (uploadPercent ?? fallbackPercent)
+    : (estimatePercent ?? fallbackPercent);
+
+  const etaSeconds = estimate?.remainingMs != null
+    ? Math.ceil(estimate.remainingMs / 1000)
+    : 0;
+  const etaLabel = showUploadProgress && etaSeconds ? formatEta(etaSeconds) : '';
+  
+  const currentFile = estimate?.currentFile || 0;
+  const totalFiles = estimate?.totalFiles || 0;
+  const isWarmup = uploadStage === 'warmup';
+  const isProcessing = uploadStage === 'processing';
+  
+  const stageLabel = uploadStage === 'upload'
+    ? (uploadDone ? 'Upload complete' : 'Uploading')
+    : isWarmup
+    ? 'GPU warm-up'
+    : isProcessing && totalFiles > 1
+    ? `Processing ${currentFile}/${totalFiles}`
+    : 'Processing (est.)';
+
+  const fileCountLabel = isProcessing && totalFiles > 1 && currentFile > 0
+    ? `${currentFile}/${totalFiles}`
+    : fileTotal > 0
+    ? `${fileCompleted}/${fileTotal}`
+    : '';
+
+  const estimateElapsedMs = estimate?.elapsedMs || 0;
+  const estimateFileCount = totalFiles || fileTotal || 1;
+  const warnAfterMs = 60000 + estimateFileCount * 30000;
+  const failAfterMs = 300000 + estimateFileCount * 50000;
+  const showSlowWarning = (isWarmup || isProcessing) && !estimate?.done && estimateElapsedMs > warnAfterMs;
+  const showFailWarning = (isWarmup || isProcessing) && !estimate?.done && estimateElapsedMs > failAfterMs;
+  const warningText = showFailWarning
+    ? 'This is taking longer than expected and may have failed. Collection will refresh when ready.'
+    : showSlowWarning
+    ? 'Taking longer than expected. Collection will refresh when ready.'
+    : '';
 
   return (
     <div id="viewer" class={`viewer ${debugLoadingMode ? 'loading' : ''} ${showEmptyState ? 'is-empty' : ''}`} ref={viewerRef}>
@@ -285,11 +316,16 @@ function Viewer({ viewerReady }) {
       )}
       {showUploadProgress && (
         <div class="viewer-upload-overlay">
-          <div class="viewer-upload-title">Uploading</div>
+          <div class="viewer-upload-title">{stageLabel}</div>
           <div class="viewer-upload-meta">
-            <span>{uploadProgress?.completed || 0}/{uploadProgress?.total || 0}</span>
+            {fileCountLabel && (
+              <span>{fileCountLabel}</span>
+            )}
             {etaLabel && <span class="viewer-upload-eta">{etaLabel}</span>}
           </div>
+          {warningText && (
+            <div class="viewer-upload-warning">{warningText}</div>
+          )}
           <div class="viewer-upload-bar">
             <div class="viewer-upload-bar-fill" style={{ width: `${progressPercent}%` }} />
           </div>

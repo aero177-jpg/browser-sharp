@@ -6,7 +6,7 @@
  */
 
 /**
- * @typedef {'local-folder' | 'public-url' | 'supabase-storage' | 'app-storage'} SourceType
+ * @typedef {'local-folder' | 'public-url' | 'supabase-storage' | 'app-storage' | 'r2-bucket'} SourceType
  */
 
 /**
@@ -48,6 +48,19 @@
  * @property {string} supabaseUrl - Supabase project URL
  * @property {string} anonKey - Supabase anon/public key
  * @property {string} bucket - Supabase Storage bucket name
+ * @property {string} collectionId - Collection identifier under collections/{collectionId}
+ * @property {string} [collectionName] - Display name for the collection
+ * @property {boolean} hasManifest - Whether manifest.json exists
+ */
+
+/**
+ * @typedef {Object} R2StorageConfig
+ * @property {string} accountId - Cloudflare account ID
+ * @property {string} accessKeyId - R2 access key ID
+ * @property {string} secretAccessKey - R2 secret access key
+ * @property {string} endpoint - Account endpoint for R2 API (not public URL)
+ * @property {string} bucket - R2 bucket name
+ * @property {string} publicBaseUrl - Public base URL for asset delivery
  * @property {string} collectionId - Collection identifier under collections/{collectionId}
  * @property {string} [collectionName] - Display name for the collection
  * @property {boolean} hasManifest - Whether manifest.json exists
@@ -144,6 +157,14 @@ export const SOURCE_TIERS = {
     description: 'Manifest-first collections in your Supabase bucket',
     benefits: ['Cross-device via manifest.json', 'Uploads stay in your bucket', 'Free-tier friendly'],
     requirements: ['Supabase project URL', 'Anon/public key', 'Public bucket access'],
+    icon: 'cloud',
+  },
+  'r2-bucket': {
+    tier: 2,
+    label: 'Cloudflare R2',
+    description: 'Manifest-first collections in your R2 bucket',
+    benefits: ['Zero egress for reads', 'S3-compatible access', 'Bring your own domain'],
+    requirements: ['Account ID', 'Access key ID/secret', 'Public base URL'],
     icon: 'cloud',
   },
   'public-url': {

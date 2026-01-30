@@ -122,6 +122,8 @@ function ExportPage({ onBack, onClose, addLog }) {
     includeCloudGpuSettings: true,
     includeSupabaseCollections: true,
     includeSupabaseSettings: true,
+    includeR2Collections: true,
+    includeR2Settings: true,
     includeFilePreviews: true,
     includeFileSettings: true,
   });
@@ -194,6 +196,18 @@ function ExportPage({ onBack, onClose, addLog }) {
       key: 'includeSupabaseSettings',
       title: 'Supabase settings',
       subtitle: 'Per-file camera and display settings',
+      icon: faCog,
+    },
+    {
+      key: 'includeR2Collections',
+      title: 'R2 collections',
+      subtitle: 'Saved Cloudflare R2 bucket connections',
+      icon: faServer,
+    },
+    {
+      key: 'includeR2Settings',
+      title: 'R2 settings',
+      subtitle: 'Saved R2 credentials and public URL',
       icon: faCog,
     },
     {

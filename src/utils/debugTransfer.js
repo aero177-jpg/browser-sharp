@@ -11,6 +11,7 @@ import {
   restoreSource,
 } from '../storage/index.js';
 import { loadSupabaseSettings, saveSupabaseSettings } from '../storage/supabaseSettings.js';
+import { loadR2Settings, saveR2Settings } from '../storage/r2Settings.js';
 import { loadCloudGpuSettings, saveCloudGpuSettings } from '../storage/cloudGpuSettings.js';
 import {
   listAllFileSettings,
@@ -52,6 +53,8 @@ const buildZipFileMap = async ({
   includeUrlCollections,
   includeSupabaseCollections,
   includeSupabaseSettings,
+  includeR2Collections,
+  includeR2Settings,
   includeCloudGpuSettings,
   includeFileSettings,
   includeFilePreviews,
@@ -61,16 +64,18 @@ const buildZipFileMap = async ({
   const data = {
     sources: [],
     supabaseSettings: null,
+    r2Settings: null,
     cloudGpuSettings: null,
     fileSettings: [],
     previews: [],
   };
 
-  if (includeUrlCollections || includeSupabaseCollections) {
+  if (includeUrlCollections || includeSupabaseCollections || includeR2Collections) {
     const allSources = await loadAllSources();
     data.sources = allSources.filter((config) => {
       if (config.type === 'public-url') return includeUrlCollections;
       if (config.type === 'supabase-storage') return includeSupabaseCollections;
+      if (config.type === 'r2-bucket') return includeR2Collections;
       return false;
     });
     const skippedLocal = allSources.some((config) => config.type === 'local-folder');
@@ -81,6 +86,10 @@ const buildZipFileMap = async ({
 
   if (includeSupabaseSettings) {
     data.supabaseSettings = loadSupabaseSettings();
+  }
+
+  if (includeR2Settings) {
+    data.r2Settings = loadR2Settings();
   }
 
   if (includeCloudGpuSettings) {
@@ -121,6 +130,8 @@ const buildZipFileMap = async ({
       includeUrlCollections,
       includeSupabaseCollections,
       includeSupabaseSettings,
+      includeR2Collections,
+      includeR2Settings,
       includeCloudGpuSettings,
       includeFileSettings,
       includeFilePreviews,
@@ -158,12 +169,17 @@ export const importTransferBundle = async (file) => {
     fileSettingsImported: 0,
     previewsImported: 0,
     supabaseSettingsImported: Boolean(data.supabaseSettings),
+    r2SettingsImported: Boolean(data.r2Settings),
     cloudGpuSettingsImported: Boolean(data.cloudGpuSettings),
     warnings: [],
   };
 
   if (data.supabaseSettings) {
     saveSupabaseSettings(data.supabaseSettings);
+  }
+
+  if (data.r2Settings) {
+    saveR2Settings(data.r2Settings);
   }
 
   if (data.cloudGpuSettings) {
@@ -173,7 +189,7 @@ export const importTransferBundle = async (file) => {
   if (Array.isArray(data.sources)) {
     for (const config of data.sources) {
       if (!config?.type) continue;
-      if (config.type !== 'public-url' && config.type !== 'supabase-storage') {
+      if (config.type !== 'public-url' && config.type !== 'supabase-storage' && config.type !== 'r2-bucket') {
         summary.warnings.push(`Skipped unsupported source type: ${config.type}`);
         continue;
       }

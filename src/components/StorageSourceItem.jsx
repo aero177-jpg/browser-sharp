@@ -44,6 +44,7 @@ const TYPE_ICONS = {
   'local-folder': faFolder,
   'app-storage': faDatabase,
   'supabase-storage': faCloud,
+  'r2-bucket': faCloud,
   'public-url': faLink,
 };
 
@@ -51,6 +52,7 @@ const TYPE_LABELS = {
   'local-folder': 'Local',
   'app-storage': 'App',
   'supabase-storage': 'Supabase',
+  'r2-bucket': 'R2',
   'public-url': 'URL',
 };
 
@@ -201,7 +203,7 @@ function StorageSourceItem({
   const refreshAssets = useCallback(async () => {
     setIsLoading(true);
     try {
-      if (source.type === 'supabase-storage' && typeof source.rescan === 'function') {
+      if ((source.type === 'supabase-storage' || source.type === 'r2-bucket') && typeof source.rescan === 'function') {
         const applied = await source.rescan({ applyChanges: true });
         if (!applied?.success) {
           setStatus('error');
@@ -494,7 +496,7 @@ function StorageSourceItem({
 
   const handleConfirmRemove = useCallback(async () => {
     const shouldRemoveCache = removeCache && cachedCount > 0;
-    const canRemoveRemote = source.type === 'supabase-storage' || source.type === 'app-storage';
+    const canRemoveRemote = source.type === 'supabase-storage' || source.type === 'r2-bucket' || source.type === 'app-storage';
     const shouldRemoveRemote = removeRemote && canRemoveRemote;
     const shouldRemoveSource = removeSource;
 
@@ -738,7 +740,7 @@ function StorageSourceItem({
               <button
                 class="source-action-btn"
                 onClick={handleUploadClick}
-                title={source.type === 'supabase-storage' ? 'Upload files to Supabase' : 'Convert images with Cloud GPU'}
+                title={source.type === 'supabase-storage' ? 'Upload files to Supabase' : source.type === 'r2-bucket' ? 'Upload files to R2' : 'Convert images with Cloud GPU'}
               >
                 <FontAwesomeIcon icon={faUpload} />
                 <span>Upload</span>
@@ -780,6 +782,7 @@ function StorageSourceItem({
               const isAppStorage = source.type === 'app-storage';
               const isUrlCollection = source.type === 'public-url';
               const isSupabase = source.type === 'supabase-storage';
+              const isR2 = source.type === 'r2-bucket';
 
               if (isLocalCollection) {
                 return (
@@ -821,10 +824,18 @@ function StorageSourceItem({
                 );
               }
 
-              if (isSupabase) {
+              if (isR2 && removeRemote) {
                 return (
                   <p class="modal-note">
-                    Removing here only disconnects the collection; files remain in Supabase unless selected below.
+                    Selected items will be deleted from the R2 collection and removed from the list.
+                  </p>
+                );
+              }
+
+              if (isSupabase || isR2) {
+                return (
+                  <p class="modal-note">
+                    Removing here only disconnects the collection; files remain in storage unless selected below.
                   </p>
                 );
               }
@@ -866,7 +877,7 @@ function StorageSourceItem({
               </div>
             )}
 
-            {(source.type === 'supabase-storage' || source.type === 'app-storage') && (
+            {(source.type === 'supabase-storage' || source.type === 'r2-bucket' || source.type === 'app-storage') && (
               <div class="modal-checkbox">
                 <label>
                   <input
@@ -874,12 +885,18 @@ function StorageSourceItem({
                     checked={removeRemote}
                     onChange={(e) => setRemoveRemote(e.target.checked)}
                   />
-                  {source.type === 'supabase-storage' ? 'Delete from Supabase storage' : 'Delete from app storage'}
+                  {source.type === 'supabase-storage'
+                    ? 'Delete from Supabase storage'
+                    : source.type === 'r2-bucket'
+                      ? 'Delete from R2 storage'
+                      : 'Delete from app storage'}
                 </label>
                 <div class="modal-subnote">
                   {source.type === 'supabase-storage'
                     ? 'Removes files and manifest entries from the linked Supabase collection.'
-                    : 'Removes files stored inside the app for this collection.'}
+                    : source.type === 'r2-bucket'
+                      ? 'Removes files and manifest entries from the linked R2 collection.'
+                      : 'Removes files stored inside the app for this collection.'}
                 </div>
               </div>
             )}

@@ -11,7 +11,10 @@ export const loadCloudGpuSettings = () => {
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (!parsed.apiUrl || !parsed.apiKey) return null;
-    return parsed;
+    return {
+      ...parsed,
+      batchUploads: Boolean(parsed.batchUploads),
+    };
   } catch {
     return null;
   }

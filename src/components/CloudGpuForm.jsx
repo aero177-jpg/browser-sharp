@@ -57,6 +57,7 @@ function CloudGpuForm({ onBack }) {
         apiUrl: saved?.apiUrl || '',
         apiKey: saved?.apiKey || '',
         gpuType: saved?.gpuType || 'a10',
+        batchUploads: saved?.batchUploads ?? false,
       };
     },
     []
@@ -65,6 +66,7 @@ function CloudGpuForm({ onBack }) {
   const [apiUrl, setApiUrl] = useState(initialSettings.apiUrl);
   const [apiKey, setApiKey] = useState(initialSettings.apiKey);
   const [gpuType, setGpuType] = useState(initialSettings.gpuType);
+  const [batchUploads, setBatchUploads] = useState(initialSettings.batchUploads);
   const [status, setStatus] = useState('idle');
   const [error, setError] = useState(null);
 
@@ -72,17 +74,20 @@ function CloudGpuForm({ onBack }) {
     apiUrl: apiUrl.trim(),
     apiKey: apiKey.trim(),
     gpuType: (gpuType || 'a10').trim().toLowerCase(),
-  }), [apiUrl, apiKey, gpuType]);
+    batchUploads: Boolean(batchUploads),
+  }), [apiUrl, apiKey, gpuType, batchUploads]);
   const trimmedSaved = useMemo(() => ({
     apiUrl: savedSettings.apiUrl?.trim?.() || '',
     apiKey: savedSettings.apiKey?.trim?.() || '',
     gpuType: savedSettings.gpuType?.trim?.().toLowerCase?.() || 'a10',
+    batchUploads: Boolean(savedSettings.batchUploads),
   }), [savedSettings]);
   const isSettingsReady = Boolean(trimmedSettings.apiUrl && trimmedSettings.apiKey);
   const settingsChanged =
     trimmedSettings.apiUrl !== trimmedSaved.apiUrl ||
     trimmedSettings.apiKey !== trimmedSaved.apiKey ||
-    trimmedSettings.gpuType !== trimmedSaved.gpuType;
+    trimmedSettings.gpuType !== trimmedSaved.gpuType ||
+    trimmedSettings.batchUploads !== trimmedSaved.batchUploads;
   const shouldFadeSaveText = !isSettingsReady || !settingsChanged;
 
   const handleSave = useCallback(() => {
@@ -98,6 +103,7 @@ function CloudGpuForm({ onBack }) {
       apiUrl: trimmedSettings.apiUrl,
       apiKey: trimmedSettings.apiKey,
       gpuType: trimmedSettings.gpuType,
+      batchUploads: trimmedSettings.batchUploads,
     });
 
     if (!ok) {
@@ -110,6 +116,7 @@ function CloudGpuForm({ onBack }) {
       apiUrl: trimmedSettings.apiUrl,
       apiKey: trimmedSettings.apiKey,
       gpuType: trimmedSettings.gpuType,
+      batchUploads: trimmedSettings.batchUploads,
     });
     setStatus('success');
     setTimeout(() => setStatus('idle'), 800);
@@ -175,6 +182,21 @@ function CloudGpuForm({ onBack }) {
             ))}
           </select>
         </div>
+
+        <div class="form-field">
+          <label>Batch uploads</label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <input
+              type="checkbox"
+              checked={batchUploads}
+              onChange={(e) => setBatchUploads(e.target.checked)}
+            />
+            <span>Enable batch uploads</span>
+          </label>
+          <div style={{ fontSize: '0.85em', color: 'var(--text-secondary, #bbb)', marginTop: '6px' }}>
+            Faster, but less robust — a failed image can stop the whole batch.
+          </div>
+        </div>
       </div>
 
       {error && (
@@ -209,7 +231,7 @@ function CloudGpuForm({ onBack }) {
 
       <div class="faq-section" style={{ marginTop: '24px' }}>
         <FaqItem question="What does this do?">
-          <p>It enables "Image to 3DGS" uploads. Raw images are sent to your cloud endpoint, converted to splats, and saved directly to your Supabase storage.</p>
+          <p>It enables "Image to 3DGS" uploads. Raw images are sent to your cloud endpoint, converted to splats, and saved directly to your Supabase or R2 storage.</p>
         </FaqItem>
 
         <FaqItem question="Where do I find my credentials?">
