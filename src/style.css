@@ -1470,50 +1470,54 @@ button, a, input, .sidebar-btn, .panel-toggle {
 
 /* Slideshow buttons */
 .slideshow-btn {
-  background: transparent;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  color: rgba(255, 255, 255, 0.7);
-  height: 28px;
-  padding: 0 12px;
-  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #e6ecf8;
+  height: 32px;
+  padding: 0 14px;
+  border-radius: 8px;
   cursor: pointer;
-  font-size: 12px;
+  font-size: 13px;
+  font-weight: 600;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  transition: all 0.2s ease;
+  transition: all 0.05s ease;
   font-family: inherit;
 }
 .slideshow-btn:hover {
   background: rgba(255, 255, 255, 0.1);
-  border-color: rgba(255, 255, 255, 0.35);
-  color: #fff;
+  border-color: rgba(255, 255, 255, 0.2);
 }
 .slideshow-btn:active {
-  transform: scale(0.95);
+  transform: scale(0.99);
 }
 .slideshow-btn.play-btn {
+  background: linear-gradient(135deg, rgba(110, 231, 255, 0.15), rgba(110, 231, 255, 0.08));
   border-color: rgba(110, 231, 255, 0.35);
-  color: rgba(110, 231, 255, 0.9);
-}
-.slideshow-btn.play-btn:hover {
-  background: rgba(110, 231, 255, 0.15);
-  border-color: rgba(110, 231, 255, 0.5);
   color: #6ee7ff;
 }
+.slideshow-btn.play-btn:hover {
+  background: linear-gradient(135deg, rgba(110, 231, 255, 0.25), rgba(110, 231, 255, 0.1));
+  border-color: rgba(110, 231, 255, 0.5);
+}
 .slideshow-btn.stop-btn {
+  background: linear-gradient(135deg, rgba(255, 140, 140, 0.15), rgba(255, 140, 140, 0.08));
   border-color: rgba(255, 140, 140, 0.35);
-  color: rgba(255, 140, 140, 0.9);
+  color: #ff8c8c;
 }
 .slideshow-btn.stop-btn:hover {
-  background: rgba(255, 140, 140, 0.15);
+  background: linear-gradient(135deg, rgba(255, 140, 140, 0.25), rgba(255, 140, 140, 0.1));
   border-color: rgba(255, 140, 140, 0.5);
-  color: #ff8c8c;
 }
 
 .slideshow-controls {
   margin-top: 4px;
+}
+
+.slideshow-controls .slideshow-btn {
+  width: 100%;
 }
 
 @keyframes focus-pulse {
@@ -2311,10 +2315,28 @@ select option {
   gap: 16px;
   z-index: 10;
   pointer-events: none; /* enable from children */
+  transition: opacity 0.25s ease;
+  opacity: 1;
 }
 
 .bottom-controls > * { 
   pointer-events: auto; 
+}
+
+.bottom-controls.slideshow-hide {
+  opacity: 0.08;
+  pointer-events: auto;
+}
+
+.bottom-controls.slideshow-hide.is-revealed,
+.bottom-controls.slideshow-hide.is-revealed {
+  opacity: 1;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .bottom-controls.slideshow-hide:hover {
+    opacity: 1;
+  }
 }
 
 .bottom-controls-left,

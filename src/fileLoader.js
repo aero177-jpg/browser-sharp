@@ -36,7 +36,7 @@ import {
   applyFullOrbitConstraints,
   restoreOrbitConstraints,
 } from "./customMetadata.js";
-import { slideOutAnimation, slideInAnimation } from "./cameraAnimations.js";
+import { slideOutAnimation, slideInAnimation, cancelContinuousZoomAnimation, cancelContinuousOrbitAnimation, cancelContinuousVerticalOrbitAnimation } from "./cameraAnimations.js";
 import { isImmersiveModeActive, pauseImmersiveMode, resumeImmersiveMode } from "./immersiveMode.js";
 import { applyIntrinsicsAspect, updateViewerAspectRatio, resize } from "./layout.js";
 import { cleanupSlideTransitionState, waitForViewerResizeTransition } from "./transitionUtils.js";
@@ -239,9 +239,21 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
   const immersiveActive = isImmersiveModeActive();
   const isFirstLoad = !hasLoadedFirstAsset; // Detect first asset load before any mesh exists
   const forceFadeForNonSequential = !slideDirection; // random asset clicks should use fade transition
+  const baseSlideMode = store.slideMode ?? 'horizontal';
+  const shouldUseContinuous = store.slideshowMode && store.slideshowContinuousMode && baseSlideMode !== 'fade';
+  const resolvedSlideMode = shouldUseContinuous
+    ? (baseSlideMode === 'horizontal'
+      ? 'continuous-orbit'
+      : baseSlideMode === 'vertical'
+        ? 'continuous-orbit-vertical'
+        : baseSlideMode === 'zoom'
+          ? 'continuous-zoom'
+          : baseSlideMode)
+    : baseSlideMode;
+
   const slideMode = (immersiveActive || forceFadeForNonSequential)
     ? 'fade'
-    : (store.slideMode ?? 'horizontal');
+    : resolvedSlideMode;
   const wasAlreadyCached = isSplatCached(asset);
 
   // For first load, immediately hide content to prevent flash before fade-in
@@ -488,6 +500,11 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
     }
 
     clearMetadataCamera(resize);
+
+    // Stop any in-progress continuous zoom before applying new camera settings
+    cancelContinuousZoomAnimation();
+    cancelContinuousOrbitAnimation();
+    cancelContinuousVerticalOrbitAnimation();
 
     // For slide transitions on cached splats, apply camera instantly then slide in
     // Otherwise use the smooth camera mutation animation

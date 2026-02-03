@@ -124,6 +124,9 @@ export const useStore = create(
   animationIntensity: 'medium',
   animationDirection: 'left',
   slideMode: 'horizontal',
+  continuousMotionSize: 'large',
+  continuousMotionDuration: 7,
+  slideshowContinuousMode: false,
   slideshowMode: false,
   slideshowUseCustom: false,
   slideshowDuration: 3,
@@ -248,6 +251,15 @@ export const useStore = create(
   
   /** Sets slide transition mode */
   setSlideMode: (mode) => set({ slideMode: mode }),
+
+  /** Sets continuous motion size preset */
+  setContinuousMotionSize: (size) => set({ continuousMotionSize: size }),
+
+  /** Sets continuous motion duration in seconds */
+  setContinuousMotionDuration: (duration) => set({ continuousMotionDuration: duration }),
+
+  /** Sets continuous mode for slideshow */
+  setSlideshowContinuousMode: (enabled) => set({ slideshowContinuousMode: enabled }),
   
   /** Enables/disables slideshow mode */
   setSlideshowMode: (enabled) => set({ slideshowMode: enabled }),

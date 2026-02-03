@@ -61,6 +61,7 @@ function App() {
   const immersiveMode = useStore((state) => state.immersiveMode);
   const setImmersiveMode = useStore((state) => state.setImmersiveMode);
   const immersiveSensitivity = useStore((state) => state.immersiveSensitivity);
+  const slideshowMode = useStore((state) => state.slideshowMode);
   
   // Local state for viewer initialization
   const [viewerReady, setViewerReady] = useState(false);
@@ -80,6 +81,8 @@ function App() {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const bottomControlsRef = useRef(null);
   const swipeTargetRef = useRef(null);
+  const controlsRevealTimeout = useRef(null);
+  const [controlsRevealed, setControlsRevealed] = useState(false);
 
   // Outside click handler to close side panel
   useOutsideClick(
@@ -261,6 +264,40 @@ function App() {
     }
     requestRender();
   }, [setFov, immersiveMode]);
+
+  const revealBottomControls = useCallback((temporary = true, timeoutMs = 2000) => {
+    if (controlsRevealTimeout.current) {
+      clearTimeout(controlsRevealTimeout.current);
+      controlsRevealTimeout.current = null;
+    }
+
+    setControlsRevealed(true);
+
+    if (temporary) {
+      controlsRevealTimeout.current = setTimeout(() => {
+        setControlsRevealed(false);
+        controlsRevealTimeout.current = null;
+      }, timeoutMs);
+    }
+  }, []);
+
+  const hideBottomControls = useCallback(() => {
+    if (controlsRevealTimeout.current) {
+      clearTimeout(controlsRevealTimeout.current);
+      controlsRevealTimeout.current = null;
+    }
+    setControlsRevealed(false);
+  }, []);
+
+  useEffect(() => {
+    if (!slideshowMode) {
+      setControlsRevealed(false);
+      if (controlsRevealTimeout.current) {
+        clearTimeout(controlsRevealTimeout.current);
+        controlsRevealTimeout.current = null;
+      }
+    }
+  }, [slideshowMode]);
 
   const handleImmersiveToggle = useCallback(async () => {
     if (immersiveMode) {
@@ -519,7 +556,13 @@ function App() {
       <div class="bottom-swipe-target" ref={swipeTargetRef} />
       {isMobile && isPortrait ? <MobileSheet /> : <SidePanel />}
       {/* Bottom controls container: sidebar index (left), nav (center), fullscreen+reset (right) */}
-      <div class="bottom-controls" ref={bottomControlsRef}>
+      <div
+        class={`bottom-controls${slideshowMode ? ' slideshow-hide' : ''}${controlsRevealed ? ' is-revealed' : ''}`}
+        ref={bottomControlsRef}
+        onPointerEnter={() => slideshowMode && revealBottomControls(false)}
+        onPointerLeave={() => slideshowMode && revealBottomControls(true, 1000)}
+        onPointerDown={() => slideshowMode && revealBottomControls(true, 1000)}
+      >
         {/* Left: Asset index button */}
         <div class="bottom-controls-left">
           {assets.length > 0 && (

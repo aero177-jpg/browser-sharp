@@ -23,6 +23,7 @@ import {
 import { restoreHomeView, resetViewWithImmersive } from '../cameraUtils';
 import { startAnchorTransition } from '../cameraAnimations';
 import { cancelLoadZoomAnimation } from '../customAnimations';
+import { cancelContinuousZoomAnimation, cancelContinuousOrbitAnimation, cancelContinuousVerticalOrbitAnimation } from '../cameraAnimations';
 import { loadNextAsset, loadPrevAsset, resize } from '../fileLoader';
 import { resetSplatManager } from '../splatManager';
 import { clearBackground } from '../backgroundManager';
@@ -145,6 +146,9 @@ function Viewer({ viewerReady }) {
      */
     const cancelLoadZoomOnUserInput = () => {
       cancelLoadZoomAnimation();
+      cancelContinuousZoomAnimation();
+      cancelContinuousOrbitAnimation();
+      cancelContinuousVerticalOrbitAnimation();
     };
 
     // Cancel animation on any user input

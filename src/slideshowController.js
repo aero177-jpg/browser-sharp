@@ -46,7 +46,13 @@ export const stopSlideshow = () => {
 const scheduleNextAdvance = () => {
   if (!isPlaying) return;
 
-  const holdDuration = getStoreState().slideshowDuration ?? 3;
+  const store = getStoreState();
+  const isContinuous = store.slideshowContinuousMode && store.slideMode !== 'fade';
+  const continuousDuration = store.continuousMotionDuration ?? 10;
+  const slideInOffsetSec = isContinuous ? 2.5 : 0;
+  const holdDuration = isContinuous
+    ? Math.max(0, continuousDuration - slideInOffsetSec)
+    : (store.slideshowDuration ?? 3);
 
   if (holdTimeoutId) {
     clearTimeout(holdTimeoutId);

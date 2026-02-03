@@ -12,7 +12,6 @@ import { setLoadAnimationEnabled, setLoadAnimationIntensity, setLoadAnimationDir
 import { saveAnimationSettings, savePreviewBlob } from '../fileStorage';
 import { scene, renderer, composer, THREE, currentMesh } from '../viewer';
 import { startSlideshow, stopSlideshow } from '../slideshowController';
-import SlideshowDebugPanel from './SlideshowDebugPanel';
 
 const PREVIEW_TARGET_HEIGHT = 128;
 const PREVIEW_WEBP_QUALITY = 0.18;
@@ -56,14 +55,22 @@ const SLIDE_MODE_OPTIONS = [
   { value: 'fade', label: 'Fade' },
 ];
 
+const CONTINUOUS_SIZE_OPTIONS = [
+  { value: 'small', label: 'Small' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'large', label: 'Large' },
+];
+
 function AnimationSettings() {
   // Store state
   const animationEnabled = useStore((state) => state.animationEnabled);
   const animationIntensity = useStore((state) => state.animationIntensity);
   const animationDirection = useStore((state) => state.animationDirection);
   const slideMode = useStore((state) => state.slideMode);
+  const continuousMotionSize = useStore((state) => state.continuousMotionSize);
+  const continuousMotionDuration = useStore((state) => state.continuousMotionDuration);
   const slideshowMode = useStore((state) => state.slideshowMode);
-  const slideshowUseCustom = useStore((state) => state.slideshowUseCustom);
+  const slideshowContinuousMode = useStore((state) => state.slideshowContinuousMode);
   const slideshowDuration = useStore((state) => state.slideshowDuration);
   const slideshowPlaying = useStore((state) => state.slideshowPlaying);
   const animSettingsExpanded = useStore((state) => state.animSettingsExpanded);
@@ -75,8 +82,10 @@ function AnimationSettings() {
   const setAnimationIntensityStore = useStore((state) => state.setAnimationIntensity);
   const setAnimationDirectionStore = useStore((state) => state.setAnimationDirection);
   const setSlideModeStore = useStore((state) => state.setSlideMode);
+  const setContinuousMotionSizeStore = useStore((state) => state.setContinuousMotionSize);
+  const setContinuousMotionDurationStore = useStore((state) => state.setContinuousMotionDuration);
   const setSlideshowModeStore = useStore((state) => state.setSlideshowMode);
-  const setSlideshowUseCustomStore = useStore((state) => state.setSlideshowUseCustom);
+  const setSlideshowContinuousModeStore = useStore((state) => state.setSlideshowContinuousMode);
   const setSlideshowDurationStore = useStore((state) => state.setSlideshowDuration);
   const setCustomAnimation = useStore((state) => state.setCustomAnimation);
   const toggleAnimSettingsExpanded = useStore((state) => state.toggleAnimSettingsExpanded);
@@ -137,6 +146,16 @@ function AnimationSettings() {
     const mode = e.target.value;
     setSlideModeStore(mode);
   }, [setSlideModeStore]);
+
+  const handleContinuousSizeChange = useCallback((e) => {
+    const size = e.target.value;
+    setContinuousMotionSizeStore(size);
+  }, [setContinuousMotionSizeStore]);
+
+  const handleContinuousDurationChange = useCallback((e) => {
+    const value = Number(e.target.value);
+    setContinuousMotionDurationStore(value);
+  }, [setContinuousMotionDurationStore]);
 
   const canvasToBlob = (canvas, type, quality) => new Promise((resolve) => {
     canvas.toBlob((blob) => resolve(blob || null), type, quality);
@@ -310,6 +329,34 @@ function AnimationSettings() {
           </select>
         </div>
 
+        {slideshowMode && slideshowContinuousMode && slideMode !== 'fade' && (
+          <div class="control-row select-row">
+            <span class="control-label">Transition range</span>
+            <select value={continuousMotionSize} onChange={handleContinuousSizeChange}>
+              {CONTINUOUS_SIZE_OPTIONS.map(({ value, label }) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        {slideshowMode && slideshowContinuousMode && slideMode !== 'fade' && (
+          <div class="control-row">
+            <span class="control-label">Duration</span>
+            <div class="control-track">
+              <input
+                type="range"
+                min="3"
+                max="20"
+                step="1"
+                value={Math.max(1, (continuousMotionDuration ?? 2) - 1)}
+                onInput={handleContinuousDurationChange}
+              />
+              <span class="control-value">{Math.max(1, (continuousMotionDuration ?? 2) - 1)}s</span>
+            </div>
+          </div>
+        )}
+
         {/* Slideshow mode toggle */}
         <div class="control-row animate-toggle-row">
           <span class="control-label">Slideshow Mode</span>
@@ -323,23 +370,23 @@ function AnimationSettings() {
           </label>
         </div>
 
-        {/* Slideshow custom transitions toggle */}
-        {slideshowMode && (
+        {/* Slideshow continuous mode toggle */}
+        {slideshowMode && slideMode !== 'fade' && (
           <div class="control-row animate-toggle-row">
-            <span class="control-label">Use Custom</span>
+            <span class="control-label">Continuous Mode</span>
             <label class="switch">
               <input
                 type="checkbox"
-                checked={slideshowUseCustom}
-                onChange={(e) => setSlideshowUseCustomStore(e.target.checked)}
+                checked={slideshowContinuousMode}
+                onChange={(e) => setSlideshowContinuousModeStore(e.target.checked)}
               />
               <span class="switch-track" aria-hidden="true" />
             </label>
           </div>
         )}
 
-        {/* Slideshow duration - only shown when slideshow mode is enabled */}
-        {slideshowMode && (
+        {/* Slideshow hold time (non-continuous) */}
+        {slideshowMode && (!slideshowContinuousMode || slideMode === 'fade') && (
           <div class="control-row">
             <span class="control-label">Hold Time</span>
             <div class="control-track">
@@ -359,8 +406,7 @@ function AnimationSettings() {
         {/* Slideshow playback controls - only shown when slideshow mode is enabled */}
         {slideshowMode && (
           <div class="control-row slideshow-controls">
-            <span class="control-label">Playback</span>
-            <div style="display: flex; align-items: center; gap: 8px;">
+            <div style="width: 100%">
               {slideshowPlaying ? (
                 <button
                   class="slideshow-btn stop-btn"
@@ -385,9 +431,6 @@ function AnimationSettings() {
             </div>
           </div>
         )}
-
-        {/* Slideshow debug panel - bezier curve editor */}
-        <SlideshowDebugPanel slideMode={slideMode} visible={slideshowMode && slideshowUseCustom} />
 
         {/* Custom settings - only shown when style is 'custom' */}
         {animationIntensity === 'custom' && (

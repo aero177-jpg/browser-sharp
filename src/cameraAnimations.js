@@ -7,6 +7,11 @@ let animationState = null;
 let resetAnimationState = null;
 let anchorAnimationState = null;
 let currentGsapTween = null; // Track active GSAP tween for cancellation
+let continuousZoomTween = null; // Track active continuous zoom tween
+let continuousOrbitTween = null; // Track active continuous orbit tween
+let continuousOrbitState = null; // Track orbit constraint overrides
+let continuousVerticalOrbitTween = null; // Track active continuous vertical orbit tween
+let continuousVerticalOrbitState = null; // Track vertical orbit constraint overrides
 
 // Easing functions (kept for non-slideshow animations)
 const easingFunctions = {
@@ -65,7 +70,103 @@ const DEFAULT_CONFIG = {
   },
 };
 
+// Continuous zoom configuration
+const CONTINUOUS_ZOOM_DURATION = 5; // seconds
+const CONTINUOUS_ZOOM_START_RATIO = 0.25; // start offset behind home (large)
+const CONTINUOUS_ZOOM_END_RATIO = 0.25; // overshoot past home (large)
+
+// Continuous orbit configuration
+const CONTINUOUS_ORBIT_DURATION = 10; // seconds
+const CONTINUOUS_ORBIT_ANGLE_DEG = 12; // total orbit angle on either side (large)
+const CONTINUOUS_ORBIT_PAN_SCALE = 0.4; // scales pan amount vs slide amount (large)
+
+// Continuous vertical orbit configuration
+const CONTINUOUS_VERTICAL_ORBIT_DURATION = 10; // seconds
+const CONTINUOUS_VERTICAL_ORBIT_ANGLE_DEG = 12; // total orbit angle on either side (large)
+const CONTINUOUS_VERTICAL_ORBIT_PAN_SCALE = 0.4; // scales pan amount vs slide amount (large)
+
+const CONTINUOUS_SIZE_SCALE = {
+  small: 0.6,
+  medium: 0.8,
+  large: 1.0,
+};
+
 const getStoreState = () => useStore.getState();
+
+const getContinuousSizeScale = () => {
+  const { continuousMotionSize } = getStoreState();
+  return CONTINUOUS_SIZE_SCALE[continuousMotionSize] ?? CONTINUOUS_SIZE_SCALE.large;
+};
+
+const getDurationScale = (durationSec, baseDurationSec) => {
+  if (!Number.isFinite(durationSec) || !Number.isFinite(baseDurationSec) || baseDurationSec <= 0) {
+    return 1;
+  }
+  return durationSec / baseDurationSec;
+};
+
+const getContinuousDurationSeconds = (mode, baseDurationSec) => {
+  const { continuousMotionDuration } = getStoreState();
+  const duration = Number.isFinite(continuousMotionDuration) ? continuousMotionDuration : baseDurationSec;
+  return duration > 0 ? duration : baseDurationSec;
+};
+
+const isContinuousMode = (mode) => (
+  mode === 'continuous-zoom' ||
+  mode === 'continuous-orbit' ||
+  mode === 'continuous-orbit-vertical'
+);
+
+const beginContinuousSlideIn = (durationMs) => {
+  const viewerEl = document.getElementById('viewer');
+  if (viewerEl) {
+    viewerEl.classList.remove('slide-out');
+    void viewerEl.offsetHeight;
+    viewerEl.classList.add('slide-in');
+  }
+
+  if (!camera || !controls) {
+    return { viewerEl, fadeDurationSec: null, canAnimate: false };
+  }
+
+  const fadeDurationSec = Math.max(0.1, durationMs / 1000);
+  return { viewerEl, fadeDurationSec, canAnimate: true };
+};
+
+const scheduleSlideInCleanup = (viewerEl, fadeDurationSec, resolve) => {
+  if (!viewerEl || !Number.isFinite(fadeDurationSec)) {
+    resolve();
+    return;
+  }
+
+  setTimeout(() => {
+    viewerEl.classList.remove('slide-out', 'slide-in');
+    resolve();
+  }, fadeDurationSec * 1000);
+};
+
+const applyOrbitLimitOverride = (stateRef) => {
+  if (!stateRef) return;
+  stateRef.savedLimits = {
+    minAzimuthAngle: controls.minAzimuthAngle,
+    maxAzimuthAngle: controls.maxAzimuthAngle,
+    minPolarAngle: controls.minPolarAngle,
+    maxPolarAngle: controls.maxPolarAngle,
+  };
+  controls.minAzimuthAngle = -Infinity;
+  controls.maxAzimuthAngle = Infinity;
+  controls.minPolarAngle = 0;
+  controls.maxPolarAngle = Math.PI;
+};
+
+const restoreOrbitLimitOverride = (stateRef) => {
+  if (!stateRef?.savedLimits) return;
+  controls.minAzimuthAngle = stateRef.savedLimits.minAzimuthAngle;
+  controls.maxAzimuthAngle = stateRef.savedLimits.maxAzimuthAngle;
+  controls.minPolarAngle = stateRef.savedLimits.minPolarAngle;
+  controls.maxPolarAngle = stateRef.savedLimits.maxPolarAngle;
+  controls.update();
+};
 
 // Smooth reset animation
 const easeInOutCubic = easingFunctions['ease-in-out'];
@@ -199,11 +300,43 @@ export const cancelSlideAnimation = () => {
   if (slideAnimationState?.fadeTimeoutId) {
     clearTimeout(slideAnimationState.fadeTimeoutId);
   }
+  if (slideAnimationState?.resolveTimeoutId) {
+    clearTimeout(slideAnimationState.resolveTimeoutId);
+  }
   slideAnimationState = null;
   
   const viewerEl = document.getElementById('viewer');
   if (viewerEl) {
     viewerEl.classList.remove('slide-out', 'slide-in');
+  }
+};
+
+export const cancelContinuousZoomAnimation = () => {
+  if (continuousZoomTween) {
+    continuousZoomTween.kill();
+    continuousZoomTween = null;
+  }
+};
+
+export const cancelContinuousOrbitAnimation = () => {
+  if (continuousOrbitTween) {
+    continuousOrbitTween.kill();
+    continuousOrbitTween = null;
+  }
+  if (continuousOrbitState) {
+    restoreOrbitLimitOverride(continuousOrbitState);
+    continuousOrbitState = null;
+  }
+};
+
+export const cancelContinuousVerticalOrbitAnimation = () => {
+  if (continuousVerticalOrbitTween) {
+    continuousVerticalOrbitTween.kill();
+    continuousVerticalOrbitTween = null;
+  }
+  if (continuousVerticalOrbitState) {
+    restoreOrbitLimitOverride(continuousVerticalOrbitState);
+    continuousVerticalOrbitState = null;
   }
 };
 
@@ -237,6 +370,30 @@ const calculateSlideGeometry = (mode, direction, amount, isSlideOut) => {
       const zoomDir = isSlideOut ? 1 : -1;
       const zoomOffset = forward.clone().multiplyScalar(zoomAmount * zoomDir);
       offsetPosition = currentPosition.clone().add(zoomOffset);
+      offsetTarget = currentTarget.clone();
+      orbitAxis = up;
+      orbitAngle = 0;
+      break;
+
+    case 'continuous-zoom':
+      // Continuous zoom uses fade-only slide-out and a custom slide-in path
+      offsetPosition = currentPosition.clone();
+      offsetTarget = currentTarget.clone();
+      orbitAxis = up;
+      orbitAngle = 0;
+      break;
+
+    case 'continuous-orbit':
+      // Continuous orbit uses fade-only slide-out and a custom slide-in path
+      offsetPosition = currentPosition.clone();
+      offsetTarget = currentTarget.clone();
+      orbitAxis = up;
+      orbitAngle = 0;
+      break;
+
+    case 'continuous-orbit-vertical':
+      // Continuous vertical orbit uses fade-only slide-out and a custom slide-in path
+      offsetPosition = currentPosition.clone();
       offsetTarget = currentTarget.clone();
       orbitAxis = up;
       orbitAngle = 0;
@@ -326,9 +483,25 @@ export const slideOutAnimation = (direction, { duration = 1200, amount = 0.45, f
       return;
     }
 
+    if (isContinuousMode(mode)) {
+      const fadeTimeoutId = setTimeout(() => {
+        if (viewerEl) viewerEl.classList.add('slide-out');
+        if (bgImageContainer) bgImageContainer.classList.remove('active');
+      }, durationSec * actualFadeDelay * 1000);
+
+      const resolveTimeoutId = setTimeout(() => {
+        slideAnimationState = null;
+        resolve();
+      }, durationSec * 1000);
+
+      slideAnimationState = { fadeTimeoutId, resolveTimeoutId };
+      return;
+    }
+
     // console.log(`[SlideOut] START - duration: ${durationSec}s, mode: ${mode}`);
 
-    const geometry = calculateSlideGeometry(mode, direction, amount, true);
+    const geometryMode = mode === 'continuous-zoom' ? 'fade' : mode;
+    const geometry = calculateSlideGeometry(geometryMode, direction, amount, true);
     const { startPosition, endPosition, startTarget, endTarget, orbitAxis, orbitAngle } = geometry;
 
     const proxy = { t: 0 };
@@ -402,6 +575,187 @@ export const slideInAnimation = (direction, { duration = 1200, amount = 0.45, mo
     const durationSec = baseDuration / speedMultiplier;
 
     cancelSlideAnimation();
+
+    if (mode === 'continuous-zoom') {
+      cancelContinuousZoomAnimation();
+      const { viewerEl, fadeDurationSec, canAnimate } = beginContinuousSlideIn(duration);
+      if (!canAnimate) {
+        resolve();
+        return;
+      }
+
+      const currentPosition = camera.position.clone();
+      const currentTarget = controls.target.clone();
+      const distance = currentPosition.distanceTo(currentTarget);
+      const forward = new THREE.Vector3().subVectors(currentTarget, currentPosition).normalize();
+
+      const durationSec = getContinuousDurationSeconds(mode, CONTINUOUS_ZOOM_DURATION);
+      const sizeScale = getContinuousSizeScale();
+      const durationScale = getDurationScale(durationSec, CONTINUOUS_ZOOM_DURATION);
+      const motionScale = sizeScale * durationScale;
+
+      const startOffset = forward.clone().multiplyScalar(-distance * CONTINUOUS_ZOOM_START_RATIO * motionScale);
+      const endOffset = forward.clone().multiplyScalar(distance * CONTINUOUS_ZOOM_END_RATIO * motionScale);
+      const startPosition = currentPosition.clone().add(startOffset);
+      const endPosition = currentPosition.clone().add(endOffset);
+
+      camera.position.copy(startPosition);
+      controls.update();
+      requestRender();
+
+      continuousZoomTween = gsap.to(camera.position, {
+        x: endPosition.x,
+        y: endPosition.y,
+        z: endPosition.z,
+        duration: durationSec,
+        ease: "none",
+        onUpdate: () => {
+          controls.update();
+          requestRender();
+        },
+        onComplete: () => {
+          continuousZoomTween = null;
+        },
+      });
+
+      scheduleSlideInCleanup(viewerEl, fadeDurationSec, resolve);
+
+      return;
+    }
+
+    if (mode === 'continuous-orbit') {
+      cancelContinuousOrbitAnimation();
+      const { viewerEl, fadeDurationSec, canAnimate } = beginContinuousSlideIn(duration);
+      if (!canAnimate) {
+        resolve();
+        return;
+      }
+
+      const currentPosition = camera.position.clone();
+      const currentTarget = controls.target.clone();
+      const distance = currentPosition.distanceTo(currentTarget);
+      const up = camera.up.clone().normalize();
+      const forward = new THREE.Vector3().subVectors(currentTarget, currentPosition).normalize();
+      const right = new THREE.Vector3().crossVectors(forward, up).normalize();
+
+      const durationSec = getContinuousDurationSeconds(mode, CONTINUOUS_ORBIT_DURATION);
+      const sizeScale = getContinuousSizeScale();
+      const durationScale = getDurationScale(durationSec, CONTINUOUS_ORBIT_DURATION);
+      const motionScale = sizeScale * durationScale;
+
+      const orbitAngle = (Math.PI / 180) * CONTINUOUS_ORBIT_ANGLE_DEG * motionScale;
+      const panAmount = distance * amount * CONTINUOUS_ORBIT_PAN_SCALE * motionScale;
+
+      const startTarget = currentTarget.clone().add(right.clone().multiplyScalar(-panAmount));
+      const endTarget = currentTarget.clone().add(right.clone().multiplyScalar(panAmount));
+
+      const orbitOffset = new THREE.Vector3().subVectors(currentPosition, currentTarget);
+      const startOrbitOffset = orbitOffset.clone().applyAxisAngle(up, -orbitAngle);
+      const endOrbitOffset = orbitOffset.clone().applyAxisAngle(up, orbitAngle);
+      const startPosition = startTarget.clone().add(startOrbitOffset);
+      const endPosition = endTarget.clone().add(endOrbitOffset);
+
+      continuousOrbitState = {};
+      applyOrbitLimitOverride(continuousOrbitState);
+
+      camera.position.copy(startPosition);
+      controls.target.copy(startTarget);
+      controls.update();
+      requestRender();
+
+      const proxy = { t: 0 };
+
+      continuousOrbitTween = gsap.to(proxy, {
+        t: 1,
+        duration: durationSec,
+        ease: "none",
+        onUpdate: () => {
+          camera.position.lerpVectors(startPosition, endPosition, proxy.t);
+          controls.target.lerpVectors(startTarget, endTarget, proxy.t);
+          controls.update();
+          requestRender();
+        },
+        onComplete: () => {
+          continuousOrbitTween = null;
+          if (continuousOrbitState) {
+            restoreOrbitLimitOverride(continuousOrbitState);
+            continuousOrbitState = null;
+          }
+        },
+      });
+
+      scheduleSlideInCleanup(viewerEl, fadeDurationSec, resolve);
+
+      return;
+    }
+
+    if (mode === 'continuous-orbit-vertical') {
+      cancelContinuousVerticalOrbitAnimation();
+      const { viewerEl, fadeDurationSec, canAnimate } = beginContinuousSlideIn(duration);
+      if (!canAnimate) {
+        resolve();
+        return;
+      }
+
+      const currentPosition = camera.position.clone();
+      const currentTarget = controls.target.clone();
+      const distance = currentPosition.distanceTo(currentTarget);
+      const up = camera.up.clone().normalize();
+      const forward = new THREE.Vector3().subVectors(currentTarget, currentPosition).normalize();
+      const right = new THREE.Vector3().crossVectors(forward, up).normalize();
+
+      const durationSec = getContinuousDurationSeconds(mode, CONTINUOUS_VERTICAL_ORBIT_DURATION);
+      const sizeScale = getContinuousSizeScale();
+      const durationScale = getDurationScale(durationSec, CONTINUOUS_VERTICAL_ORBIT_DURATION);
+      const motionScale = sizeScale * durationScale;
+
+      const orbitAngle = (Math.PI / 180) * CONTINUOUS_VERTICAL_ORBIT_ANGLE_DEG * motionScale;
+      const panAmount = distance * amount * CONTINUOUS_VERTICAL_ORBIT_PAN_SCALE * motionScale;
+
+      const startTarget = currentTarget.clone().add(up.clone().multiplyScalar(panAmount));
+      const endTarget = currentTarget.clone().add(up.clone().multiplyScalar(-panAmount));
+
+      const orbitOffset = new THREE.Vector3().subVectors(currentPosition, currentTarget);
+      const startOrbitOffset = orbitOffset.clone().applyAxisAngle(right, -orbitAngle);
+      const endOrbitOffset = orbitOffset.clone().applyAxisAngle(right, orbitAngle);
+      const startPosition = startTarget.clone().add(startOrbitOffset);
+
+      continuousVerticalOrbitState = {};
+      applyOrbitLimitOverride(continuousVerticalOrbitState);
+
+      camera.position.copy(startPosition);
+      controls.target.copy(startTarget);
+      controls.update();
+      requestRender();
+
+      const proxy = { t: 0 };
+
+      continuousVerticalOrbitTween = gsap.to(proxy, {
+        t: 1,
+        duration: durationSec,
+        ease: "none",
+        onUpdate: () => {
+          const currentTargetPos = startTarget.clone().lerp(endTarget, proxy.t);
+          const currentAngle = gsap.utils.interpolate(-orbitAngle, orbitAngle, proxy.t);
+          const currentOffset = orbitOffset.clone().applyAxisAngle(right, currentAngle);
+          camera.position.copy(currentTargetPos).add(currentOffset);
+          controls.target.copy(currentTargetPos);
+          controls.update();
+          requestRender();
+        },
+        onComplete: () => {
+          continuousVerticalOrbitTween = null;
+          if (continuousVerticalOrbitState) {
+            restoreOrbitLimitOverride(continuousVerticalOrbitState);
+            continuousVerticalOrbitState = null;
+          }
+        },
+      });
+
+      scheduleSlideInCleanup(viewerEl, fadeDurationSec, resolve);
+
+      return;
+    }
 
     const viewerEl = document.getElementById('viewer');
     if (viewerEl) {
