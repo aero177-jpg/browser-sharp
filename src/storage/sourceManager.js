@@ -164,6 +164,29 @@ export const loadDirectoryHandle = async (sourceId) => {
 };
 
 /**
+ * Delete a FileSystemDirectoryHandle for a local folder source.
+ * @param {string} sourceId
+ * @returns {Promise<boolean>}
+ */
+export const deleteDirectoryHandle = async (sourceId) => {
+  try {
+    const db = await openDatabase();
+
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction([HANDLES_STORE], 'readwrite');
+      const store = transaction.objectStore(HANDLES_STORE);
+
+      const request = store.delete(sourceId);
+      request.onsuccess = () => resolve(true);
+      request.onerror = () => reject(new Error('Failed to delete directory handle'));
+    });
+  } catch (error) {
+    console.error('Failed to delete directory handle:', error);
+    return false;
+  }
+};
+
+/**
  * Load all saved source configurations.
  * @returns {Promise<Object[]>}
  */

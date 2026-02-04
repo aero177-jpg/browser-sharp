@@ -22,6 +22,7 @@ import {
   faEllipsisVertical,
   faDatabase,
 } from '@fortawesome/free-solid-svg-icons';
+import { SupabaseIcon, CloudFlareIcon } from '../icons/customIcons';
 import {
   deleteSource,
   touchSource,
@@ -44,8 +45,8 @@ import Modal from './Modal';
 const TYPE_ICONS = {
   'local-folder': faFolder,
   'app-storage': faDatabase,
-  'supabase-storage': faCloud,
-  'r2-bucket': faCloud,
+  'supabase-storage': 'supabase',
+  'r2-bucket': 'cloudflare',
   'public-url': faLink,
 };
 
@@ -633,7 +634,13 @@ function StorageSourceItem({
                 <span class="source-name-text">{source.name}</span>
               </div>
               <div class="source-meta">
-                <FontAwesomeIcon icon={TYPE_ICONS[source.type] || faFolder} className="source-type-icon" />
+                {TYPE_ICONS[source.type] === 'supabase' ? (
+                  <SupabaseIcon size={10} className="source-type-icon" />
+                ) : TYPE_ICONS[source.type] === 'cloudflare' ? (
+                  <CloudFlareIcon size={12} className="source-type-icon" />
+                ) : (
+                  <FontAwesomeIcon icon={TYPE_ICONS[source.type] || faFolder} className="source-type-icon" />
+                )}
                 <span class="source-type">{TYPE_LABELS[source.type]}</span>
                 {(isConnected || (cacheEnabled && cachedCount > 0)) && assetCount > 0 && (
                   <span class="source-count">{assetCount}</span>

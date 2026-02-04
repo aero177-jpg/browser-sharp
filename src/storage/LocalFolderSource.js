@@ -7,7 +7,12 @@
 
 import { AssetSource } from './AssetSource.js';
 import { createSourceId, isFileSystemAccessSupported } from './types.js';
-import { saveSource, saveDirectoryHandle, loadDirectoryHandle } from './sourceManager.js';
+import {
+  saveSource,
+  saveDirectoryHandle,
+  loadDirectoryHandle,
+  deleteDirectoryHandle,
+} from './sourceManager.js';
 import { getSupportedExtensions } from '../formats/index.js';
 
 const IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp', '.gif'];
@@ -81,9 +86,8 @@ export class LocalFolderSource extends AssetSource {
 
   /**
    * Connect to the local folder.
-   * IMPORTANT: This method does NOT load handles from IndexedDB to avoid Chrome crashes.
-   * Only handles already in memory (from same session) are used here.
-   * Use requestPermission() to safely load and request permission on stored handles.
+   * Loads a persisted handle if available, but does not request permission.
+   * Use requestPermission() to prompt the user for access.
    * @param {boolean} [promptIfNeeded=true] - If true and no handle exists, prompt user to select folder
    * @returns {Promise<{success: boolean, error?: string, needsPermission?: boolean}>}
    */
@@ -103,8 +107,7 @@ export class LocalFolderSource extends AssetSource {
     // If we have a handle in memory (from this session), try to use it
     if (this._handle) {
       try {
-        // This is safe because the handle is from this browser session
-        const permission = await this._handle.queryPermission({ mode: 'read' });
+        const permission = await this._handle.queryPermission({ mode: 'readwrite' });
         if (permission === 'granted') {
           this._connected = true;
           return { success: true };
@@ -119,9 +122,24 @@ export class LocalFolderSource extends AssetSource {
       }
     }
 
-    // No handle in memory - DO NOT try to load from IndexedDB here!
-    // That's the crash source. Just report needs permission.
-    // The handle will be loaded safely in requestPermission() during user gesture.
+    // Try to hydrate handle from IndexedDB without prompting
+    const hydratedHandle = await this.getHandle();
+    if (hydratedHandle) {
+      try {
+        const permission = await hydratedHandle.queryPermission({ mode: 'readwrite' });
+        if (permission === 'granted') {
+          this._connected = true;
+          return { success: true };
+        }
+        return { success: false, needsPermission: true };
+      } catch (err) {
+        console.warn('Stored handle permission check failed:', err);
+        this._handle = null;
+        return { success: false, needsPermission: true };
+      }
+    }
+
+    // No handle available - prompt only if this is a user gesture
     if (promptIfNeeded) {
       // User initiated (e.g., creating new collection), safe to show picker
       return this.selectFolder();
@@ -146,7 +164,7 @@ export class LocalFolderSource extends AssetSource {
     try {
       // @ts-ignore - showDirectoryPicker is not in TS types yet
       this._handle = await window.showDirectoryPicker({
-        mode: 'read',
+        mode: 'readwrite',
       });
 
       // Update config with folder name
@@ -154,8 +172,9 @@ export class LocalFolderSource extends AssetSource {
       this.name = this._handle.name;
       this.config.name = this._handle.name;
 
-      // Persist config (we no longer persist the handle to avoid Chrome crashes after restart)
+      // Persist config and handle in IndexedDB
       await saveSource(this.toJSON());
+      await saveDirectoryHandle(this.id, this._handle);
 
       this._connected = true;
       return { success: true };
@@ -170,7 +189,6 @@ export class LocalFolderSource extends AssetSource {
   /**
    * Request permission on the stored handle (after user gesture).
    * This MUST be called from a user gesture handler (click, etc).
-   * This is the ONLY safe place to load handles from IndexedDB.
    * @returns {Promise<{success: boolean, error?: string}>}
    */
   async requestPermission() {
@@ -182,7 +200,7 @@ export class LocalFolderSource extends AssetSource {
     // If we have a handle in memory, try to request permission
     if (this._handle) {
       try {
-        const permission = await this._handle.requestPermission({ mode: 'read' });
+        const permission = await this._handle.requestPermission({ mode: 'readwrite' });
         if (permission === 'granted') {
           this._connected = true;
           return { success: true };
@@ -194,10 +212,50 @@ export class LocalFolderSource extends AssetSource {
       }
     }
 
-    // Do NOT load handles from IndexedDB; they can be corrupt after browser restart and crash Chrome.
-    // Always prompt the user to pick the folder again.
+    // Try to hydrate a stored handle and request permission
+    const hydratedHandle = await this.getHandle();
+    if (hydratedHandle) {
+      try {
+        const permission = await hydratedHandle.requestPermission({ mode: 'readwrite' });
+        if (permission === 'granted') {
+          this._connected = true;
+          return { success: true };
+        }
+        return { success: false, needsPermission: true };
+      } catch (err) {
+        console.warn('Permission request failed on stored handle:', err);
+        this._handle = null;
+      }
+    }
+
+    // No stored handle available; prompt the user to pick the folder again.
     this._handle = null;
     return this.selectFolder();
+  }
+
+  /**
+   * Get directory handle, hydrating from IndexedDB if needed.
+   * @returns {Promise<FileSystemDirectoryHandle | null>}
+   */
+  async getHandle() {
+    if (this._handle) return this._handle;
+
+    try {
+      const handle = await loadDirectoryHandle(this.id);
+      if (!this._isValidHandle(handle)) {
+        if (handle) {
+          await deleteDirectoryHandle(this.id);
+        }
+        return null;
+      }
+
+      this._handle = handle;
+      return handle;
+    } catch (err) {
+      console.error('Failed to restore directory handle:', err);
+      await deleteDirectoryHandle(this.id);
+      return null;
+    }
   }
 
   /**
@@ -345,14 +403,6 @@ export class LocalFolderSource extends AssetSource {
       console.warn(`Failed to load preview for ${asset.name}:`, error);
       return null;
     }
-  }
-
-  /**
-   * Get directory handle (for debugging/testing).
-   * @returns {FileSystemDirectoryHandle | null}
-   */
-  getHandle() {
-    return this._handle;
   }
 
   toJSON() {

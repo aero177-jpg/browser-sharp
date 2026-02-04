@@ -68,6 +68,9 @@ export {
   loadSource,
   loadAllSources,
   deleteSource,
+  saveDirectoryHandle,
+  loadDirectoryHandle,
+  deleteDirectoryHandle,
   registerSource,
   unregisterSource,
   getSource,
@@ -78,8 +81,6 @@ export {
   touchSource,
   setDefaultSource,
   getDefaultSourceId,
-  saveDirectoryHandle,
-  loadDirectoryHandle,
 } from './sourceManager.js';
 
 // Source asset adapter

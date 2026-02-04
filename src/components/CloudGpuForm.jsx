@@ -141,12 +141,22 @@ function CloudGpuForm({ onBack }) {
         color: 'var(--text-secondary, #bbb)' 
       }}>
         <p style={{ margin: '0 0 10px 0' }}>
-         This feature connects to your personal instance of the companion container running on <a href="https://modal.com" target="_blank" rel="noopener noreferrer" style={{ color: 'inherit', textDecoration: 'underline' }}>Modal.com</a>.
+         This feature connects to your personal instance of the companion container running on  <a
+              href="https://modal.com"
+              target="_blank"
+              rel="noreferrer"
+            >
+              Modal.com
+            </a>
         </p>
         <ul style={{ margin: '0', paddingLeft: '18px', listStyleType: 'disc' }}>
           <li style={{ marginBottom: '6px' }}>Modal provides a generous free tier for GPU compute.</li>
           <li>
-             Use our <a href="https://github.com/your-org/your-modal-container" target="_blank" rel="noopener noreferrer" style={{ color: '#57b8cb', textDecoration: 'none', fontWeight: 500 }}>optimized container template</a> to deploy the backend in minutes.
+             Use our <a
+              href="https://github.com/aero177-jpg/ml-sharp-optimized"
+              target="_blank"
+              rel="noreferrer"
+            >optimized container template</a> to deploy the backend in minutes.
           </li>
         </ul>
       </div>

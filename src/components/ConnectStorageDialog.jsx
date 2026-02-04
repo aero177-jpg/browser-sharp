@@ -146,6 +146,7 @@ function LocalFolderForm({ onConnect, onBack }) {
         <ul class="feature-list">
           <li><FontAwesomeIcon icon={faCheck} /> Works offline after selection</li>
           <li><FontAwesomeIcon icon={faCheck} /> Fast loading from local disk</li>
+          <li><FontAwesomeIcon icon={faCheck} /> Connection persists across sessions</li>
           
         </ul>
       </div>
@@ -605,7 +606,7 @@ function ExistingCollectionItem({ collection, onSelect, isLoading, selected }) {
   );
 }
 
-function SupabaseForm({ onConnect, onBack, onClose, onSwitchProvider }) {
+function SupabaseForm({ onConnect, onBack, onClose }) {
   const supportedExtensions = useMemo(() => getSupportedExtensions(), []);
   const queuedAssets = useMemo(() => getAssetList(), []);
   const queueFiles = useMemo(() => {
@@ -1198,7 +1199,7 @@ function SupabaseForm({ onConnect, onBack, onClose, onSwitchProvider }) {
   );
 }
 
-function R2Form({ onConnect, onBack, onClose, onSwitchProvider }) {
+function R2Form({ onConnect, onBack, onClose }) {
   const supportedExtensions = useMemo(() => getSupportedExtensions(), []);
   const queuedAssets = useMemo(() => getAssetList(), []);
   const queueFiles = useMemo(() => {
@@ -1469,18 +1470,6 @@ function R2Form({ onConnect, onBack, onClose, onSwitchProvider }) {
           {'Back'}
         </button>
 
-        <div class="form-row" style={{ marginTop: '4px' }}>
-          <strong>Provider</strong>
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <button class="link-button" onClick={() => onSwitchProvider?.('supabase-storage')}>
-              Supabase
-            </button>
-            <button class="link-button" onClick={() => onSwitchProvider?.('r2-bucket')}>
-              Cloudflare R2
-            </button>
-          </div>
-        </div>
-
         <h3>Connect to Cloudflare R2</h3>
         <p class="dialog-subtitle">Enter your R2 credentials to get started.</p>
 
@@ -1580,18 +1569,6 @@ function R2Form({ onConnect, onBack, onClose, onSwitchProvider }) {
       <button class="back-button" onClick={onBack}>
         {'Back'}
       </button>
-
-      <div class="form-row" style={{ marginTop: '4px' }}>
-        <strong>Provider</strong>
-        <div style={{ display: 'flex', gap: '8px' }}>
-          <button class="link-button" onClick={() => onSwitchProvider?.('supabase-storage')}>
-            Supabase
-          </button>
-          <button class="link-button" onClick={() => onSwitchProvider?.('r2-bucket')}>
-            Cloudflare R2
-          </button>
-        </div>
-      </div>
 
       <h3>R2 Collection</h3>
       <div class="form-section">

@@ -6,7 +6,7 @@
 import { useEffect, useRef, useState, useCallback } from 'preact/hooks';
 import { useStore } from '../store';
 import { camera, controls, defaultCamera, defaultControls, dollyZoomBaseDistance, dollyZoomBaseFov, requestRender, THREE, setStereoEyeSeparation, setStereoAspect as setStereoAspectRatio, getFocusDistance, calculateOptimalEyeSeparation, setOriginalImageAspect } from '../viewer';
-import { FocusIcon } from '../icons/customIcons';
+import { FocusIcon, KeyboardIcon } from '../icons/customIcons';
 import { applyCameraRangeDegrees, restoreHomeView, resetViewWithImmersive } from '../cameraUtils';
 import { currentMesh, raycaster, SplatMesh, scene } from '../viewer';
 import { updateDollyZoomBaselineFromCamera } from '../viewer';
@@ -29,6 +29,7 @@ import {
 } from "../customMetadata.js";
 import { enterVrSession } from '../vrMode';
 import { updateViewerAspectRatio, resize } from '../layout.js';
+import ControlsModal from './ControlsModal.jsx';
 
 /** Default orbit range in degrees */
 const DEFAULT_CAMERA_RANGE_DEGREES = 26;
@@ -199,6 +200,7 @@ function CameraControls() {
   const focusModeRef = useRef(focusMode);
   focusModeRef.current = focusMode;
   const [isClearingCustomMetadata, setIsClearingCustomMetadata] = useState(false);
+  const [showControlsModal, setShowControlsModal] = useState(false);
 
   // Sync focus mode with custom focus state from store
   useEffect(() => {
@@ -813,14 +815,28 @@ function CameraControls() {
   return (
     <div class="settings-group">
       {/* Collapsible header */}
-      <button
+      <div
         class="group-toggle"
         aria-expanded={cameraSettingsExpanded}
         onClick={toggleCameraSettingsExpanded}
       >
         <span class="settings-eyebrow">Camera Settings</span>
-        <FontAwesomeIcon icon={faChevronDown} className="chevron" />
-      </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginRight: '-8px' }}>
+          <button
+            class="add-source-btn"
+            type="button"
+            title="Controls"
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowControlsModal(true);
+            }}
+            style={{ width: '28px', height: '22px', fontSize: '11px' }}
+          >
+            <KeyboardIcon size={14} />
+          </button>
+          <FontAwesomeIcon icon={faChevronDown} className="chevron" />
+        </div>
+      </div>
       
       {/* Settings content */}
       <div 
@@ -1124,6 +1140,10 @@ function CameraControls() {
           </div>
         </div>
       </div>
+      <ControlsModal
+        isOpen={showControlsModal}
+        onClose={() => setShowControlsModal(false)}
+      />
     </div>
   );
 }

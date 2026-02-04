@@ -154,7 +154,7 @@ export const SOURCE_TIERS = {
   'supabase-storage': {
     tier: 2,
     label: 'Supabase Storage',
-    description: 'Manifest-first collections in your Supabase bucket',
+    description: 'Cloud-hosted collection. User-friendly setup',
     benefits: ['Cross-device via manifest.json', 'Uploads stay in your bucket', 'Free-tier friendly'],
     requirements: ['Supabase project URL', 'Anon/public key', 'Public bucket access'],
     icon: 'supabase',
@@ -162,8 +162,8 @@ export const SOURCE_TIERS = {
   'r2-bucket': {
     tier: 2,
     label: 'Cloudflare R2',
-    description: 'Manifest-first collections in your R2 bucket',
-    benefits: ['Zero egress for reads', 'S3-compatible access', 'Bring your own domain'],
+    description: 'Cloud-hosted collection. Generous free tier',
+    benefits: ['Zero egress for reads', 'S3-compatible access'],
     requirements: ['Account ID', 'Access key ID/secret', 'Public base URL'],
     icon: 'cloudflare',
   },
