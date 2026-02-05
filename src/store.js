@@ -194,6 +194,7 @@ export const useStore = create(
   immersiveMode: false,
   immersiveSensitivity: 1.0,
   bgBlur: 40,
+  fillMode: true,
   
   // Debug
   debugLoadingMode: false,
@@ -239,6 +240,12 @@ export const useStore = create(
 
   /** Tracks model scale while in VR */
   setVrModelScale: (vrModelScale) => set({ vrModelScale }),
+
+  /** Toggles fill-to-screen vs fit-to-bounds projection */
+  toggleFillMode: () => set((state) => ({ fillMode: !state.fillMode })),
+
+  /** Sets fill-to-screen projection mode */
+  setFillMode: (fillMode) => set({ fillMode }),
   
   /** Enables/disables load animation */
   setAnimationEnabled: (enabled) => set({ animationEnabled: enabled }),

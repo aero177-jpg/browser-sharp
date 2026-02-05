@@ -21,12 +21,13 @@ import useOutsideClick from '../utils/useOutsideClick';
 import useSwipe from '../utils/useSwipe';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faExpandAlt, faCompressAlt } from '@fortawesome/free-solid-svg-icons';
-import { FocusIcon, Rotate3DIcon } from '../icons/customIcons';
+import { FocusIcon, Rotate3DIcon, MaximizeIcon, MinimizeIcon } from '../icons/customIcons';
 import { initVrSupport } from '../vrMode';
 import { getSourcesArray } from '../storage/index.js';
 import { getSource, createPublicUrlSource, registerSource, saveSource } from '../storage/index.js';
 import ConnectStorageDialog from './ConnectStorageDialog';
 import { useCollectionUploadFlow } from './useCollectionUploadFlow.js';
+import { useViewerDrop } from './useViewerDrop.jsx';
 
 /** Delay before resize after panel toggle animation completes */
 const PANEL_TRANSITION_MS = 350;
@@ -62,11 +63,14 @@ function App() {
   const setImmersiveMode = useStore((state) => state.setImmersiveMode);
   const immersiveSensitivity = useStore((state) => state.immersiveSensitivity);
   const slideshowMode = useStore((state) => state.slideshowMode);
+  const fillMode = useStore((state) => state.fillMode);
+  const toggleFillMode = useStore((state) => state.toggleFillMode);
   
   // Local state for viewer initialization
   const [viewerReady, setViewerReady] = useState(false);
   // Landing screen visibility (controls TitleCard fade-in/out)
   const [landingVisible, setLandingVisible] = useState(() => assets.length === 0 && !activeSourceId);
+  const [hasDefaultSource, setHasDefaultSource] = useState(false);
   
   // Track mesh state
   const [hasMesh, setHasMesh] = useState(false);
@@ -214,6 +218,14 @@ function App() {
     }
   }, []);
 
+  const handleToggleFillMode = useCallback(() => {
+    toggleFillMode();
+    requestAnimationFrame(() => {
+      resize();
+      requestRender();
+    });
+  }, [toggleFillMode]);
+
   const handleDeviceRotate = useCallback(async () => {
     const viewerEl = document.getElementById('viewer');
     if (!viewerEl) return;
@@ -328,6 +340,8 @@ function App() {
     openUploadPicker,
     handleUploadChange,
     uploadModal,
+    handleAssets,
+    handleImages,
   } = useCollectionUploadFlow({
     queueAction: 'replace',
     allowAssets: true,
@@ -466,6 +480,13 @@ function App() {
     };
   }, [setMobileState, handleDeviceRotate]);
 
+  const { dropOverlay, dropModal } = useViewerDrop({
+    activeSourceId,
+    setStatus,
+    handleAssets,
+    handleImages,
+  });
+
   /**
    * Initialize Three.js viewer on mount.
    * Sets up renderer, camera, controls, and render loop.
@@ -502,6 +523,9 @@ function App() {
         const defaultSource = sources.find((source) => source?.config?.isDefault);
         if (!defaultSource) return;
 
+        setHasDefaultSource(true);
+        setLandingVisible(false);
+
         if (!defaultSource.isConnected()) {
           const result = await defaultSource.connect(false);
           if (!result?.success) {
@@ -525,12 +549,16 @@ function App() {
 
   // Keep landingVisible in sync: show when no assets, hide when assets present
   useEffect(() => {
+    if (hasDefaultSource) {
+      setLandingVisible(false);
+      return;
+    }
     if (assets.length === 0 && !activeSourceId) {
       setLandingVisible(true);
     } else if (activeSourceId) {
       setLandingVisible(false);
     }
-  }, [assets.length, activeSourceId]);
+  }, [assets.length, activeSourceId, hasDefaultSource]);
 
   return (
     <div class={`page ${panelOpen ? 'panel-open' : ''}`}>
@@ -551,7 +579,7 @@ function App() {
         onSelectSource={handleSelectSource}
         onOpenCloudGpu={handleOpenCloudGpu}
       />
-        <Viewer viewerReady={viewerReady} />
+        <Viewer viewerReady={viewerReady} dropOverlay={dropOverlay} />
       {/* Separate swipe target near bottom controls (debug green) */}
       <div class="bottom-swipe-target" ref={swipeTargetRef} />
       {isMobile && isPortrait ? <MobileSheet /> : <SidePanel />}
@@ -610,13 +638,24 @@ function App() {
                 <FocusIcon size={18} />
               </button>
              
+              {isFullscreen && (
+                <button
+                  class="bottom-page-btn"
+                  onClick={handleToggleFillMode}
+                  aria-label={fillMode ? "Fit to bounds" : "Fill screen"}
+                  title={fillMode ? "Fit to bounds" : "Fill screen"}
+                >
+<FontAwesomeIcon icon={fillMode ? faCompressAlt : faExpandAlt} />
+                </button>
+              )}
+
               <button
                 class="bottom-page-btn"
                 onClick={handleToggleFullscreen}
                 aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
                 title={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
-              >
-                <FontAwesomeIcon icon={isFullscreen ? faCompressAlt : faExpandAlt} />
+                >
+                {isFullscreen ? <MinimizeIcon size={18} /> : <MaximizeIcon size={18} />}
               </button>
 {isMobile && <button
                 class={`bottom-page-btn immersive-toggle ${immersiveMode ? 'is-active' : 'is-inactive'}`}
@@ -639,6 +678,7 @@ function App() {
         onConnect={handleSourceConnect}
         initialTier={storageDialogInitialTier}
       />
+      {dropModal}
       {uploadModal}
     </div>
   );

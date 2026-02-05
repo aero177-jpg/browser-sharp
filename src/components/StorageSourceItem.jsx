@@ -90,6 +90,7 @@ function StorageSourceItem({
   const [removeCache, setRemoveCache] = useState(false);
   const [removeRemote, setRemoveRemote] = useState(false);
   const [removeSource, setRemoveSource] = useState(true);
+  const [showStatusIcon, setShowStatusIcon] = useState(false);
 
   const activeSourceId = useStore((state) => state.activeSourceId);
   const clearActiveSource = useStore((state) => state.clearActiveSource);
@@ -384,6 +385,14 @@ function StorageSourceItem({
     updateCachedCount();
   }, [updateCachedCount, assetCount]);
 
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      setShowStatusIcon(true);
+    }, 150);
+
+    return () => clearTimeout(timeoutId);
+  }, []);
+
   const handleReconnect = useCallback(async (e) => {
     e.stopPropagation();
     setIsLoading(true);
@@ -643,7 +652,12 @@ function StorageSourceItem({
                 )}
                 <span class="source-type">{TYPE_LABELS[source.type]}</span>
                 {(isConnected || (cacheEnabled && cachedCount > 0)) && assetCount > 0 && (
-                  <span class="source-count">{assetCount}</span>
+                  <span
+                    class="source-count"
+                    style={assetCount > 0 ? { color: '#48bb78' } : undefined}
+                  >
+                    {assetCount}
+                  </span>
                 )}
               </div>
             </div>
@@ -658,6 +672,8 @@ function StorageSourceItem({
                   )}
                   <FontAwesomeIcon icon={faSpinner} spin />
                 </div>
+              ) : !showStatusIcon ? (
+                <></>
               ) : isConnected ? (
                 <></>
               ) : needsPermission ? (

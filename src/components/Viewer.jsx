@@ -29,6 +29,7 @@ import { resetSplatManager } from '../splatManager';
 import { clearBackground } from '../backgroundManager';
 import { getSource } from '../storage/index.js';
 import ViewerEmptyState from './ViewerEmptyState.jsx';
+import UploadStatusOverlay from './UploadStatusOverlay.jsx';
 
 
 /** Tags that should not trigger keyboard shortcuts */
@@ -52,15 +53,8 @@ const isInputElement = (target) => {
 const formatPoint = (point) => 
   `${point.x.toFixed(2)}, ${point.y.toFixed(2)}, ${point.z.toFixed(2)}`;
 
-const formatEta = (seconds) => {
-  const remaining = Math.max(0, Math.ceil(seconds));
-  const mins = Math.floor(remaining / 60);
-  const secs = remaining % 60;
-  if (mins > 0) return `${mins}m ${secs}s`;
-  return `${secs}s`;
-};
 
-function Viewer({ viewerReady }) {
+function Viewer({ viewerReady, dropOverlay }) {
   // Store state
   const debugLoadingMode = useStore((state) => state.debugLoadingMode);
   const metadataMissing = useStore((state) => state.metadataMissing);
@@ -68,6 +62,7 @@ function Viewer({ viewerReady }) {
   const uploadProgress = useStore((state) => state.uploadProgress);
   const isLoading = useStore((state) => state.isLoading);
   const assets = useStore((state) => state.assets);
+  const currentAssetIndex = useStore((state) => state.currentAssetIndex);
   const activeSourceId = useStore((state) => state.activeSourceId);
   const setAnchorState = useStore((state) => state.setAnchorState);
   
@@ -80,13 +75,21 @@ function Viewer({ viewerReady }) {
 
   const [hasMesh, setHasMesh] = useState(false);
   const hasMeshRef = useRef(false);
+  const [showLargeFileNotice, setShowLargeFileNotice] = useState(false);
+  const largeFileTimeoutRef = useRef(null);
+  const [currentMeshAssetId, setCurrentMeshAssetId] = useState(null);
 
   const { hasOriginalMetadata, customMetadataMode } = useStore();
 
   const showEmptyState = Boolean(activeSourceId) && assets.length === 0 && !isLoading;
   const activeSource = activeSourceId ? getSource(activeSourceId) : null;
 
-  const showUploadProgress = isUploading && (uploadProgress?.total || uploadProgress?.upload?.total || uploadProgress?.estimate);
+  const showEmptyUploadStatus = showEmptyState
+    && isUploading
+    && (uploadProgress?.total || uploadProgress?.upload?.total || uploadProgress?.estimate);
+
+  const currentAsset = currentAssetIndex >= 0 ? assets[currentAssetIndex] : null;
+  const currentAssetSize = currentAsset?.file?.size ?? currentAsset?.size ?? 0;
 
   useEffect(() => {
     if (!showEmptyState) return;
@@ -109,10 +112,12 @@ function Viewer({ viewerReady }) {
   useEffect(() => {
     const checkMesh = () => {
       const meshPresent = !!currentMesh;
+      const meshAssetId = currentMesh?.userData?.assetId || null;
       if (meshPresent !== hasMeshRef.current) {
         hasMeshRef.current = meshPresent;
         setHasMesh(meshPresent);
       }
+      setCurrentMeshAssetId((prev) => (prev === meshAssetId ? prev : meshAssetId));
     };
     
     // Check immediately and set up interval to poll
@@ -121,6 +126,33 @@ function Viewer({ viewerReady }) {
     
     return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    if (largeFileTimeoutRef.current) {
+      clearTimeout(largeFileTimeoutRef.current);
+      largeFileTimeoutRef.current = null;
+    }
+
+    setShowLargeFileNotice(false);
+
+    const isLarge = Number.isFinite(currentAssetSize) && currentAssetSize >= 100 * 1024 * 1024;
+    const isCurrentMeshActive = currentAsset?.id && currentMeshAssetId === currentAsset.id;
+    if (!isLarge || isCurrentMeshActive) return;
+
+    largeFileTimeoutRef.current = setTimeout(() => {
+      const stillActive = currentAsset?.id && currentMeshAssetId !== currentAsset.id;
+      if (stillActive) {
+        setShowLargeFileNotice(true);
+      }
+    }, 2000);
+
+    return () => {
+      if (largeFileTimeoutRef.current) {
+        clearTimeout(largeFileTimeoutRef.current);
+        largeFileTimeoutRef.current = null;
+      }
+    };
+  }, [currentAssetSize, currentAsset?.id, currentMeshAssetId]);
 
 
   /**
@@ -254,86 +286,26 @@ function Viewer({ viewerReady }) {
     };
   }, [viewerReady, addLog, togglePanel, setAnchorState]);
 
-  const uploadStage = uploadProgress?.stage || (uploadProgress?.estimate ? 'processing' : 'upload');
-  const uploadDone = Boolean(uploadProgress?.upload?.done);
-  const estimate = uploadProgress?.estimate || null;
-  const hasFileCount = Number.isFinite(uploadProgress?.total);
-  const fileCompleted = hasFileCount ? (uploadProgress?.completed || 0) : 0;
-  const fileTotal = hasFileCount ? uploadProgress?.total : 0;
-  const uploadBytesTotal = uploadProgress?.upload?.total || 0;
-  const uploadBytesLoaded = uploadProgress?.upload?.loaded || 0;
-
-  const uploadPercent = uploadBytesTotal
-    ? Math.min(100, Math.round((uploadBytesLoaded / uploadBytesTotal) * 100))
-    : null;
-  const estimatePercent = estimate?.stageProgress != null
-    ? Math.min(100, Math.round(estimate.stageProgress * 100))
-    : null;
-  const fallbackPercent = fileTotal
-    ? Math.min(100, Math.round((fileCompleted / fileTotal) * 100))
-    : 0;
-
-  const progressPercent = uploadStage === 'upload'
-    ? (uploadPercent ?? fallbackPercent)
-    : (estimatePercent ?? fallbackPercent);
-
-  const etaSeconds = estimate?.remainingMs != null
-    ? Math.ceil(estimate.remainingMs / 1000)
-    : 0;
-  const etaLabel = showUploadProgress && etaSeconds ? formatEta(etaSeconds) : '';
-  
-  const currentFile = estimate?.currentFile || 0;
-  const totalFiles = estimate?.totalFiles || 0;
-  const isWarmup = uploadStage === 'warmup';
-  const isProcessing = uploadStage === 'processing';
-  
-  const stageLabel = uploadStage === 'upload'
-    ? (uploadDone ? 'Upload complete' : 'Uploading')
-    : isWarmup
-    ? 'GPU warm-up'
-    : isProcessing && totalFiles > 1
-    ? `Processing ${currentFile}/${totalFiles}`
-    : 'Processing (est.)';
-
-  const fileCountLabel = isProcessing && totalFiles > 1 && currentFile > 0
-    ? `${currentFile}/${totalFiles}`
-    : fileTotal > 0
-    ? `${fileCompleted}/${fileTotal}`
-    : '';
-
-  const estimateElapsedMs = estimate?.elapsedMs || 0;
-  const estimateFileCount = totalFiles || fileTotal || 1;
-  const warnAfterMs = 60000 + estimateFileCount * 30000;
-  const failAfterMs = 300000 + estimateFileCount * 50000;
-  const showSlowWarning = (isWarmup || isProcessing) && !estimate?.done && estimateElapsedMs > warnAfterMs;
-  const showFailWarning = (isWarmup || isProcessing) && !estimate?.done && estimateElapsedMs > failAfterMs;
-  const warningText = showFailWarning
-    ? 'This is taking longer than expected and may have failed. Collection will refresh when ready.'
-    : showSlowWarning
-    ? 'Taking longer than expected. Collection will refresh when ready.'
-    : '';
-
   return (
     <div id="viewer" class={`viewer ${debugLoadingMode ? 'loading' : ''} ${showEmptyState ? 'is-empty' : ''}`} ref={viewerRef}>
-      {showEmptyState && (
+      {dropOverlay}
+      {showEmptyState && !showEmptyUploadStatus && (
         <ViewerEmptyState source={activeSource} />
       )}
-      {showUploadProgress && (
-        <div class="viewer-upload-overlay">
-          <div class="viewer-upload-title">{stageLabel}</div>
-          <div class="viewer-upload-meta">
-            {fileCountLabel && (
-              <span>{fileCountLabel}</span>
-            )}
-            {etaLabel && <span class="viewer-upload-eta">{etaLabel}</span>}
-          </div>
-          {warningText && (
-            <div class="viewer-upload-warning">{warningText}</div>
-          )}
-          <div class="viewer-upload-bar">
-            <div class="viewer-upload-bar-fill" style={{ width: `${progressPercent}%` }} />
-          </div>
+      {showEmptyUploadStatus && (
+        <div class="viewer-empty-state">
+          <UploadStatusOverlay
+            isUploading={isUploading}
+            uploadProgress={uploadProgress}
+            variant="first-load"
+          />
         </div>
+      )}
+      {!showEmptyState && (
+        <UploadStatusOverlay
+          isUploading={isUploading}
+          uploadProgress={uploadProgress}
+        />
       )}
       {metadataMissing && (
         <div class="metadata-warning">
@@ -350,6 +322,14 @@ function Viewer({ viewerReady }) {
           </div>
           <div className="metadata-missing-hint">
             Use Camera Settings to adjust view, then save
+          </div>
+        </div>
+      )}
+      {showLargeFileNotice && (
+        <div className="large-file-overlay">
+          <div className="large-file-badge">
+            <span className="large-file-spinner" aria-hidden="true" />
+            <span>Loading large file...</span>
           </div>
         </div>
       )}

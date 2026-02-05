@@ -146,7 +146,7 @@ function CloudGpuForm({ onBack }) {
               target="_blank"
               rel="noreferrer"
             >
-              Modal.com
+              modal.com
             </a>
         </p>
         <ul style={{ margin: '0', paddingLeft: '18px', listStyleType: 'disc' }}>

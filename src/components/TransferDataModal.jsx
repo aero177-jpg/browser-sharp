@@ -4,6 +4,7 @@
  */
 
 import { useCallback, useRef, useState } from 'preact/hooks';
+import { useStore } from '../store';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   faCheck,
@@ -307,6 +308,7 @@ function ExportPage({ onBack, onClose, addLog }) {
  * Import page with drag-and-drop zone
  */
 function ImportPage({ onBack, onClose, addLog }) {
+  const isMobile = useStore((state) => state.isMobile);
   const [importBusy, setImportBusy] = useState(false);
   const [importError, setImportError] = useState(null);
   const [importSuccess, setImportSuccess] = useState(null);
@@ -409,40 +411,42 @@ function ImportPage({ onBack, onClose, addLog }) {
         </ul>
       </div>
 
-      <div
-        style={dropZoneStyle}
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        onDrop={handleDrop}
-      >
-        {importBusy ? (
-          <>
-            <FontAwesomeIcon
-              icon={faSpinner}
-              spin
-              style={{ fontSize: '32px', marginBottom: '12px', opacity: 0.6 }}
-            />
-            <p style={{ margin: 0, opacity: 0.8 }}>Importing...</p>
-          </>
-        ) : (
-          <>
-            <FontAwesomeIcon
-              icon={faUpload}
-              style={{ fontSize: '32px', marginBottom: '12px', opacity: 0.5 }}
-            />
-            <p style={{ margin: '0 0 12px 0', opacity: 0.8 }}>
-              Drag and drop a .zip file here
-            </p>
-            <button
-              class="secondary-button"
-              onClick={handleBrowseClick}
-              style={{ height: '36px', padding: '0 20px' }}
-            >
-              Browse files
-            </button>
-          </>
-        )}
-      </div>
+      {!isMobile && (
+        <div
+          style={dropZoneStyle}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+        >
+          {importBusy ? (
+            <>
+              <FontAwesomeIcon
+                icon={faSpinner}
+                spin
+                style={{ fontSize: '32px', marginBottom: '12px', opacity: 0.6 }}
+              />
+              <p style={{ margin: 0, opacity: 0.8 }}>Importing...</p>
+            </>
+          ) : (
+            <>
+              <FontAwesomeIcon
+                icon={faUpload}
+                style={{ fontSize: '32px', marginBottom: '12px', opacity: 0.5 }}
+              />
+              <p style={{ margin: '0 0 12px 0', opacity: 0.8 }}>
+                Drag and drop a .zip file here
+              </p>
+              <button
+                class="secondary-button"
+                onClick={handleBrowseClick}
+                style={{ height: '36px', padding: '0 20px' }}
+              >
+                Browse files
+              </button>
+            </>
+          )}
+        </div>
+      )}
 
       <input
         ref={fileInputRef}
@@ -477,10 +481,30 @@ function ImportPage({ onBack, onClose, addLog }) {
         <button
           class="secondary-button"
           onClick={onClose}
-          style={{ height: '36px', padding: '0 16px', minWidth: '80px' }}
+          style={{ height: '36px', padding: '0 16px', minWidth: '80px', marginTop: 0 }}
         >
           {importSuccess ? 'Done' : 'Cancel'}
         </button>
+        {isMobile && (
+          <button
+            class="primary-button"
+            onClick={handleBrowseClick}
+            disabled={importBusy}
+            style={{ height: '36px', padding: '0 16px', minWidth: '120px' }}
+          >
+            {importBusy ? (
+              <>
+                <FontAwesomeIcon icon={faSpinner} spin />
+                {' '}Importing...
+              </>
+            ) : (
+              <>
+                <FontAwesomeIcon icon={faUpload} />
+                {' '}Browse files
+              </>
+            )}
+          </button>
+        )}
       </div>
     </div>
   );

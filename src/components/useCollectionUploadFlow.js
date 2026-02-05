@@ -26,7 +26,7 @@ export const DEFAULT_IMAGE_EXTENSIONS = [
   '.heic',
 ];
 
-const SUPPORTED_EXTENSIONS = getSupportedExtensions();
+export const SUPPORTED_EXTENSIONS = getSupportedExtensions();
 const FORMAT_ACCEPT = getFormatAccept();
 const IMAGE_ACCEPT = `${DEFAULT_IMAGE_EXTENSIONS.join(',')},image/*`;
 const IS_ANDROID = isAndroidUserAgent();
@@ -63,13 +63,13 @@ const waitForRemoteRescan = async (source, { expectedMin = 1 } = {}) => {
 };
 
 // Helper functions moved outside hook - no dependencies on hook state
-const isSupportedFile = (file) => {
+export const isSupportedFile = (file) => {
   if (!file?.name) return false;
   const ext = file.name.toLowerCase().match(/\.[^.]+$/)?.[0] || '';
   return SUPPORTED_EXTENSIONS.includes(ext);
 };
 
-const isImageFile = (file) => {
+export const isImageFile = (file) => {
   if (!file) return false;
   const type = file.type || '';
   const name = (file.name || '').toLowerCase();
@@ -500,6 +500,9 @@ export function useCollectionUploadFlow({
     openUploadPicker,
     openPickerForMode,
     handleUploadChange,
+    handleAssets,
+    handleImages,
+    handleFilesForMode,
     uploadModal,
     supportedExtensions: SUPPORTED_EXTENSIONS,
   };

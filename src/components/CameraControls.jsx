@@ -177,6 +177,7 @@ function CameraControls() {
   const customMetadataControlsVisible = useStore((state) => state.customMetadataControlsVisible);
   const customMetadataAvailable = useStore((state) => state.customMetadataAvailable);
   const metadataMissing = useStore((state) => state.metadataMissing);
+  const slideshowMode = useStore((state) => state.slideshowMode);
   const customModelScale = useStore((state) => state.customModelScale);
   const setCustomModelScale = useStore((state) => state.setCustomModelScale);
   const customAspectRatio = useStore((state) => state.customAspectRatio);
@@ -585,16 +586,16 @@ function CameraControls() {
     };
   }, [isMobile]);
 
-  const orbitLimitsDisabled = customMetadataAvailable || metadataMissing;
+  const orbitLimitsDisabled = customMetadataAvailable || metadataMissing || slideshowMode;
 
-  // Enable full orbit while custom metadata controls are shown
+  // Enable full orbit whenever orbit limits are disabled
   useEffect(() => {
-    if (customMetadataControlsVisible) {
+    if (orbitLimitsDisabled || customMetadataControlsVisible) {
       applyFullOrbitConstraints();
     } else {
       restoreOrbitConstraints(cameraRange);
     }
-  }, [customMetadataControlsVisible, cameraRange]);
+  }, [orbitLimitsDisabled, customMetadataControlsVisible, cameraRange]);
 
   /**
    * Handles toggling immersive mode.

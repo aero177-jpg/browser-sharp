@@ -72,8 +72,16 @@ const DEFAULT_CONFIG = {
 
 // Continuous zoom configuration
 const CONTINUOUS_ZOOM_DURATION = 5; // seconds
-const CONTINUOUS_ZOOM_START_RATIO = 0.25; // start offset behind home (large)
-const CONTINUOUS_ZOOM_END_RATIO = 0.25; // overshoot past home (large)
+const CONTINUOUS_ZOOM_START_RATIO_BY_SIZE = {
+  small: 0.0,  // no initial pull-back
+  medium: 0.12,
+  large: 0.18, // slight pull-back
+};
+const CONTINUOUS_ZOOM_END_RATIO_BY_SIZE = {
+  small: 0.4,  // allow further zoom-in
+  medium: 0.32,
+  large: 0.25,
+};
 
 // Continuous orbit configuration
 const CONTINUOUS_ORBIT_DURATION = 10; // seconds
@@ -96,6 +104,15 @@ const getStoreState = () => useStore.getState();
 const getContinuousSizeScale = () => {
   const { continuousMotionSize } = getStoreState();
   return CONTINUOUS_SIZE_SCALE[continuousMotionSize] ?? CONTINUOUS_SIZE_SCALE.large;
+};
+
+const getContinuousZoomRatios = () => {
+  const { continuousMotionSize } = getStoreState();
+  const sizeKey = continuousMotionSize ?? 'large';
+  return {
+    start: CONTINUOUS_ZOOM_START_RATIO_BY_SIZE[sizeKey] ?? CONTINUOUS_ZOOM_START_RATIO_BY_SIZE.large,
+    end: CONTINUOUS_ZOOM_END_RATIO_BY_SIZE[sizeKey] ?? CONTINUOUS_ZOOM_END_RATIO_BY_SIZE.large,
+  };
 };
 
 const getDurationScale = (durationSec, baseDurationSec) => {
@@ -590,12 +607,11 @@ export const slideInAnimation = (direction, { duration = 1200, amount = 0.45, mo
       const forward = new THREE.Vector3().subVectors(currentTarget, currentPosition).normalize();
 
       const durationSec = getContinuousDurationSeconds(mode, CONTINUOUS_ZOOM_DURATION);
-      const sizeScale = getContinuousSizeScale();
       const durationScale = getDurationScale(durationSec, CONTINUOUS_ZOOM_DURATION);
-      const motionScale = sizeScale * durationScale;
+      const { start: startRatio, end: endRatio } = getContinuousZoomRatios();
 
-      const startOffset = forward.clone().multiplyScalar(-distance * CONTINUOUS_ZOOM_START_RATIO * motionScale);
-      const endOffset = forward.clone().multiplyScalar(distance * CONTINUOUS_ZOOM_END_RATIO * motionScale);
+      const startOffset = forward.clone().multiplyScalar(-distance * startRatio * durationScale);
+      const endOffset = forward.clone().multiplyScalar(distance * endRatio * durationScale);
       const startPosition = currentPosition.clone().add(startOffset);
       const endPosition = currentPosition.clone().add(endOffset);
 

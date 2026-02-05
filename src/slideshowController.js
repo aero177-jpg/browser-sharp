@@ -23,8 +23,8 @@ export const startSlideshow = () => {
   isPlaying = true;
   getStoreState().setSlideshowPlaying(true);
   
-  // Start the hold timer for current asset
-  scheduleNextAdvance();
+  // Immediately advance to the next asset, then start hold timer
+  advanceToNextAndSchedule();
 };
 
 /**
@@ -80,6 +80,25 @@ const scheduleNextAdvance = () => {
       }
     }
   }, holdDuration * 1000);
+};
+
+/**
+ * Advances immediately, then schedules the next auto-advance.
+ */
+const advanceToNextAndSchedule = async () => {
+  if (!isPlaying) return;
+
+  console.log('[Slideshow] Starting playback, advancing to next asset');
+
+  try {
+    await loadNextAsset();
+  } catch (err) {
+    console.warn('Slideshow initial advance failed:', err);
+  }
+
+  if (isPlaying) {
+    scheduleNextAdvance();
+  }
 };
 
 /**

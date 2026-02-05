@@ -280,21 +280,25 @@ export class R2BucketSource extends AssetSource {
 	}
 
 	async _ensureAssetsFolder() {
-		const client = this._client();
-		const keepKey = `${this._assetPrefix()}/.keep`;
 		try {
-			await client.send(new HeadObjectCommand({
-				Bucket: this._bucket(),
-				Key: keepKey,
-			}));
+			const client = this._client();
+			const keepKey = `${this._assetPrefix()}/.keep`;
+			try {
+				await client.send(new HeadObjectCommand({
+					Bucket: this._bucket(),
+					Key: keepKey,
+				}));
+			} catch {
+				await client.send(new PutObjectCommand({
+					Bucket: this._bucket(),
+					Key: keepKey,
+					Body: new Uint8Array(0),
+					ContentType: 'text/plain',
+					CacheControl: 'no-cache',
+				}));
+			}
 		} catch {
-			await client.send(new PutObjectCommand({
-				Bucket: this._bucket(),
-				Key: keepKey,
-				Body: new Uint8Array(0),
-				ContentType: 'text/plain',
-				CacheControl: 'no-cache',
-			}));
+			// Ignore CORS/permission failures for the keep probe.
 		}
 	}
 

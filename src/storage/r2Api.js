@@ -6,7 +6,6 @@
 
 import {
   ListObjectsV2Command,
-  HeadObjectCommand,
 } from '@aws-sdk/client-s3';
 import { getSupportedExtensions } from '../formats/index.js';
 import { loadR2ManifestCache } from './r2Settings.js';
@@ -67,22 +66,11 @@ export async function listExistingCollections({ accountId, accessKeyId, secretAc
       if (!collectionId) continue;
 
       const basePath = `collections/${collectionId}`;
-      const manifestKey = `${basePath}/manifest.json`;
-
-      let hasManifest = false;
-      try {
-        await client.send(new HeadObjectCommand({ Bucket: bucket, Key: manifestKey }));
-        hasManifest = true;
-      } catch {
-        hasManifest = false;
-      }
-
       let assetCount = 0;
       let collectionName = collectionId;
 
-      const cachedManifest = hasManifest
-        ? loadR2ManifestCache({ accountId, bucket, collectionId })
-        : null;
+      const cachedManifest = loadR2ManifestCache({ accountId, bucket, collectionId });
+      const hasManifest = Boolean(cachedManifest);
 
       if (cachedManifest) {
         assetCount = cachedManifest.assets?.length || 0;

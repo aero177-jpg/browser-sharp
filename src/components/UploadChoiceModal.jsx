@@ -55,7 +55,11 @@ function UploadOptionItem({ title, subtitle, icon: Icon, selected, onSelect, onC
           <span class="collection-meta">{subtitle}</span>
         </div>
       </div>
-      {selected && <FontAwesomeIcon icon={faCheck} className="collection-arrow" />}
+      <FontAwesomeIcon
+        icon={faCheck}
+        className="collection-arrow"
+        style={{ opacity: selected ? 1 : 0 }}
+      />
     </button>
   );
 }

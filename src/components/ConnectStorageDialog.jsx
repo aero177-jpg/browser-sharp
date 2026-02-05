@@ -224,7 +224,7 @@ function AppStorageForm({ onConnect, onBack }) {
         collectionName: collectionName.trim() || 'App collection',
       });
 
-      const result = await source.connect();
+      const result = await source.connect({ refreshManifest: false, verifyUpload: false });
       if (!result.success) {
         setError(result.error || 'Failed to connect');
         setStatus('error');
@@ -441,7 +441,7 @@ function UrlCollectionForm({ onConnect, onBack, initialSource, editMode = false,
         name: collectionName.trim() || 'URL collection',
       });
 
-      const result = await source.connect();
+      const result = await source.connect({ refreshManifest: false, verifyUpload: false });
 
       if (result.success) {
         registerSource(source);
@@ -596,8 +596,13 @@ function ExistingCollectionItem({ collection, onSelect, isLoading, selected }) {
         <div class="collection-details">
           <span class="collection-name">{collection.name}</span>
           <span class="collection-meta">
-            {collection.id} · {collection.assetCount} asset{collection.assetCount !== 1 ? 's' : ''}
-            {collection.hasManifest && <span class="manifest-badge">manifest</span>}
+            <span
+              style={{display: "inline-flex", gap: "4px", marginTop: "2px"}}
+            >
+              <div style={collection.assetCount > 0 ? { color: '#5cb178' } : undefined}>
+{collection.assetCount} </div> item{collection.assetCount !== 1 ? 's' : ''}
+            </span>
+            {/* {collection.hasManifest && <span class="manifest-badge">manifest</span>} */}
           </span>
         </div>
       </div>
@@ -755,7 +760,7 @@ function SupabaseForm({ onConnect, onBack, onClose }) {
         collectionName: selectedExisting.name,
       });
 
-      const result = await source.connect({ refreshManifest: true });
+      const result = await source.connect({ refreshManifest: false, verifyUpload: false });
 
       if (result.success) {
         setHasManifest(source.config.config.hasManifest);
@@ -788,7 +793,7 @@ function SupabaseForm({ onConnect, onBack, onClose }) {
         collectionName: selectedExisting.name,
       });
 
-      const result = await source.connect({ refreshManifest: true });
+      const result = await source.connect({ refreshManifest: false, verifyUpload: false });
 
       if (result.success) {
         setHasManifest(source.config.config.hasManifest);
@@ -826,7 +831,7 @@ function SupabaseForm({ onConnect, onBack, onClose }) {
         collectionName: collectionName.trim() || undefined,
       });
 
-      const result = await source.connect({ refreshManifest: true, verifyUpload: true });
+      const result = await source.connect({ refreshManifest: false, verifyUpload: false });
 
       if (result.success) {
         setHasManifest(source.config.config.hasManifest);
@@ -1360,7 +1365,7 @@ function R2Form({ onConnect, onBack, onClose }) {
         collectionName: selectedExisting.name,
       });
 
-      const result = await source.connect({ refreshManifest: true });
+      const result = await source.connect({ refreshManifest: false, verifyUpload: false });
 
       if (result.success) {
         setHasManifest(source.config.config.hasManifest);
@@ -1395,7 +1400,7 @@ function R2Form({ onConnect, onBack, onClose }) {
         collectionName: selectedExisting.name,
       });
 
-      const result = await source.connect({ refreshManifest: true });
+      const result = await source.connect();
 
       if (result.success) {
         setHasManifest(source.config.config.hasManifest);
@@ -1435,7 +1440,7 @@ function R2Form({ onConnect, onBack, onClose }) {
         collectionName: collectionName.trim() || undefined,
       });
 
-      const result = await source.connect({ refreshManifest: true, verifyUpload: true });
+      const result = await source.connect();
 
       if (result.success) {
         setHasManifest(source.config.config.hasManifest);
@@ -1497,7 +1502,7 @@ function R2Form({ onConnect, onBack, onClose }) {
           <div class="form-field">
             <label>Secret access key</label>
             <input
-              type="password"
+              type="text"
               placeholder="R2 secret access key"
               value={secretAccessKey}
               onInput={(e) => setSecretAccessKey(e.target.value)}
@@ -1611,7 +1616,7 @@ function R2Form({ onConnect, onBack, onClose }) {
             <div class="form-field">
               <label>Secret access key</label>
               <input
-                type="password"
+                type="text"
                 placeholder="R2 secret access key"
                 value={secretAccessKey}
                 onInput={(e) => setSecretAccessKey(e.target.value)}
@@ -1621,7 +1626,7 @@ function R2Form({ onConnect, onBack, onClose }) {
             <div class="form-field">
               <label>Bucket name</label>
               <input
-                type="text"
+               type="text"
                 placeholder="splat-assets"
                 value={bucket}
                 onInput={(e) => setBucket(e.target.value)}

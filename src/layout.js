@@ -58,7 +58,18 @@ export const applyCameraProjection = (cameraMetadata, viewportWidth, viewportHei
   const { intrinsics, near, far } = cameraMetadata;
   const sx = viewportWidth / intrinsics.imageWidth;
   const sy = viewportHeight / intrinsics.imageHeight;
-  const s = Math.min(sx, sy);
+
+  const imageIsPortrait = intrinsics.imageHeight > intrinsics.imageWidth;
+  const screenIsPortrait = viewportHeight > viewportWidth;
+  const { fillMode = true } = getStoreState();
+  const s = fillMode
+    ? imageIsPortrait === screenIsPortrait
+      ? imageIsPortrait
+        ? sy
+        : sx
+      : Math.min(sx, sy)
+    : Math.min(sx, sy);
+
   const scaledWidth = intrinsics.imageWidth * s;
   const scaledHeight = intrinsics.imageHeight * s;
   const offsetX = (viewportWidth - scaledWidth) * 0.5;

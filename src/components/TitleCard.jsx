@@ -5,7 +5,7 @@
 import { useEffect, useState, useCallback } from 'preact/hooks';
 import FrostedTitle from './FrostedTitle';
 import { testSharpCloud } from '../testSharpCloud';
-import { FolderIcon, ServerIcon, RocketIcon, CollectionIcon } from '../icons/customIcons';
+import { FolderIcon, ServerIcon, RocketIcon, CollectionIcon, FolderOpenIcon } from '../icons/customIcons';
 import { getSourcesArray, onSourceChange } from '../storage/index.js';
 import StorageSourceList from './StorageSourceList';
 import Modal from './Modal';
@@ -118,7 +118,7 @@ function TitleCard({
             </button>
             {sources.length > 1 ? (
               <button class="action-btn " onClick={handleOpenCollections}>
-                <CollectionIcon size={16} />
+                <FolderOpenIcon size={16} />
                 <span>C o l l e c t i o n s</span>
               </button>
             ) : (

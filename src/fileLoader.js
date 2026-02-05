@@ -404,7 +404,7 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
     store.setCustomMetadataAvailable(hasCustomMetadata);
     store.setCustomMetadataControlsVisible(metadataMissing);
 
-    const shouldDisableOrbitLimits = metadataMissing || hasCustomMetadata;
+    const shouldDisableOrbitLimits = metadataMissing || hasCustomMetadata || store.slideshowMode;
     if (shouldDisableOrbitLimits) {
       applyFullOrbitConstraints();
     } else {
@@ -746,6 +746,44 @@ const preventDefaults = (event) => {
 };
 
 /**
+ * Collect files from a drag event, supporting folder drops.
+ * @param {DragEvent} event
+ * @returns {Promise<File[]>}
+ */
+export const collectDroppedFiles = async (event) => {
+  const items = event.dataTransfer?.items;
+  const files = [];
+
+  if (items) {
+    // Try to get folder contents using webkitGetAsEntry
+    const entries = [];
+    for (const item of items) {
+      const entry = item.webkitGetAsEntry?.();
+      if (entry) {
+        entries.push(entry);
+      }
+    }
+
+    if (entries.length > 0) {
+      const processedFiles = await processEntries(entries);
+      files.push(...processedFiles);
+    } else {
+      const fileList = event.dataTransfer?.files;
+      if (fileList) {
+        files.push(...Array.from(fileList));
+      }
+    }
+  } else {
+    const fileList = event.dataTransfer?.files;
+    if (fileList) {
+      files.push(...Array.from(fileList));
+    }
+  }
+
+  return files;
+};
+
+/**
  * Initializes drag-and-drop file loading on the viewer element.
  * Supports both individual files and folder drops.
  * Called from Viewer component after viewer is ready.
@@ -753,7 +791,7 @@ const preventDefaults = (event) => {
 export const initDragDrop = () => {
   const viewerEl = document.getElementById('viewer');
   if (!viewerEl) return;
-  
+
   ["dragenter", "dragover"].forEach((eventName) => {
     viewerEl.addEventListener(eventName, (event) => {
       preventDefaults(event);
@@ -772,39 +810,8 @@ export const initDragDrop = () => {
 
   viewerEl.addEventListener("drop", async (event) => {
     viewerEl.classList.remove("dragging");
-    
-    const items = event.dataTransfer?.items;
-    const files = [];
-    
-    if (items) {
-      // Try to get folder contents using webkitGetAsEntry
-      const entries = [];
-      for (const item of items) {
-        const entry = item.webkitGetAsEntry?.();
-        if (entry) {
-          entries.push(entry);
-        }
-      }
-      
-      if (entries.length > 0) {
-        // Process entries (files and folders)
-        const processedFiles = await processEntries(entries);
-        files.push(...processedFiles);
-      } else {
-        // Fallback to regular file list
-        const fileList = event.dataTransfer?.files;
-        if (fileList) {
-          files.push(...Array.from(fileList));
-        }
-      }
-    } else {
-      // Fallback to regular file list
-      const fileList = event.dataTransfer?.files;
-      if (fileList) {
-        files.push(...Array.from(fileList));
-      }
-    }
-    
+
+    const files = await collectDroppedFiles(event);
     if (files.length > 0) {
       const hasExistingAssets = getAssetCount() > 0;
       if (hasExistingAssets) {

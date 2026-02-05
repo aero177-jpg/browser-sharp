@@ -97,6 +97,24 @@ button, a, input, .sidebar-btn, .panel-toggle {
   transition: width 220ms ease, height 220ms ease;
 }
 
+.viewer-drop-overlay {
+  position: absolute;
+  inset: 8px;
+  border-radius: 14px;
+  border: 2px dashed rgba(110, 231, 255, 0);
+  background: rgba(110, 231, 255, 0.06);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 160ms ease, border-color 160ms ease, background 160ms ease;
+  z-index: 5;
+}
+
+.viewer-drop-overlay.is-active {
+  opacity: 1;
+  border-color: rgba(110, 231, 255, 0.75);
+  background: rgba(110, 231, 255, 0.08);
+}
+
 /* When app is fullscreen, ensure proper stacking and layout */
 #app:fullscreen #viewer,
 #app:-webkit-full-screen #viewer {
@@ -226,6 +244,22 @@ button, a, input, .sidebar-btn, .panel-toggle {
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.35);
   backdrop-filter: blur(6px);
   pointer-events: none;
+}
+
+.viewer-upload-overlay.first-load {
+  position: static;
+  top: auto;
+  right: auto;
+  z-index: auto;
+  min-width: 0;
+  width: 100%;
+  max-width: 460px;
+  padding: 18px 20px;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  text-align: center;
 }
 
 .viewer-upload-title {
@@ -2311,6 +2345,35 @@ select option {
   background: rgba(255, 80, 80, 0.2);
 }
 
+.drop-confirm-detail {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 13px;
+  color: rgba(220, 230, 245, 0.85);
+  line-height: 1.4;
+}
+
+.drop-confirm-note {
+  margin-top: 10px;
+  font-size: 12px;
+  color: rgba(180, 190, 210, 0.75);
+}
+
+.drop-confirm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 20px;
+}
+
+.drop-confirm-actions .link-button {
+  margin-left: auto;
+}
+
 /* Controls modal */
 .controls-modal {
   display: flex;
@@ -2602,14 +2665,14 @@ select option {
 .storage-tiers {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
 }
 
 .storage-tier-card {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 12px;
+  padding: 8px;
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 10px;
@@ -3346,7 +3409,7 @@ select option {
 }
 
 .source-count {
-  color: #48bb78;
+  color: #8a9bb8;
 }
 
 .source-status {
@@ -3521,7 +3584,7 @@ select option {
 
 .existing-collection-item {
   width: 100%;
-  padding: 10px 12px;
+  padding: 8px 10px;
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 6px;
@@ -3574,7 +3637,6 @@ select option {
 }
 
 .collection-meta {
-  max-width: 95%;
   font-size: 12px;
   color: #718096;
   display: flex;
@@ -3653,6 +3715,38 @@ select option {
   border-radius: 4px;
   color: #ccc;
   font-size: 11px;
+}
+
+/* Large file notice */
+.large-file-overlay {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 100;
+  pointer-events: none;
+}
+
+.large-file-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: rgba(16, 24, 40, 0.85);
+  border: 1px solid rgba(110, 231, 255, 0.25);
+  border-radius: 6px;
+  color: #e6ecf8;
+  font-size: 12px;
+  font-weight: 600;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.large-file-spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(110, 231, 255, 0.25);
+  border-top-color: rgba(110, 231, 255, 0.9);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
 }
 /* Custom metadata section */
 .custom-metadata-section {

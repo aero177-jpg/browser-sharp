@@ -7,10 +7,13 @@ import useSwipe from '../utils/useSwipe';
 import { useStore } from '../store';
 import { loadNextAsset, loadPrevAsset } from '../fileLoader';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faChevronLeft, faChevronRight } from '@fortawesome/free-solid-svg-icons';
+import { faChevronLeft, faChevronRight, faPause, faPlay } from '@fortawesome/free-solid-svg-icons';
+import { startSlideshow, stopSlideshow } from '../slideshowController';
 
 function AssetNavigation() {
   const assets = useStore((state) => state.assets);
+  const slideshowMode = useStore((state) => state.slideshowMode);
+  const slideshowPlaying = useStore((state) => state.slideshowPlaying);
   const hasMultipleAssets = assets.length > 1;
   const swipeRef = useRef(null);
 
@@ -43,6 +46,16 @@ function AssetNavigation() {
       >
         <FontAwesomeIcon icon={faChevronLeft} />
       </button>
+      {slideshowMode && (
+        <button
+          class="bottom-page-btn"
+          onClick={slideshowPlaying ? stopSlideshow : startSlideshow}
+          aria-label={slideshowPlaying ? 'Pause slideshow' : 'Play slideshow'}
+          title={slideshowPlaying ? 'Pause slideshow' : 'Play slideshow'}
+        >
+          <FontAwesomeIcon icon={slideshowPlaying ? faPause : faPlay} />
+        </button>
+      )}
       <button
         class="bottom-page-btn"
         onClick={loadNextAsset}
