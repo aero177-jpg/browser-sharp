@@ -56,11 +56,155 @@ const getPersistedNumber = (key, fallback = 0) => {
   }
 };
 
+/** Safely load a persisted JSON object from localStorage */
+const getPersistedJson = (key, fallback = null) => {
+  if (typeof window === 'undefined' || !window.localStorage) return fallback;
+  try {
+    const stored = window.localStorage.getItem(key);
+    if (!stored) return fallback;
+    const parsed = JSON.parse(stored);
+    return parsed && typeof parsed === 'object' ? parsed : fallback;
+  } catch (err) {
+    console.warn(`[Store] Failed to read ${key} from localStorage`, err);
+    return fallback;
+  }
+};
+
 
 const QUALITY_PRESET_KEY = 'qualityPreset';
 const DEBUG_STOCHASTIC_KEY = 'debugStochasticRendering';
 const DEBUG_SPARK_STDDEV_KEY = 'debugSparkMaxStdDev';
 const DEBUG_FPS_LIMIT_KEY = 'debugFpsLimitEnabled';
+
+const UI_PREFERENCES_KEY = 'ui-preferences';
+
+const DEFAULT_UI_PREFS = {
+  bgBlur: 40,
+  animation: {
+    intensity: 'medium',
+    direction: 'left',
+    slideMode: 'horizontal',
+    continuousMotionSize: 'large',
+    continuousMotionDuration: 7,
+    slideshowDuration: 3,
+    custom: {
+      duration: 2.5,
+      rotation: 30,
+      rotationType: 'left',
+      zoom: 1.0,
+      zoomType: 'out',
+      easing: 'ease-in-out',
+    },
+  },
+};
+
+const normalizeUiPrefs = (raw) => {
+  if (!raw || typeof raw !== 'object') return {};
+  const prefs = {};
+
+  if (Number.isFinite(raw.bgBlur)) {
+    prefs.bgBlur = raw.bgBlur;
+  }
+
+  if (raw.animation && typeof raw.animation === 'object') {
+    const anim = {};
+
+    if (typeof raw.animation.intensity === 'string') anim.intensity = raw.animation.intensity;
+    if (typeof raw.animation.direction === 'string') anim.direction = raw.animation.direction;
+    if (typeof raw.animation.slideMode === 'string') anim.slideMode = raw.animation.slideMode;
+    if (typeof raw.animation.continuousMotionSize === 'string') anim.continuousMotionSize = raw.animation.continuousMotionSize;
+
+    if (Number.isFinite(raw.animation.continuousMotionDuration)) {
+      anim.continuousMotionDuration = raw.animation.continuousMotionDuration;
+    }
+    if (Number.isFinite(raw.animation.slideshowDuration)) {
+      anim.slideshowDuration = raw.animation.slideshowDuration;
+    }
+
+    if (raw.animation.custom && typeof raw.animation.custom === 'object') {
+      const custom = {};
+      if (Number.isFinite(raw.animation.custom.duration)) custom.duration = raw.animation.custom.duration;
+      if (Number.isFinite(raw.animation.custom.rotation)) custom.rotation = raw.animation.custom.rotation;
+      if (typeof raw.animation.custom.rotationType === 'string') custom.rotationType = raw.animation.custom.rotationType;
+      if (Number.isFinite(raw.animation.custom.zoom)) custom.zoom = raw.animation.custom.zoom;
+      if (typeof raw.animation.custom.zoomType === 'string') custom.zoomType = raw.animation.custom.zoomType;
+      if (typeof raw.animation.custom.easing === 'string') custom.easing = raw.animation.custom.easing;
+      if (Object.keys(custom).length > 0) anim.custom = custom;
+    }
+
+    if (Object.keys(anim).length > 0) prefs.animation = anim;
+  }
+
+  return prefs;
+};
+
+const persistUiPrefs = (state) => {
+  if (typeof window === 'undefined' || !window.localStorage) return;
+
+  const prefs = {};
+  const anim = {};
+
+  if (Number.isFinite(state.bgBlur) && state.bgBlur !== DEFAULT_UI_PREFS.bgBlur) {
+    prefs.bgBlur = state.bgBlur;
+  }
+
+  if (state.animationIntensity && state.animationIntensity !== DEFAULT_UI_PREFS.animation.intensity) {
+    anim.intensity = state.animationIntensity;
+  }
+  if (state.animationDirection && state.animationDirection !== DEFAULT_UI_PREFS.animation.direction) {
+    anim.direction = state.animationDirection;
+  }
+  if (state.slideMode && state.slideMode !== DEFAULT_UI_PREFS.animation.slideMode) {
+    anim.slideMode = state.slideMode;
+  }
+  if (state.continuousMotionSize && state.continuousMotionSize !== DEFAULT_UI_PREFS.animation.continuousMotionSize) {
+    anim.continuousMotionSize = state.continuousMotionSize;
+  }
+  if (Number.isFinite(state.continuousMotionDuration) && state.continuousMotionDuration !== DEFAULT_UI_PREFS.animation.continuousMotionDuration) {
+    anim.continuousMotionDuration = state.continuousMotionDuration;
+  }
+  if (Number.isFinite(state.slideshowDuration) && state.slideshowDuration !== DEFAULT_UI_PREFS.animation.slideshowDuration) {
+    anim.slideshowDuration = state.slideshowDuration;
+  }
+
+  const custom = {};
+  const ca = state.customAnimation || {};
+  if (Number.isFinite(ca.duration) && ca.duration !== DEFAULT_UI_PREFS.animation.custom.duration) {
+    custom.duration = ca.duration;
+  }
+  if (Number.isFinite(ca.rotation) && ca.rotation !== DEFAULT_UI_PREFS.animation.custom.rotation) {
+    custom.rotation = ca.rotation;
+  }
+  if (ca.rotationType && ca.rotationType !== DEFAULT_UI_PREFS.animation.custom.rotationType) {
+    custom.rotationType = ca.rotationType;
+  }
+  if (Number.isFinite(ca.zoom) && ca.zoom !== DEFAULT_UI_PREFS.animation.custom.zoom) {
+    custom.zoom = ca.zoom;
+  }
+  if (ca.zoomType && ca.zoomType !== DEFAULT_UI_PREFS.animation.custom.zoomType) {
+    custom.zoomType = ca.zoomType;
+  }
+  if (ca.easing && ca.easing !== DEFAULT_UI_PREFS.animation.custom.easing) {
+    custom.easing = ca.easing;
+  }
+
+  if (Object.keys(custom).length > 0) {
+    anim.custom = custom;
+  }
+  if (Object.keys(anim).length > 0) {
+    prefs.animation = anim;
+  }
+
+  try {
+    if (Object.keys(prefs).length === 0) {
+      window.localStorage.removeItem(UI_PREFERENCES_KEY);
+      return;
+    }
+    window.localStorage.setItem(UI_PREFERENCES_KEY, JSON.stringify(prefs));
+  } catch (err) {
+    console.warn('[Store] Failed to persist ui-preferences', err);
+  }
+};
 
 const QUALITY_PRESETS = {
   high: { stdDev: 5, stochastic: false, fpsLimit: true },
@@ -77,6 +221,8 @@ const persistedQualityPreset = getPersistedString(
 const persistedCustomStdDev = getPersistedNumber(DEBUG_SPARK_STDDEV_KEY, Math.sqrt(5));
 const persistedCustomStochastic = getPersistedBoolean(DEBUG_STOCHASTIC_KEY, false);
 const persistedCustomFpsLimit = getPersistedBoolean(DEBUG_FPS_LIMIT_KEY, true);
+
+const persistedUiPrefs = normalizeUiPrefs(getPersistedJson(UI_PREFERENCES_KEY, null));
 
 const resolveInitialQuality = (preset) => {
   if (QUALITY_PRESETS[preset]) return QUALITY_PRESETS[preset];
@@ -121,25 +267,25 @@ export const useStore = create(
 
   // Animation settings
   animationEnabled: true,
-  animationIntensity: 'medium',
-  animationDirection: 'left',
-  slideMode: 'horizontal',
-  continuousMotionSize: 'large',
-  continuousMotionDuration: 7,
+  animationIntensity: persistedUiPrefs.animation?.intensity ?? 'medium',
+  animationDirection: persistedUiPrefs.animation?.direction ?? 'left',
+  slideMode: persistedUiPrefs.animation?.slideMode ?? 'horizontal',
+  continuousMotionSize: persistedUiPrefs.animation?.continuousMotionSize ?? 'large',
+  continuousMotionDuration: persistedUiPrefs.animation?.continuousMotionDuration ?? 7,
   slideshowContinuousMode: false,
   slideshowMode: false,
   slideshowUseCustom: false,
-  slideshowDuration: 3,
+  slideshowDuration: persistedUiPrefs.animation?.slideshowDuration ?? 3,
   slideshowPlaying: false,
   
   // Custom animation settings (used when intensity is 'custom')
   customAnimation: {
-    duration: 2.5,
-    rotation: 30,
-    rotationType: 'left',
-    zoom: 1.0,
-    zoomType: 'out',
-    easing: 'ease-in-out',
+    duration: persistedUiPrefs.animation?.custom?.duration ?? 2.5,
+    rotation: persistedUiPrefs.animation?.custom?.rotation ?? 30,
+    rotationType: persistedUiPrefs.animation?.custom?.rotationType ?? 'left',
+    zoom: persistedUiPrefs.animation?.custom?.zoom ?? 1.0,
+    zoomType: persistedUiPrefs.animation?.custom?.zoomType ?? 'out',
+    easing: persistedUiPrefs.animation?.custom?.easing ?? 'ease-in-out',
     dollyZoom: false,
   },
 
@@ -187,13 +333,14 @@ export const useStore = create(
   animSettingsExpanded: false,
   cameraSettingsExpanded: true,
   galleryExpanded: true,
+  controlsModalOpen: false,
   
   // Mobile state - initialize with actual values to prevent flash on load
   isMobile: typeof window !== 'undefined' && Math.min(window.innerWidth, window.innerHeight) <= 768,
   isPortrait: typeof window !== 'undefined' && window.innerHeight > window.innerWidth,
   immersiveMode: false,
   immersiveSensitivity: 1.0,
-  bgBlur: 40,
+  bgBlur: persistedUiPrefs.bgBlur ?? 40,
   fillMode: true,
   
   // Debug
@@ -219,6 +366,12 @@ export const useStore = create(
   
   /** Sets camera orbit range in degrees */
   setCameraRange: (range) => set({ cameraRange: range }),
+
+  /** Opens/closes the controls modal */
+  setControlsModalOpen: (controlsModalOpen) => set({ controlsModalOpen }),
+
+  /** Toggles the controls modal */
+  toggleControlsModal: () => set((state) => ({ controlsModalOpen: !state.controlsModalOpen })),
   
   /** Enables/disables dolly zoom compensation */
   setDollyZoomEnabled: (enabled) => set({ dollyZoomEnabled: enabled }),
@@ -251,19 +404,34 @@ export const useStore = create(
   setAnimationEnabled: (enabled) => set({ animationEnabled: enabled }),
   
   /** Sets animation intensity preset */
-  setAnimationIntensity: (intensity) => set({ animationIntensity: intensity }),
+  setAnimationIntensity: (intensity) => {
+    set({ animationIntensity: intensity });
+    persistUiPrefs({ ...get(), animationIntensity: intensity });
+  },
   
   /** Sets animation sweep direction */
-  setAnimationDirection: (direction) => set({ animationDirection: direction }),
+  setAnimationDirection: (direction) => {
+    set({ animationDirection: direction });
+    persistUiPrefs({ ...get(), animationDirection: direction });
+  },
   
   /** Sets slide transition mode */
-  setSlideMode: (mode) => set({ slideMode: mode }),
+  setSlideMode: (mode) => {
+    set({ slideMode: mode });
+    persistUiPrefs({ ...get(), slideMode: mode });
+  },
 
   /** Sets continuous motion size preset */
-  setContinuousMotionSize: (size) => set({ continuousMotionSize: size }),
+  setContinuousMotionSize: (size) => {
+    set({ continuousMotionSize: size });
+    persistUiPrefs({ ...get(), continuousMotionSize: size });
+  },
 
   /** Sets continuous motion duration in seconds */
-  setContinuousMotionDuration: (duration) => set({ continuousMotionDuration: duration }),
+  setContinuousMotionDuration: (duration) => {
+    set({ continuousMotionDuration: duration });
+    persistUiPrefs({ ...get(), continuousMotionDuration: duration });
+  },
 
   /** Sets continuous mode for slideshow */
   setSlideshowContinuousMode: (enabled) => set({ slideshowContinuousMode: enabled }),
@@ -275,7 +443,10 @@ export const useStore = create(
   setSlideshowUseCustom: (enabled) => set({ slideshowUseCustom: enabled }),
   
   /** Sets slideshow hold duration in seconds */
-  setSlideshowDuration: (duration) => set({ slideshowDuration: duration }),
+  setSlideshowDuration: (duration) => {
+    set({ slideshowDuration: duration });
+    persistUiPrefs({ ...get(), slideshowDuration: duration });
+  },
 
   /** Sets global upload state for viewer overlay */
   setUploadState: ({ isUploading, uploadProgress }) => set({
@@ -287,9 +458,12 @@ export const useStore = create(
   setSlideshowPlaying: (playing) => set({ slideshowPlaying: playing }),
   
   /** Updates custom animation settings (merges with existing) */
-  setCustomAnimation: (settings) => set((state) => ({
-    customAnimation: { ...state.customAnimation, ...settings }
-  })),
+  setCustomAnimation: (settings) => set((state) => {
+    const nextCustomAnimation = { ...state.customAnimation, ...settings };
+    const nextState = { ...state, customAnimation: nextCustomAnimation };
+    persistUiPrefs(nextState);
+    return { customAnimation: nextCustomAnimation };
+  }),
 
   /** Sets custom focus state */
   setHasCustomFocus: (hasCustomFocus) => set({ hasCustomFocus }),
@@ -406,7 +580,10 @@ export const useStore = create(
   setShowFps: (show) => set({ showFps: show }),
 
   /** Sets blur amount for background container */
-  setBgBlur: (bgBlur) => set({ bgBlur }),
+  setBgBlur: (bgBlur) => {
+    set({ bgBlur });
+    persistUiPrefs({ ...get(), bgBlur });
+  },
 
   /** Enables/disables stochastic rendering in Spark */
   setDebugStochasticRendering: (enabled) => {

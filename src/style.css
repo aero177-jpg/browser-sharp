@@ -97,6 +97,11 @@ button, a, input, .sidebar-btn, .panel-toggle {
   transition: width 220ms ease, height 220ms ease;
 }
 
+.viewer.cursor-hidden,
+.viewer.cursor-hidden * {
+  cursor: none !important;
+}
+
 .viewer-drop-overlay {
   position: absolute;
   inset: 8px;
@@ -569,6 +574,53 @@ button, a, input, .sidebar-btn, .panel-toggle {
   transition-delay: 0.4s;
 }
 
+.title-card-help {
+  position: absolute;
+  right: 28px;
+  bottom: 28px;
+  z-index: 2;
+  pointer-events: auto;
+}
+
+.title-card-help .help-btn {
+  min-width: 44px;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border-radius: 100%;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.title-card-help .help-btn {
+  opacity: 0;
+  filter: blur(10px);
+  transform: translateY(10px);
+  transition:
+    opacity 0.55s ease,
+    filter 0.55s ease,
+    transform 0.55s ease;
+}
+
+.title-card-help.is-visible .help-btn {
+  opacity: 1;
+  filter: blur(0);
+  transform: translateY(0);
+  transition-delay: 0.5s;
+}
+
+@media (max-width: 768px) {
+  .title-card-help {
+    bottom: 44px;
+  }
+
+  .title-card-help .help-btn {
+    flex-direction: row;
+    justify-content: center;
+    gap: 0;
+  }
+}
+
 .action-btn:hover {
   border-color: rgba(94, 119, 157, 0.478);
   background: rgba(84, 95, 103, 0.219);
@@ -700,10 +752,15 @@ button, a, input, .sidebar-btn, .panel-toggle {
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
   backdrop-filter: blur(14px);
   z-index: 30;
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, opacity 0.25s ease;
    display: flex;
    align-items: center;
    justify-content: center;
+}
+
+.panel-toggle.slideshow-hide {
+  opacity: 0;
+  pointer-events: none;
 }
 
 .panel-toggle:hover {
@@ -1198,7 +1255,10 @@ button, a, input, .sidebar-btn, .panel-toggle {
 @media (max-width: 768px) and (orientation: portrait) {
   .page {
     padding: 0;
-    /* Keep viewer centered when sheet is closed */
+  }
+
+  /* Keep viewer centered when sheet is closed (only after landing) */
+  .page:not(.landing-empty) {
     padding-bottom: 50px;
   }
 
@@ -1289,7 +1349,7 @@ button, a, input, .sidebar-btn, .panel-toggle {
   background-size: cover;
   background-position: center center;
   background-repeat: no-repeat;
-  opacity: 1;
+  opacity: var(--bg-opacity, 1);
   filter: blur(var(--bg-blur, 40px));
   transition: opacity 0.4s ease, filter 0.6s ease;
   z-index: 0;
@@ -1299,7 +1359,7 @@ button, a, input, .sidebar-btn, .panel-toggle {
 }
 
 .bg-image-container.active {
-  opacity: 1;
+  opacity: var(--bg-opacity, 1);
 }
 
 

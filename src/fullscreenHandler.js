@@ -6,6 +6,7 @@
 import { resize } from './fileLoader.js';
 import { requestRender, suspendRenderLoop, resumeRenderLoop } from './viewer.js';
 import { useStore } from './store.js';
+import { registerTapListener } from './utils/tapDetector.js';
 
 const waitForNextFrame = () => new Promise((resolve) => requestAnimationFrame(resolve));
 
@@ -34,6 +35,11 @@ const applyVisibilityHidden = (fullscreenRootEl, hidden) => {
   fullscreenRootEl.classList.toggle('fullscreen-ui-hidden', hidden);
 };
 
+const applyCursorHidden = (viewerEl, hidden) => {
+  if (!viewerEl) return;
+  viewerEl.classList.toggle('cursor-hidden', hidden);
+};
+
 const setMobileSystemUiHidden = async () => {};
 
 const isFullscreenOrImmersive = (fullscreenRootEl, viewerEl) =>
@@ -53,45 +59,29 @@ export function setupFullscreenHandler(fullscreenRootEl, viewerEl, onStateChange
   let transitionPromise = null;
   let rerunRequested = false;
   let uiHidden = false;
-  let tapStart = null;
   const TAP_MAX_DURATION_MS = 220;
   const TAP_MAX_MOVE_PX = 12;
 
   const resetUiVisibility = () => {
     uiHidden = false;
     applyVisibilityHidden(fullscreenRootEl, uiHidden);
+    applyCursorHidden(viewerEl, uiHidden);
     void setMobileSystemUiHidden(false);
   };
 
-  const handlePointerDown = (event) => {
-    if (event.button != null && event.button !== 0) return;
-    tapStart = {
-      time: performance.now(),
-      x: event.clientX,
-      y: event.clientY,
-    };
+  const shouldIgnoreTap = (event) => {
+    if (!isFullscreenOrImmersive(fullscreenRootEl, viewerEl)) return true;
+    if (useStore.getState().focusSettingActive) return true;
+    if (useStore.getState().panelOpen) return true;
+    if (event.target.closest(VISIBILITY_TOGGLE_SELECTORS.join(','))) return true;
+    return false;
   };
 
-  const handleViewerTap = (event) => {
-    if (!tapStart) return;
-    const dt = performance.now() - tapStart.time;
-    const dx = event.clientX - tapStart.x;
-    const dy = event.clientY - tapStart.y;
-    const dist = Math.hypot(dx, dy);
-    tapStart = null;
-
-    if (dt > TAP_MAX_DURATION_MS || dist > TAP_MAX_MOVE_PX) return;
-    if (!isFullscreenOrImmersive(fullscreenRootEl, viewerEl)) return;
-    if (useStore.getState().focusSettingActive) return;
-    if (useStore.getState().panelOpen) return;
-    if (event.target.closest(VISIBILITY_TOGGLE_SELECTORS.join(','))) return;
+  const handleViewerTap = () => {
     uiHidden = !uiHidden;
     applyVisibilityHidden(fullscreenRootEl, uiHidden);
+    applyCursorHidden(viewerEl, uiHidden);
     void setMobileSystemUiHidden(uiHidden);
-  };
-
-  const handlePointerCancel = () => {
-    tapStart = null;
   };
 
   const processChange = async () => {
@@ -134,14 +124,16 @@ export function setupFullscreenHandler(fullscreenRootEl, viewerEl, onStateChange
   };
 
   document.addEventListener('fullscreenchange', handleFullscreenChange);
-  fullscreenRootEl.addEventListener('pointerdown', handlePointerDown);
-  fullscreenRootEl.addEventListener('pointerup', handleViewerTap);
-  fullscreenRootEl.addEventListener('pointercancel', handlePointerCancel);
+  const unregisterTapListener = registerTapListener(fullscreenRootEl, {
+    onTap: handleViewerTap,
+    shouldIgnore: shouldIgnoreTap,
+    maxDurationMs: TAP_MAX_DURATION_MS,
+    maxMovePx: TAP_MAX_MOVE_PX,
+  });
   
   return () => {
     document.removeEventListener('fullscreenchange', handleFullscreenChange);
-    fullscreenRootEl.removeEventListener('pointerdown', handlePointerDown);
-    fullscreenRootEl.removeEventListener('pointerup', handleViewerTap);
-    fullscreenRootEl.removeEventListener('pointercancel', handlePointerCancel);
+    unregisterTapListener();
+    applyCursorHidden(viewerEl, false);
   };
 }

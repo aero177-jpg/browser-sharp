@@ -26,6 +26,7 @@ import { initVrSupport } from '../vrMode';
 import { getSourcesArray } from '../storage/index.js';
 import { getSource, createPublicUrlSource, registerSource, saveSource } from '../storage/index.js';
 import ConnectStorageDialog from './ConnectStorageDialog';
+import ControlsModal from './ControlsModal';
 import { useCollectionUploadFlow } from './useCollectionUploadFlow.js';
 import { useViewerDrop } from './useViewerDrop.jsx';
 
@@ -63,14 +64,18 @@ function App() {
   const setImmersiveMode = useStore((state) => state.setImmersiveMode);
   const immersiveSensitivity = useStore((state) => state.immersiveSensitivity);
   const slideshowMode = useStore((state) => state.slideshowMode);
+  const slideshowPlaying = useStore((state) => state.slideshowPlaying);
   const fillMode = useStore((state) => state.fillMode);
   const toggleFillMode = useStore((state) => state.toggleFillMode);
+  const controlsModalOpen = useStore((state) => state.controlsModalOpen);
+  const setControlsModalOpen = useStore((state) => state.setControlsModalOpen);
   
   // Local state for viewer initialization
   const [viewerReady, setViewerReady] = useState(false);
   // Landing screen visibility (controls TitleCard fade-in/out)
   const [landingVisible, setLandingVisible] = useState(() => assets.length === 0 && !activeSourceId);
   const [hasDefaultSource, setHasDefaultSource] = useState(false);
+  const isLandingEmptyState = landingVisible && assets.length === 0 && !activeSourceId;
   
   // Track mesh state
   const [hasMesh, setHasMesh] = useState(false);
@@ -561,7 +566,7 @@ function App() {
   }, [assets.length, activeSourceId, hasDefaultSource]);
 
   return (
-    <div class={`page ${panelOpen ? 'panel-open' : ''}`}>
+    <div class={`page ${panelOpen ? 'panel-open' : ''} ${isLandingEmptyState ? 'landing-empty' : ''}`}>
       <AssetSidebar />
       <input 
         ref={uploadInputRef}
@@ -572,7 +577,7 @@ function App() {
         onChange={handleUploadChange}
       />
       <TitleCard
-        show={landingVisible && assets.length === 0 && !activeSourceId}
+        show={isLandingEmptyState}
         onPickFile={handlePickFile}
         onOpenStorage={handleOpenStorage}
         onLoadDemo={handleLoadDemo}
@@ -581,15 +586,17 @@ function App() {
       />
         <Viewer viewerReady={viewerReady} dropOverlay={dropOverlay} />
       {/* Separate swipe target near bottom controls (debug green) */}
-      <div class="bottom-swipe-target" ref={swipeTargetRef} />
-      {isMobile && isPortrait ? <MobileSheet /> : <SidePanel />}
+      {!isLandingEmptyState && (
+        <div class="bottom-swipe-target" ref={swipeTargetRef} />
+      )}
+      {!isLandingEmptyState && (isMobile && isPortrait ? <MobileSheet /> : <SidePanel />)}
       {/* Bottom controls container: sidebar index (left), nav (center), fullscreen+reset (right) */}
       <div
-        class={`bottom-controls${slideshowMode ? ' slideshow-hide' : ''}${controlsRevealed ? ' is-revealed' : ''}`}
+        class={`bottom-controls${slideshowMode && slideshowPlaying ? ' slideshow-hide' : ''}${controlsRevealed ? ' is-revealed' : ''}`}
         ref={bottomControlsRef}
-        onPointerEnter={() => slideshowMode && revealBottomControls(false)}
-        onPointerLeave={() => slideshowMode && revealBottomControls(true, 1000)}
-        onPointerDown={() => slideshowMode && revealBottomControls(true, 1000)}
+        onPointerEnter={() => slideshowMode && slideshowPlaying && revealBottomControls(false)}
+        onPointerLeave={() => slideshowMode && slideshowPlaying && revealBottomControls(true, 1000)}
+        onPointerDown={() => slideshowMode && slideshowPlaying && revealBottomControls(true, 1000)}
       >
         {/* Left: Asset index button */}
         <div class="bottom-controls-left">
@@ -677,6 +684,10 @@ function App() {
         onClose={handleCloseStorage}
         onConnect={handleSourceConnect}
         initialTier={storageDialogInitialTier}
+      />
+      <ControlsModal
+        isOpen={controlsModalOpen}
+        onClose={() => setControlsModalOpen(false)}
       />
       {dropModal}
       {uploadModal}

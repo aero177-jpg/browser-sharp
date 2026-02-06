@@ -6,6 +6,8 @@
 import { useStore } from "./store.js";
 import { loadNextAsset } from "./fileLoader.js";
 import { hasMultipleAssets } from "./assetManager.js";
+import { cancelLoadZoomAnimation } from "./customAnimations.js";
+import { cancelContinuousZoomAnimation, cancelContinuousOrbitAnimation, cancelContinuousVerticalOrbitAnimation } from "./cameraAnimations.js";
 
 const getStoreState = () => useStore.getState();
 
@@ -33,6 +35,11 @@ export const startSlideshow = () => {
 export const stopSlideshow = () => {
   isPlaying = false;
   getStoreState().setSlideshowPlaying(false);
+
+  cancelLoadZoomAnimation();
+  cancelContinuousZoomAnimation();
+  cancelContinuousOrbitAnimation();
+  cancelContinuousVerticalOrbitAnimation();
   
   if (holdTimeoutId) {
     clearTimeout(holdTimeoutId);

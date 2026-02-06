@@ -3,6 +3,7 @@
  * Sits above the app layout and handles file/storage/demo actions.
  */
 import { useEffect, useState, useCallback } from 'preact/hooks';
+import { useStore } from '../store';
 import FrostedTitle from './FrostedTitle';
 import { testSharpCloud } from '../testSharpCloud';
 import { FolderIcon, ServerIcon, RocketIcon, CollectionIcon, FolderOpenIcon } from '../icons/customIcons';
@@ -33,6 +34,7 @@ function TitleCard({
   // Sources state for collections button
   const [sources, setSources] = useState(() => getSourcesArray());
   const [showCollectionsModal, setShowCollectionsModal] = useState(false);
+  const toggleControlsModal = useStore((state) => state.toggleControlsModal);
 
 
   // Subscribe to source changes
@@ -89,6 +91,7 @@ function TitleCard({
   }, [show]);
 
   const actionButtonsClass = `action-buttons ${buttonsVisible ? 'is-visible' : ''}`;
+  const helpButtonClass = `title-card-help ${buttonsVisible ? 'is-visible' : ''}`;
 
   // Render always and let parent control visibility via CSS class to allow fade transitions
   const overlayClass = `title-card-overlay ${show ? 'is-visible' : 'is-hidden'}`;
@@ -129,6 +132,17 @@ function TitleCard({
             )}
           </div>
         </div>
+      </div>
+
+      <div class={helpButtonClass}>
+        <button
+          class="action-btn help-btn"
+          onClick={toggleControlsModal}
+          aria-label="Open controls"
+          title="Controls"
+        >
+          ?
+        </button>
       </div>
 
       <Modal

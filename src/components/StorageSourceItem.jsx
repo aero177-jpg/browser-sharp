@@ -388,7 +388,7 @@ function StorageSourceItem({
   useEffect(() => {
     const timeoutId = setTimeout(() => {
       setShowStatusIcon(true);
-    }, 150);
+    }, 500);
 
     return () => clearTimeout(timeoutId);
   }, []);

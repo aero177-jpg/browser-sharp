@@ -89,17 +89,20 @@ export function useViewerDrop({ activeSourceId, setStatus, handleAssets, handleI
 
     const handleDragEnter = (event) => {
       preventDefaults(event);
+      if (!event.dataTransfer?.types?.includes('Files')) return;
       dragDepthRef.current += 1;
       setIsViewerDragging(true);
     };
 
     const handleDragOver = (event) => {
       preventDefaults(event);
+      if (!event.dataTransfer?.types?.includes('Files')) return;
       setIsViewerDragging(true);
     };
 
     const handleDragLeave = (event) => {
       preventDefaults(event);
+      if (!event.dataTransfer?.types?.includes('Files')) return;
       dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
       if (dragDepthRef.current === 0) {
         setIsViewerDragging(false);

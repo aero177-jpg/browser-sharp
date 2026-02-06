@@ -21,6 +21,8 @@ function SidePanel() {
   const fileInfo = useStore((state) => state.fileInfo);
   const isMobile = useStore((state) => state.isMobile);
   const panelOpen = useStore((state) => state.panelOpen); // assumes this exists
+  const slideshowMode = useStore((state) => state.slideshowMode);
+  const slideshowPlaying = useStore((state) => state.slideshowPlaying);
   // Store actions
   const togglePanel = useStore((state) => state.togglePanel);
 
@@ -83,7 +85,7 @@ function SidePanel() {
     <>
       {/* Panel toggle button */}
       <button
-        class={`panel-toggle${panelOpen ? ' open' : ''}`}
+        class={`panel-toggle${panelOpen ? ' open' : ''}${slideshowMode && slideshowPlaying ? ' slideshow-hide' : ''}`}
         aria-label="Toggle info panel"
         type="button"
         onClick={togglePanel}

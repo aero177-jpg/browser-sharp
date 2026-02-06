@@ -24,10 +24,12 @@ import { restoreHomeView, resetViewWithImmersive } from '../cameraUtils';
 import { startAnchorTransition } from '../cameraAnimations';
 import { cancelLoadZoomAnimation } from '../customAnimations';
 import { cancelContinuousZoomAnimation, cancelContinuousOrbitAnimation, cancelContinuousVerticalOrbitAnimation } from '../cameraAnimations';
+import { startSlideshow, stopSlideshow } from '../slideshowController';
 import { loadNextAsset, loadPrevAsset, resize } from '../fileLoader';
 import { resetSplatManager } from '../splatManager';
 import { clearBackground } from '../backgroundManager';
 import { getSource } from '../storage/index.js';
+import { registerTapListener } from '../utils/tapDetector';
 import ViewerEmptyState from './ViewerEmptyState.jsx';
 import UploadStatusOverlay from './UploadStatusOverlay.jsx';
 
@@ -64,6 +66,10 @@ function Viewer({ viewerReady, dropOverlay }) {
   const assets = useStore((state) => state.assets);
   const currentAssetIndex = useStore((state) => state.currentAssetIndex);
   const activeSourceId = useStore((state) => state.activeSourceId);
+  const panelOpen = useStore((state) => state.panelOpen);
+  const assetSidebarOpen = useStore((state) => state.assetSidebarOpen);
+  const slideshowMode = useStore((state) => state.slideshowMode);
+  const slideshowPlaying = useStore((state) => state.slideshowPlaying);
   const setAnchorState = useStore((state) => state.setAnchorState);
   
   // Store actions
@@ -78,6 +84,8 @@ function Viewer({ viewerReady, dropOverlay }) {
   const [showLargeFileNotice, setShowLargeFileNotice] = useState(false);
   const largeFileTimeoutRef = useRef(null);
   const [currentMeshAssetId, setCurrentMeshAssetId] = useState(null);
+  const lastTapTimeRef = useRef(0);
+  const cursorIdleTimeoutRef = useRef(null);
 
   const { hasOriginalMetadata, customMetadataMode } = useStore();
 
@@ -172,11 +180,35 @@ function Viewer({ viewerReady, dropOverlay }) {
       return;
     }
 
+    const shouldIgnoreViewerInput = () => panelOpen || assetSidebarOpen;
+
+    const handleTap = () => {
+      const now = Date.now();
+      if (now - lastTapTimeRef.current < 300) return;
+      lastTapTimeRef.current = now;
+
+      if (!slideshowMode) return;
+
+      if (slideshowPlaying) {
+        stopSlideshow();
+      } else {
+        startSlideshow();
+      }
+    };
+
+    const unregisterTapListener = registerTapListener(renderer.domElement, {
+      onTap: handleTap,
+      shouldIgnore: shouldIgnoreViewerInput,
+      maxDurationMs: 500,
+      maxMovePx: 10,
+    });
+
     /**
      * Cancels any running load zoom animation.
      * Called on user interaction to allow manual control.
      */
     const cancelLoadZoomOnUserInput = () => {
+      if (shouldIgnoreViewerInput()) return;
       cancelLoadZoomAnimation();
       cancelContinuousZoomAnimation();
       cancelContinuousOrbitAnimation();
@@ -283,8 +315,70 @@ function Viewer({ viewerReady, dropOverlay }) {
         renderer.domElement.removeEventListener('dblclick', handleDoubleClick);
       }
       document.removeEventListener('keydown', handleKeydown);
+      unregisterTapListener();
     };
-  }, [viewerReady, addLog, togglePanel, setAnchorState]);
+  }, [viewerReady, addLog, togglePanel, setAnchorState, panelOpen, assetSidebarOpen, slideshowMode, slideshowPlaying]);
+
+  useEffect(() => {
+    const viewerEl = viewerRef.current;
+    if (!viewerEl) return;
+
+    const CURSOR_IDLE_MS = 500;
+
+    const clearCursorTimeout = () => {
+      if (cursorIdleTimeoutRef.current) {
+        clearTimeout(cursorIdleTimeoutRef.current);
+        cursorIdleTimeoutRef.current = null;
+      }
+    };
+
+    const showCursor = () => {
+      viewerEl.classList.remove('cursor-hidden');
+    };
+
+    const hideCursor = () => {
+      viewerEl.classList.add('cursor-hidden');
+    };
+
+    const scheduleCursorHide = () => {
+      if (!slideshowMode || !slideshowPlaying) return;
+      clearCursorTimeout();
+      showCursor();
+      cursorIdleTimeoutRef.current = setTimeout(() => {
+        if (slideshowMode && slideshowPlaying) {
+          hideCursor();
+        }
+      }, CURSOR_IDLE_MS);
+    };
+
+    const handleActivity = () => {
+      if (!slideshowMode || !slideshowPlaying) return;
+      scheduleCursorHide();
+    };
+
+    if (slideshowMode && slideshowPlaying) {
+      scheduleCursorHide();
+    } else {
+      clearCursorTimeout();
+      showCursor();
+    }
+
+    viewerEl.addEventListener('pointermove', handleActivity);
+    viewerEl.addEventListener('pointerdown', handleActivity);
+    viewerEl.addEventListener('wheel', handleActivity, { passive: true });
+    viewerEl.addEventListener('touchstart', handleActivity, { passive: true });
+    document.addEventListener('keydown', handleActivity);
+
+    return () => {
+      clearCursorTimeout();
+      viewerEl.classList.remove('cursor-hidden');
+      viewerEl.removeEventListener('pointermove', handleActivity);
+      viewerEl.removeEventListener('pointerdown', handleActivity);
+      viewerEl.removeEventListener('wheel', handleActivity);
+      viewerEl.removeEventListener('touchstart', handleActivity);
+      document.removeEventListener('keydown', handleActivity);
+    };
+  }, [slideshowMode, slideshowPlaying]);
 
   return (
     <div id="viewer" class={`viewer ${debugLoadingMode ? 'loading' : ''} ${showEmptyState ? 'is-empty' : ''}`} ref={viewerRef}>

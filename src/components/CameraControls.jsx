@@ -29,7 +29,6 @@ import {
 } from "../customMetadata.js";
 import { enterVrSession } from '../vrMode';
 import { updateViewerAspectRatio, resize } from '../layout.js';
-import ControlsModal from './ControlsModal.jsx';
 
 /** Default orbit range in degrees */
 const DEFAULT_CAMERA_RANGE_DEGREES = 26;
@@ -187,6 +186,8 @@ function CameraControls() {
   const setCustomMetadataControlsVisible = useStore((state) => state.setCustomMetadataControlsVisible);
   const qualityPreset = useStore((state) => state.qualityPreset);
   const setQualityPreset = useStore((state) => state.setQualityPreset);
+  const controlsModalOpen = useStore((state) => state.controlsModalOpen);
+  const setControlsModalOpen = useStore((state) => state.setControlsModalOpen);
 
   // Ref for camera range slider to avoid DOM queries
   const rangeSliderRef = useRef(null);
@@ -201,7 +202,6 @@ function CameraControls() {
   const focusModeRef = useRef(focusMode);
   focusModeRef.current = focusMode;
   const [isClearingCustomMetadata, setIsClearingCustomMetadata] = useState(false);
-  const [showControlsModal, setShowControlsModal] = useState(false);
 
   // Sync focus mode with custom focus state from store
   useEffect(() => {
@@ -829,7 +829,7 @@ function CameraControls() {
             title="Controls"
             onClick={(e) => {
               e.stopPropagation();
-              setShowControlsModal(true);
+              setControlsModalOpen(true);
             }}
             style={{ width: '28px', height: '22px', fontSize: '11px' }}
           >
@@ -1141,10 +1141,6 @@ function CameraControls() {
           </div>
         </div>
       </div>
-      <ControlsModal
-        isOpen={showControlsModal}
-        onClose={() => setShowControlsModal(false)}
-      />
     </div>
   );
 }

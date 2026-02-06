@@ -43,7 +43,7 @@ function ControlsModal({ isOpen, onClose }) {
         </div>
 
         <div class="controls-modal__scroll">
-          <Section title="Settings" defaultOpen={true}>
+          <Section title="Main Settings" defaultOpen={true}>
             <ul>
               <li><strong>Quality:</strong> Adjusts splat density. Experimental is a last resort option, not recommended. Further adjustments can be made in advanced settings.</li>
               <li><strong>Orbit range:</strong> ml-sharp splats degrade at greater angles, this mitigates this and keeps focus on the target view. Auto adjusts in immersive mode on mobile. Disabled for non "ml-sharp" monocular view splats.</li>
@@ -53,7 +53,7 @@ function ControlsModal({ isOpen, onClose }) {
             </ul>
           </Section>
 
-          <Section title="Hidden settings">
+          <Section title="Additional Settings">
             <ul>
               <li><strong>Custom Camera:</strong> This viewer auto sets the camera for optimal viewing of ml-sharp generated monocular view splats (with metadata). For others, manually adjust: scale to fill, rotate, double click, and zoom to frame intended view. Hit-or-miss, but worth experimenting.</li>
               <li><strong>Tilt Sensitivity:</strong> Adjusts how device rotation effects view in immersive mode.</li>
@@ -72,7 +72,7 @@ function ControlsModal({ isOpen, onClose }) {
               <li><strong>Click:</strong> Toggle UI in fullscreen mode.</li>
               <li><strong>Spacebar:</strong> Reset camera, or click focus icon in viewer.</li>
               <li><strong>Arrow keys:</strong> Advance splats.</li>
-              <li><strong>F11:</strong> Will open normal browser fullscreen, but the expand toggle needs to be clicked in the viewer to get intended "fullscreen mode".</li>
+              <li><strong>F11:</strong> Will open normal browser fullscreen, but the fullscreen toggle needs to be clicked in the viewer to get intended "fullscreen mode".</li>
             </ul>
           </Section>
 
@@ -86,11 +86,11 @@ function ControlsModal({ isOpen, onClose }) {
             </ul>
           </Section>
 
-          <Section title="Visual issues">
+          <Section title="Render Troubleshooting">
             <ul>
               <li><strong>Cropped render:</strong> The viewer crops splats to improve performance. If edges are revealed in "fit to size", resize window or hold recenter button to fix.</li>
               <li><strong>Distorted preview:</strong> Previews generated on first load may capture partial renders. Click "regen preview" in advanced settings to fix (persisted).</li>
-              <li><strong>Background glow:</strong> A copy of the preview for effect. Regenerate preview to correct, or remove in advanced settings.</li>
+              <li><strong>Background glow:</strong> A copy of the preview for effect. May not appear on first render.Regenerate preview to correct issues, or remove in advanced settings.</li>
               <li><strong>Missing previews:</strong> Only generated on first load. Click "batch previews" in advanced settings to generate all (experimental; captures previews by rapidly loading splats).</li>
               <li><strong>'Cracks' in splat:</strong> Thin areas may show cracks in low quality. "High" quality alleviates this but impacts performance.</li>
             </ul>

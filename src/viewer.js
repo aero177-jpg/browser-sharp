@@ -272,7 +272,9 @@ export const initViewer = (viewerEl) => {
     const applyBlur = (value) => {
       if (!bgImageContainer) return;
       const clamped = Math.max(0, Math.min(40, Number(value) || 0));
+      const opacity = Math.max(0, Math.min(1, (clamped - 8) / 2));
       bgImageContainer.style.setProperty('--bg-blur', `${clamped}px`);
+      bgImageContainer.style.setProperty('--bg-opacity', `${opacity}`);
       // Also set explicit filter for browsers that ignore custom property here
       bgImageContainer.style.filter = `blur(${clamped}px)`;
     };
