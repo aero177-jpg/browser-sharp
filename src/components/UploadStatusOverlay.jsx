@@ -1,8 +1,16 @@
 /**
  * Upload status overlay component.
+ *
+ * Stages:
+ *   upload       → "Uploading" + spinner, no bar
+ *   warmup       → "GPU warm-up" + bar + countdown
+ *   processing   → "Processing image X of Y" + bar + countdown
+ *   transferring → "Transferring X files to storage" + spinner, no bar
  */
 
-import { useMemo } from 'preact/hooks';
+import { useEffect, useMemo, useState } from 'preact/hooks';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faChevronRight } from '@fortawesome/free-solid-svg-icons';
 
 const formatEta = (seconds) => {
   const remaining = Math.max(0, Math.ceil(seconds));
@@ -12,99 +20,144 @@ const formatEta = (seconds) => {
   return `${secs}s`;
 };
 
-function UploadStatusOverlay({ isUploading, uploadProgress, variant = 'default' }) {
-  const showUploadProgress = isUploading && (uploadProgress?.total || uploadProgress?.upload?.total || uploadProgress?.estimate);
+function UploadStatusOverlay({ isUploading, uploadProgress, variant = 'default', onDismiss }) {
+  const [showErrorDetails, setShowErrorDetails] = useState(false);
+
+  const showUploadProgress = isUploading && (
+    uploadProgress?.stage
+    || uploadProgress?.upload?.total
+    || uploadProgress?.timer
+    || uploadProgress?.error
+    || uploadProgress?.total
+  );
+
+  useEffect(() => {
+    setShowErrorDetails(false);
+  }, [uploadProgress?.error?.detail, uploadProgress?.error?.message]);
 
   const viewModel = useMemo(() => {
     if (!showUploadProgress) return null;
 
-    const uploadStage = uploadProgress?.stage || (uploadProgress?.estimate ? 'processing' : 'upload');
-    const uploadDone = Boolean(uploadProgress?.upload?.done);
-    const estimate = uploadProgress?.estimate || null;
-    const hasFileCount = Number.isFinite(uploadProgress?.total);
-    const fileCompleted = hasFileCount ? (uploadProgress?.completed || 0) : 0;
-    const fileTotal = hasFileCount ? uploadProgress?.total : 0;
-    const uploadBytesTotal = uploadProgress?.upload?.total || 0;
-    const uploadBytesLoaded = uploadProgress?.upload?.loaded || 0;
+    const stage = uploadProgress?.stage || 'upload';
+    const timer = uploadProgress?.timer || null;
+    const totalFiles = timer?.totalFiles || uploadProgress?.total || 0;
+    const error = uploadProgress?.error || null;
 
-    const uploadPercent = uploadBytesTotal
-      ? Math.min(100, Math.round((uploadBytesLoaded / uploadBytesTotal) * 100))
-      : null;
-    const estimatePercent = estimate?.stageProgress != null
-      ? Math.min(100, Math.round(estimate.stageProgress * 100))
-      : null;
-    const fallbackPercent = fileTotal
-      ? Math.min(100, Math.round((fileCompleted / fileTotal) * 100))
-      : 0;
+    if (stage === 'error' || error) {
+      return {
+        stageLabel: error?.message || 'Process failed',
+        showSpinner: false,
+        showErrorIcon: true,
+        showBar: false,
+        etaLabel: '',
+        progressPercent: 0,
+        errorDetail: error?.detail || '',
+        errorMessage: error?.message || 'Process failed',
+      };
+    }
 
-    const progressPercent = uploadStage === 'upload'
-      ? (uploadPercent ?? fallbackPercent)
-      : (estimatePercent ?? fallbackPercent);
+    // Upload stage: just "Uploading" + spinner, no bar or file count
+    if (stage === 'upload') {
+      return {
+        stageLabel: 'Uploading',
+        showSpinner: true,
+        showErrorIcon: false,
+        showBar: false,
+        etaLabel: '',
+        progressPercent: 0,
+      };
+    }
 
-    const etaSeconds = estimate?.remainingMs != null
-      ? Math.ceil(estimate.remainingMs / 1000)
-      : 0;
-    const etaLabel = etaSeconds ? formatEta(etaSeconds) : '';
+    // Transferring stage: files done processing, moving to storage
+    if (stage === 'transferring') {
+      const label = totalFiles > 1
+        ? `Sending results to storage`
+        : 'Sending to storage';
+      return {
+        stageLabel: label,
+        showSpinner: true,
+        showErrorIcon: false,
+        showBar: false,
+        etaLabel: '',
+        progressPercent: 100,
+      };
+    }
 
-    const currentFile = estimate?.currentFile || 0;
-    const totalFiles = estimate?.totalFiles || 0;
-    const isWarmup = uploadStage === 'warmup';
-    const isProcessing = uploadStage === 'processing';
+    // Warmup / Processing: bar + countdown timer
+    const percent = timer?.percent ?? 0;
+    const remainingMs = timer?.remainingMs ?? 0;
+    const currentFile = timer?.currentFile || 0;
+    const etaSeconds = Math.ceil(remainingMs / 1000);
+    const etaLabel = etaSeconds > 0 ? formatEta(etaSeconds) : '';
 
-    const stageLabel = uploadStage === 'upload'
-      ? (uploadDone ? 'Upload complete' : 'Uploading')
-      : isWarmup
+    const stageLabel = stage === 'warmup'
       ? 'GPU warm-up'
-      : isProcessing && totalFiles > 1
-      ? `Processing ${currentFile}/${totalFiles}`
-      : 'Processing (est.)';
-
-    const fileCountLabel = isProcessing && totalFiles > 1 && currentFile > 0
-      ? `${currentFile}/${totalFiles}`
-      : fileTotal > 0
-      ? `${fileCompleted}/${fileTotal}`
-      : '';
-
-    const estimateElapsedMs = estimate?.elapsedMs || 0;
-    const estimateFileCount = totalFiles || fileTotal || 1;
-    const warnAfterMs = 60000 + estimateFileCount * 30000;
-    const failAfterMs = 300000 + estimateFileCount * 50000;
-    const showSlowWarning = (isWarmup || isProcessing) && !estimate?.done && estimateElapsedMs > warnAfterMs;
-    const showFailWarning = (isWarmup || isProcessing) && !estimate?.done && estimateElapsedMs > failAfterMs;
-    const warningText = showFailWarning
-      ? 'This is taking longer than expected and may have failed. Collection will refresh when ready.'
-      : showSlowWarning
-      ? 'Taking longer than expected. Collection will refresh when ready.'
-      : '';
+      : totalFiles > 1
+      ? `Processing ${currentFile} of ${totalFiles}`
+      : 'Processing image';
 
     return {
       stageLabel,
-      fileCountLabel,
+      showSpinner: false,
+      showErrorIcon: false,
+      showBar: true,
       etaLabel,
-      warningText,
-      progressPercent,
+      progressPercent: Math.min(100, Math.max(0, Math.round(percent))),
     };
   }, [showUploadProgress, uploadProgress]);
 
   if (!showUploadProgress || !viewModel) return null;
 
   const variantClass = variant && variant !== 'default' ? ` ${variant}` : '';
+  const titleClass = viewModel.showSpinner || viewModel.showErrorIcon
+    ? 'viewer-upload-title has-spinner'
+    : 'viewer-upload-title';
 
   return (
     <div class={`viewer-upload-overlay${variantClass}`}>
-      <div class="viewer-upload-title">{viewModel.stageLabel}</div>
-      <div class="viewer-upload-meta">
-        {viewModel.fileCountLabel && (
-          <span>{viewModel.fileCountLabel}</span>
+      <div class={titleClass}>
+        <span>{viewModel.stageLabel}</span>
+        {viewModel.showSpinner && <span class="viewer-upload-spinner" />}
+        {viewModel.showErrorIcon && (
+          <button
+            type="button"
+            class="viewer-upload-error-close"
+            onClick={onDismiss}
+            aria-label="Close"
+          >
+            <span class="viewer-upload-error-icon">✕</span>
+          </button>
         )}
-        {viewModel.etaLabel && <span class="viewer-upload-eta">{viewModel.etaLabel}</span>}
       </div>
-      {viewModel.warningText && (
-        <div class="viewer-upload-warning">{viewModel.warningText}</div>
+      {viewModel.etaLabel && (
+        <div class="viewer-upload-meta">
+          <span class="viewer-upload-eta">{viewModel.etaLabel}</span>
+        </div>
       )}
-      <div class="viewer-upload-bar">
-        <div class="viewer-upload-bar-fill" style={{ width: `${viewModel.progressPercent}%` }} />
-      </div>
+      {(viewModel.errorDetail || viewModel.showErrorIcon) && (
+        <div class="viewer-upload-error">
+          <button
+            type="button"
+            class="viewer-upload-error-toggle"
+            onClick={() => setShowErrorDetails((value) => !value)}
+          >
+            <span class={`viewer-upload-error-caret${showErrorDetails ? ' is-open' : ''}`}>
+              <FontAwesomeIcon icon={faChevronRight} />
+            </span>
+            Show error message
+          </button>
+          {showErrorDetails && (
+            <div class="viewer-upload-error-detail">
+              {viewModel.errorDetail || 'No error detail provided.'}
+            </div>
+          )}
+        </div>
+      )}
+      {viewModel.showBar && (
+        <div class="viewer-upload-bar">
+          <div class="viewer-upload-bar-fill" style={{ width: `${viewModel.progressPercent}%` }} />
+        </div>
+      )}
     </div>
   );
 }

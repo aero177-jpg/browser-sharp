@@ -36,6 +36,13 @@ const SUPABASE_RESCAN_ATTEMPTS = 6;
 const R2_RESCAN_INTERVAL_MS = 500;
 const R2_RESCAN_ATTEMPTS = 6;
 
+const generateJobId = () => {
+  const cryptoObj = typeof globalThis !== 'undefined' ? globalThis.crypto : null;
+  if (cryptoObj?.randomUUID) return cryptoObj.randomUUID();
+  const rand = Math.random().toString(16).slice(2);
+  return `job-${Date.now()}-${rand}`;
+};
+
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const waitForRemoteRescan = async (source, { expectedMin = 1 } = {}) => {
@@ -302,7 +309,29 @@ export function useCollectionUploadFlow({
     const prefix = type === 'supabase-storage' || type === 'r2-bucket' ? getCollectionPrefix(resolvedSource) : undefined;
     const returnMode = type === 'supabase-storage' || type === 'r2-bucket' ? undefined : 'direct';
     const downloadMode = type === 'app-storage' || (!resolvedSource && !prepareOnly) || prepareOnly ? 'store' : undefined;
-    const r2Config = type === 'r2-bucket' ? resolvedSource?.config?.config : null;
+
+    // Build accessString + storageTarget for the backend
+    let cloudStorageTarget;
+    let cloudAccessString;
+    if (type === 'r2-bucket') {
+      const cfg = resolvedSource?.config?.config;
+      cloudStorageTarget = 'r2';
+      cloudAccessString = JSON.stringify({
+        s3Endpoint: cfg?.endpoint,
+        s3AccessKeyId: cfg?.accessKeyId,
+        s3SecretAccessKey: cfg?.secretAccessKey,
+        s3Bucket: cfg?.bucket,
+        ...(cfg?.publicBaseUrl ? { s3PublicUrlBase: cfg.publicBaseUrl } : {}),
+      });
+    } else if (type === 'supabase-storage') {
+      const cfg = resolvedSource?.config?.config;
+      cloudStorageTarget = 'supabase';
+      cloudAccessString = JSON.stringify({
+        supabaseUrl: cfg?.supabaseUrl,
+        supabaseKey: cfg?.anonKey,
+        ...(cfg?.bucket ? { supabaseBucket: cfg.bucket } : {}),
+      });
+    }
 
     onLoadingChange?.(true);
     onUploadingChange?.(true);
@@ -311,21 +340,25 @@ export function useCollectionUploadFlow({
       setUploadState?.(state);
     };
 
-    onUploadProgress?.({ completed: 0, total: imageFiles.length });
-    reportUploadState({ isUploading: true, uploadProgress: { completed: 0, total: imageFiles.length } });
+    let uploadError = null;
+
+    const initialProgress = { stage: 'upload', upload: { loaded: 0, total: 0, done: false }, completed: 0, total: imageFiles.length };
+    onUploadProgress?.(initialProgress);
+    reportUploadState({ isUploading: true, uploadProgress: initialProgress });
 
     try {
       const results = await testSharpCloud(imageFiles, {
         prefix,
         returnMode,
         downloadMode,
-        storageTarget: r2Config ? 'r2' : undefined,
-        s3Endpoint: r2Config?.endpoint,
-        s3AccessKeyId: r2Config?.accessKeyId,
-        s3SecretAccessKey: r2Config?.secretAccessKey,
-        s3Bucket: r2Config?.bucket,
-        s3PublicUrlBase: r2Config?.publicBaseUrl,
+        storageTarget: cloudStorageTarget,
+        accessString: cloudAccessString,
+        getJobId: () => generateJobId(),
+        pollIntervalMs: 5000,
         onProgress: (progress) => {
+          if (progress?.stage === 'error' && progress?.error) {
+            uploadError = progress.error;
+          }
           onUploadProgress?.(progress);
           reportUploadState({ isUploading: true, uploadProgress: progress });
         },
@@ -385,11 +418,17 @@ export function useCollectionUploadFlow({
     } catch (err) {
       onStatus?.('error');
       reportError(err?.message || String(err));
+      uploadError = uploadError || { message: 'Processing failed', detail: err?.message || String(err) };
     } finally {
       onLoadingChange?.(false);
       onUploadingChange?.(false);
-      onUploadProgress?.(null);
-      reportUploadState({ isUploading: false, uploadProgress: null });
+      if (uploadError) {
+        onUploadProgress?.({ stage: 'error', error: uploadError });
+        reportUploadState({ isUploading: true, uploadProgress: { stage: 'error', error: uploadError } });
+      } else {
+        onUploadProgress?.(null);
+        reportUploadState({ isUploading: false, uploadProgress: null });
+      }
     }
   }, [handleQueueAssets, onAssetsUpdated, onLoadingChange, onPreparedFiles, onRefreshAssets, onStatus, onUploadProgress, onUploadState, onUploadingChange, prepareOnly, resolvedSource, scheduleAutoReload, getPreferredIndex, setUploadState]);
 

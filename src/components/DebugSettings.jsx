@@ -3,7 +3,7 @@
  * Hosts FPS overlay toggle and viewer debug controls.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'preact/hooks';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faChevronDown } from '@fortawesome/free-solid-svg-icons';
 import { useStore } from '../store';
@@ -32,6 +32,7 @@ function DebugSettings() {
   const setAssets = useStore((state) => state.setAssets);
   const setCurrentAssetIndex = useStore((state) => state.setCurrentAssetIndex);
   const addLog = useStore((state) => state.addLog);
+  const setUploadState = useStore((state) => state.setUploadState);
   const bgBlur = useStore((state) => state.bgBlur);
   const setBgBlur = useStore((state) => state.setBgBlur);
   const debugStochasticRendering = useStore((state) => state.debugStochasticRendering);
@@ -61,6 +62,11 @@ function DebugSettings() {
   const [isRestoringRemoved, setIsRestoringRemoved] = useState(false);
   const [transferModalOpen, setTransferModalOpen] = useState(false);
   const [exportModalOpen, setExportModalOpen] = useState(false);
+
+  // Debug upload overlay simulation
+  const [debugOverlayStep, setDebugOverlayStep] = useState(0);
+  const debugTimerRef = useRef(null);
+  const debugStateRef = useRef(null);
 
   const currentAsset = assets[currentAssetIndex] || null;
   const currentAssetSize = currentAsset?.file?.size ?? currentAsset?.size ?? null;
@@ -308,6 +314,155 @@ function DebugSettings() {
     addLog('[BatchPreview] Abort requested');
   }, [addLog]);
 
+  // --- Debug upload overlay simulation ---
+  const FAKE_FILE_COUNT = 3;
+  const FAKE_WARMUP_MS = 10000;
+  const FAKE_PER_FILE_MS = 10000;
+  // Steps: 0=off, 1=upload, 2=timer running (warmup→processing), 3=checkpoint step1,
+  //        4=checkpoint step2, 5=checkpoint step3 (done→transferring), 6=error, 7=off
+  const DEBUG_ERROR_DETAIL = `Request URL\nhttps://aero177-jpg--ml-sharp-optimized-process-image.modal.run/\nRequest Method\nPOST\nStatus Code\n400 Bad Request detail\n: \"storageTarget=r2 requires: accessString with s3Endpoint, s3AccessKeyId, s3SecretAccessKey, s3Bucket\"`;
+  const stopDebugTimer = useCallback(() => {
+    if (debugTimerRef.current) {
+      clearInterval(debugTimerRef.current);
+      debugTimerRef.current = null;
+    }
+  }, []);
+
+  const emitDebugProgress = useCallback(() => {
+    const s = debugStateRef.current;
+    if (!s) return;
+    const now = Date.now();
+    const dt = now - s.lastTick;
+    s.lastTick = now;
+    if (!s.remoteComplete) s.elapsed += dt;
+
+    const clamped = Math.min(s.elapsed, s.totalMs);
+    const remaining = Math.max(0, s.totalMs - clamped);
+    const pct = s.totalMs > 0 ? Math.min(100, (clamped / s.totalMs) * 100) : 100;
+
+    let stage = 'warmup';
+    let currentFile = 0;
+    if (s.remoteComplete) {
+      stage = 'transferring';
+      currentFile = FAKE_FILE_COUNT;
+    } else if (clamped < FAKE_WARMUP_MS) {
+      stage = 'warmup';
+    } else {
+      stage = 'processing';
+      const procElapsed = clamped - FAKE_WARMUP_MS;
+      currentFile = Math.min(FAKE_FILE_COUNT, Math.floor(procElapsed / FAKE_PER_FILE_MS) + 1);
+    }
+
+    setUploadState({
+      isUploading: true,
+      uploadProgress: {
+        total: FAKE_FILE_COUNT,
+        completed: 0,
+        stage,
+        timer: {
+          currentFile,
+          totalFiles: FAKE_FILE_COUNT,
+          remainingMs: remaining,
+          totalMs: s.totalMs,
+          percent: pct,
+          done: s.remoteComplete,
+        },
+      },
+    });
+  }, [setUploadState]);
+
+  const handleDebugOverlayAdvance = useCallback(() => {
+    const nextStep = debugOverlayStep + 1;
+
+    if (nextStep === 1) {
+      // Upload stage
+      setUploadState({
+        isUploading: true,
+        uploadProgress: { stage: 'upload', upload: { loaded: 0, total: 1, done: false } },
+      });
+      setDebugOverlayStep(1);
+      addLog('[DebugOverlay] → Upload');
+      return;
+    }
+
+    if (nextStep === 2) {
+      // Start timer (warmup → processing)
+      const totalMs = FAKE_WARMUP_MS + FAKE_FILE_COUNT * FAKE_PER_FILE_MS;
+      debugStateRef.current = {
+        elapsed: 0,
+        totalMs,
+        lastTick: Date.now(),
+        lastStep: 0,
+        remoteComplete: false,
+      };
+      stopDebugTimer();
+      debugTimerRef.current = setInterval(emitDebugProgress, 500);
+      emitDebugProgress();
+      setDebugOverlayStep(2);
+      addLog('[DebugOverlay] → Timer started (warmup)');
+      return;
+    }
+
+    // Steps 3-5: inject checkpoints for step 1, 2, 3
+    if (nextStep >= 3 && nextStep <= 5) {
+      const step = nextStep - 2; // 1, 2, 3
+      const s = debugStateRef.current;
+      if (s) {
+        // step 1 = image 1 starts at warmup, step 2 = image 2 starts at warmup+perFile, etc.
+        const expectedMs = FAKE_WARMUP_MS + (step - 1) * FAKE_PER_FILE_MS;
+        if (s.elapsed < expectedMs) {
+          // Early checkpoint: jump timer forward
+          s.elapsed = expectedMs;
+          addLog(`[DebugOverlay] → Checkpoint step ${step} (early jump)`);
+        } else if (s.elapsed > expectedMs + FAKE_PER_FILE_MS) {
+          // Late checkpoint: extend total by 5s
+          s.totalMs += 5000;
+          addLog(`[DebugOverlay] → Checkpoint step ${step} (late +5s)`);
+        } else {
+          addLog(`[DebugOverlay] → Checkpoint step ${step} (on time)`);
+        }
+        s.lastStep = step;
+        s.lastTick = Date.now();
+        if (step === FAKE_FILE_COUNT) {
+          s.remoteComplete = true;
+        }
+        emitDebugProgress();
+      }
+      setDebugOverlayStep(nextStep);
+      return;
+    }
+
+    if (nextStep === 6) {
+      stopDebugTimer();
+      debugStateRef.current = null;
+      setUploadState({
+        isUploading: true,
+        uploadProgress: {
+          stage: 'error',
+          error: {
+            message: 'Processed failed',
+            detail: DEBUG_ERROR_DETAIL,
+          },
+        },
+      });
+      setDebugOverlayStep(6);
+      addLog('[DebugOverlay] → Error');
+      return;
+    }
+
+    // Step 7: off
+    stopDebugTimer();
+    debugStateRef.current = null;
+    setUploadState({ isUploading: false, uploadProgress: null });
+    setDebugOverlayStep(0);
+    addLog('[DebugOverlay] → Off');
+  }, [addLog, debugOverlayStep, emitDebugProgress, setUploadState, stopDebugTimer]);
+
+  const debugOverlayLabels = ['Off', 'Upload', 'Timer', 'Step 1', 'Step 2', 'Step 3 → Transfer', 'Error', 'Off'];
+  const debugOverlayButtonLabel = debugOverlayStep === 0
+    ? 'Start'
+    : `Next: ${debugOverlayLabels[debugOverlayStep + 1] || 'Off'}`;
+
   const sanitizeFileName = useCallback((name, fallback = 'untitled') => {
     if (!name) return fallback;
     return String(name)
@@ -385,6 +540,13 @@ function DebugSettings() {
     document.addEventListener('fullscreenchange', handleFsChange);
     return () => document.removeEventListener('fullscreenchange', handleFsChange);
   }, [stereoEnabled, setStereoEnabled]);
+
+  // Cleanup debug timer on unmount
+  useEffect(() => {
+    return () => {
+      if (debugTimerRef.current) clearInterval(debugTimerRef.current);
+    };
+  }, []);
 
   return (
     <>
@@ -558,6 +720,17 @@ function DebugSettings() {
 
         <div class="settings-divider">
           <span>Render debug</span>
+        </div>
+
+        <div class="control-row">
+          <span class="control-label">Upload overlay</span>
+          <button
+            type="button"
+            class="secondary"
+            onClick={handleDebugOverlayAdvance}
+          >
+            {debugOverlayButtonLabel}
+          </button>
         </div>
 
         <div class="control-row">

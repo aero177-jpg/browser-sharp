@@ -293,7 +293,6 @@ button, a, input, .sidebar-btn, .panel-toggle {
   top: 12px;
   right: 12px;
   z-index: 13;
-  min-width: 140px;
   padding: 8px 10px 10px;
   background: rgba(12, 16, 24, 0.78);
   border: 1px solid rgba(255, 255, 255, 0.12);
@@ -321,11 +320,58 @@ button, a, input, .sidebar-btn, .panel-toggle {
 }
 
 .viewer-upload-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.3px;
   color: rgba(200, 220, 255, 0.9);
-  margin-bottom: 4px;
+  margin-bottom: 0px;
+}
+
+.viewer-upload-title.has-spinner {
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.viewer-upload-spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(200, 220, 255, 0.3);
+  border-top-color: rgba(200, 220, 255, 0.9);
+  border-radius: 50%;
+  animation: upload-spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+
+.viewer-upload-error-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  color: #ff6b6b;
+  font-weight: 700;
+  font-size: 14px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.viewer-upload-error-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+@keyframes upload-spin {
+  to { transform: rotate(360deg); }
 }
 
 .viewer-upload-meta {
@@ -337,12 +383,61 @@ button, a, input, .sidebar-btn, .panel-toggle {
   gap: 8px;
 }
 
+.viewer-upload-error {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.viewer-upload-error-toggle {
+  margin-top: 3px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: rgba(200, 220, 255, 0.759);
+  font-size: 11px;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.viewer-upload-error-caret {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  color: rgba(200, 220, 255, 0.8);
+  transition: transform 140ms ease;
+}
+
+.viewer-upload-error-caret.is-open {
+  transform: rotate(90deg);
+}
+
+.viewer-upload-error-detail {
+  white-space: pre-wrap;
+  font-size: 11px;
+  line-height: 1.4;
+  color: rgba(210, 225, 255, 0.85);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  padding: 6px 8px;
+  max-height: 160px;
+  overflow: auto;
+}
+
 .viewer-upload-eta {
   color: rgba(180, 205, 255, 0.85);
 }
 
 .viewer-upload-bar {
   position: relative;
+      min-width: 140px;
+    margin-top: 8px;
   height: 4px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.12);
@@ -350,6 +445,7 @@ button, a, input, .sidebar-btn, .panel-toggle {
 }
 
 .viewer-upload-bar-fill {
+
   height: 100%;
   background: linear-gradient(90deg, rgba(82, 164, 255, 0.9), rgba(110, 231, 255, 0.9));
   border-radius: inherit;

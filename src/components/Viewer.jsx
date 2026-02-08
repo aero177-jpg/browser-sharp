@@ -62,6 +62,7 @@ function Viewer({ viewerReady, dropOverlay }) {
   const metadataMissing = useStore((state) => state.metadataMissing);
   const isUploading = useStore((state) => state.isUploading);
   const uploadProgress = useStore((state) => state.uploadProgress);
+  const setUploadState = useStore((state) => state.setUploadState);
   const isLoading = useStore((state) => state.isLoading);
   const assets = useStore((state) => state.assets);
   const currentAssetIndex = useStore((state) => state.currentAssetIndex);
@@ -75,6 +76,10 @@ function Viewer({ viewerReady, dropOverlay }) {
   // Store actions
   const addLog = useStore((state) => state.addLog);
   const togglePanel = useStore((state) => state.togglePanel);
+
+  const handleDismissUploadError = useCallback(() => {
+    setUploadState({ isUploading: false, uploadProgress: null });
+  }, [setUploadState]);
   
   // Ref for viewer container
   const viewerRef = useRef(null);
@@ -408,6 +413,7 @@ function Viewer({ viewerReady, dropOverlay }) {
             isUploading={isUploading}
             uploadProgress={uploadProgress}
             variant="first-load"
+            onDismiss={handleDismissUploadError}
           />
         </div>
       )}
@@ -415,6 +421,7 @@ function Viewer({ viewerReady, dropOverlay }) {
         <UploadStatusOverlay
           isUploading={isUploading}
           uploadProgress={uploadProgress}
+          onDismiss={handleDismissUploadError}
         />
       )}
       {metadataMissing && (

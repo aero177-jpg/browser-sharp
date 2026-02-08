@@ -112,6 +112,184 @@ const parseXhrHeaders = (rawHeaders) => {
   return headers;
 };
 
+const resolveProgressUrl = (apiUrl) => {
+  if (!apiUrl) return null;
+  if (apiUrl.includes('-process-image')) {
+    return apiUrl.replace('-process-image', '-get-progress');
+  }
+  return null;
+};
+
+const generateJobId = () => {
+  const cryptoObj = typeof globalThis !== 'undefined' ? globalThis.crypto : null;
+  if (cryptoObj?.randomUUID) return cryptoObj.randomUUID();
+  const rand = Math.random().toString(16).slice(2);
+  return `job-${Date.now()}-${rand}`;
+};
+
+const warnMissingProgressUrl = (() => {
+  let warned = false;
+  return () => {
+    if (warned) return;
+    warned = true;
+    console.warn('[CloudGPU] Progress URL not set. Configure the get-progress endpoint to enable polling.');
+  };
+})();
+
+const parseErrorDetail = (raw) => {
+  if (!raw) return '';
+
+  if (typeof raw === 'object') {
+    const directDetail = raw?.detail ?? raw?.error?.detail;
+    if (directDetail != null) {
+      return typeof directDetail === 'string' ? directDetail : JSON.stringify(directDetail);
+    }
+  }
+
+  const rawText = String(raw).trim();
+
+  try {
+    const parsed = JSON.parse(rawText);
+    if (typeof parsed === 'string') return parsed;
+    if (parsed?.detail != null) {
+      return typeof parsed.detail === 'string' ? parsed.detail : JSON.stringify(parsed.detail);
+    }
+    if (parsed?.error?.detail != null) {
+      return typeof parsed.error.detail === 'string' ? parsed.error.detail : JSON.stringify(parsed.error.detail);
+    }
+  } catch {
+    // ignore JSON parse failure
+  }
+
+  const detailMatch = rawText.match(/"?detail"?\s*[:=]\s*"?([^"\n]+)"?/i);
+  if (detailMatch?.[1]) return detailMatch[1].trim();
+
+  // Fallback: return the raw text itself so the user sees *something*
+  return rawText;
+};
+
+const emitErrorProgress = ({ onProgress, progressBase, message, detail }) => {
+  if (typeof onProgress !== 'function') return;
+  const parsedDetail = parseErrorDetail(detail);
+  onProgress({
+    ...(progressBase || {}),
+    stage: 'error',
+    error: {
+      message: message || 'Processing failed',
+      detail: parsedDetail,
+    },
+  });
+};
+
+const startProgressPolling = ({ progressUrl, jobId, onProgress, progressBase, intervalMs = 1000, fileCount = 1, warmupMs = 30000, perFileMs = 10000 }) => {
+  if (!jobId) return () => {};
+
+  const safeFileCount = Math.max(1, Number(fileCount) || 1);
+  const safeWarmup = Math.max(0, Number(warmupMs) || 30000);
+  const safePerFile = Math.max(0, Number(perFileMs) || 10000);
+
+  let stopped = false;
+  let totalEstimateMs = safeWarmup + safeFileCount * safePerFile;
+  let effectiveElapsedMs = 0;
+  let lastTickTime = Date.now();
+  let lastKnownStep = 0;
+  let remoteComplete = false;
+
+  const emit = () => {
+    if (stopped) return;
+
+    const now = Date.now();
+    const dt = now - lastTickTime;
+    lastTickTime = now;
+
+    if (!remoteComplete) {
+      effectiveElapsedMs += dt;
+    }
+
+    const clampedElapsed = Math.min(effectiveElapsedMs, totalEstimateMs);
+    const remainingMs = Math.max(0, totalEstimateMs - clampedElapsed);
+    const percent = totalEstimateMs > 0 ? Math.min(100, (clampedElapsed / totalEstimateMs) * 100) : 100;
+
+    let stage = 'warmup';
+    let currentFile = 0;
+
+    if (remoteComplete) {
+      stage = 'transferring';
+      currentFile = safeFileCount;
+    } else if (clampedElapsed < safeWarmup) {
+      stage = 'warmup';
+    } else {
+      stage = 'processing';
+      const processingElapsed = clampedElapsed - safeWarmup;
+      currentFile = Math.min(safeFileCount, Math.floor(processingElapsed / safePerFile) + 1);
+    }
+
+    onProgress?.({
+      ...(progressBase || {}),
+      jobId,
+      stage,
+      timer: {
+        currentFile,
+        totalFiles: safeFileCount,
+        remainingMs,
+        totalMs: totalEstimateMs,
+        percent,
+        done: remoteComplete,
+      },
+    });
+  };
+
+  const timerInterval = setInterval(emit, 500);
+  emit();
+
+  let pollInterval = null;
+  if (progressUrl) {
+    const pollOnce = async () => {
+      if (stopped || remoteComplete) return;
+      try {
+        const res = await fetch(`${progressUrl}?job_id=${encodeURIComponent(jobId)}`);
+        if (res.status === 404) return;
+        const data = await res.json();
+
+        const step = Number(data?.step) || 0;
+        const isDone = Boolean(data?.done);
+
+        if (step > lastKnownStep && step >= 1) {
+          // step 1 = image 1 starts at warmup, step 2 = image 2 starts at warmup+perFile, etc.
+          const expectedMsForStep = safeWarmup + (step - 1) * safePerFile;
+          if (effectiveElapsedMs < expectedMsForStep) {
+            effectiveElapsedMs = expectedMsForStep;
+          } else if (effectiveElapsedMs > expectedMsForStep + safePerFile) {
+            totalEstimateMs += 5000;
+          }
+          lastTickTime = Date.now();
+          lastKnownStep = step;
+        }
+
+        if (isDone) {
+          remoteComplete = true;
+          lastTickTime = Date.now();
+          emit();
+        }
+      } catch (err) {
+        console.warn('[CloudGPU] Progress polling failed', err);
+      }
+    };
+
+    pollInterval = setInterval(pollOnce, Math.max(500, Number(intervalMs) || 1000));
+    pollOnce();
+  }
+
+  const stop = () => {
+    if (stopped) return;
+    stopped = true;
+    clearInterval(timerInterval);
+    if (pollInterval) clearInterval(pollInterval);
+  };
+
+  return stop;
+};
+
 const postFormData = (url, apiKey, formData, { onUploadProgress, onUploadDone } = {}) => new Promise((resolve, reject) => {
   const xhr = new XMLHttpRequest();
   xhr.open('POST', url, true);
@@ -156,11 +334,15 @@ const postFormDataWithProgress = async (url, apiKey, formData, { onProgress, pro
     onUploadDone,
   });
 
-  return new Response(result.body ?? null, {
+  const response = new Response(result.body ?? null, {
     status: result.status,
     statusText: result.statusText,
     headers: result.headers,
   });
+
+  const returnedJobId = response.headers.get('X-Job-Id') || response.headers.get('x-job-id') || null;
+
+  return { response, returnedJobId };
 };
 
 const startProcessingEstimate = ({ totalMs, onProgress, progressBase, fileCount, warmupMs = 30000, perFileMs = 10000 }) => {
@@ -236,13 +418,14 @@ const extractFilenameFromDisposition = (disposition, fallback) => {
   return match?.[1] || fallback;
 };
 
-export async function testSharpCloud(files, { prefix, onProgress, apiUrl, apiKey, returnMode, gpuType, downloadMode, batchUploads, storageTarget, s3Endpoint, s3AccessKeyId, s3SecretAccessKey, s3Bucket, s3PublicUrlBase } = {}) {
+export async function testSharpCloud(files, { prefix, onProgress, apiUrl, apiKey, returnMode, gpuType, downloadMode, batchUploads, storageTarget, accessString, jobId, getJobId, pollIntervalMs } = {}) {
   const saved = loadCloudGpuSettings();
   const resolvedUrl = apiUrl || saved?.apiUrl 
   const resolvedKey = apiKey || saved?.apiKey 
   const resolvedGpu = (gpuType || saved?.gpuType || 'a10').trim().toLowerCase();
   const resolvedBatchUploads = Boolean(batchUploads ?? saved?.batchUploads);
-  const resolvedStorageTarget = storageTarget || (s3Endpoint ? 'r2' : undefined);
+  const resolvedStorageTarget = storageTarget || undefined;
+  const resolvedProgressUrl = resolveProgressUrl(resolvedUrl);
 
   if (!resolvedUrl || !resolvedKey) {
     console.error('❌ Missing Cloud GPU settings: configure API URL and API key in Add Cloud GPU.');
@@ -258,12 +441,15 @@ export async function testSharpCloud(files, { prefix, onProgress, apiUrl, apiKey
   const results = [];
   const total = uploads.length;
 
-  const applyCommonFields = (formData) => {
+  const applyCommonFields = (formData, activeJobId) => {
     if (prefix) {
       formData.append('prefix', prefix);
     }
     if (returnMode) {
       formData.append('return', returnMode);
+    }
+    if (activeJobId) {
+      formData.append('jobId', activeJobId);
     }
     if (resolvedGpu) {
       formData.append('gpu', resolvedGpu);
@@ -271,20 +457,8 @@ export async function testSharpCloud(files, { prefix, onProgress, apiUrl, apiKey
     if (resolvedStorageTarget) {
       formData.append('storageTarget', resolvedStorageTarget);
     }
-    if (s3Endpoint) {
-      formData.append('s3Endpoint', s3Endpoint);
-    }
-    if (s3AccessKeyId) {
-      formData.append('s3AccessKeyId', s3AccessKeyId);
-    }
-    if (s3SecretAccessKey) {
-      formData.append('s3SecretAccessKey', s3SecretAccessKey);
-    }
-    if (s3Bucket) {
-      formData.append('s3Bucket', s3Bucket);
-    }
-    if (s3PublicUrlBase) {
-      formData.append('s3PublicUrlBase', s3PublicUrlBase);
+    if (accessString) {
+      formData.append('accessString', typeof accessString === 'string' ? accessString : JSON.stringify(accessString));
     }
   };
 
@@ -334,44 +508,81 @@ export async function testSharpCloud(files, { prefix, onProgress, apiUrl, apiKey
 
   if (resolvedBatchUploads) {
     if (typeof onProgress === 'function') {
-      onProgress({ completed: 0, total });
+      onProgress({ completed: 0, total, stage: 'upload', upload: { loaded: 0, total: 0, done: false } });
     }
 
+    let stopPolling = null;
     try {
+      let activeJobId = jobId || getJobId?.(null) || generateJobId();
       const formData = new FormData();
       for (const file of uploads) {
         formData.append('file', file, file.name || 'upload');
       }
-      applyCommonFields(formData);
-
-      let stopEstimate = null;
-      const estimatedTotalMs = 30000 + uploads.length * 10000;
-      const response = await postFormDataWithProgress(resolvedUrl, resolvedKey, formData, {
+      applyCommonFields(formData, activeJobId);
+      const progressBase = { completed: 0, total, jobId: activeJobId };
+      const result = await postFormDataWithProgress(resolvedUrl, resolvedKey, formData, {
         onProgress,
-        progressBase: { completed: 0, total },
+        progressBase,
         onUploadDone: () => {
-          stopEstimate = startProcessingEstimate({
-            totalMs: estimatedTotalMs,
-            fileCount: uploads.length,
-            warmupMs: 30000,
-            perFileMs: 10000,
+          if (!resolvedProgressUrl) {
+            warnMissingProgressUrl();
+            return;
+          }
+          stopPolling = startProgressPolling({
+            progressUrl: resolvedProgressUrl,
+            jobId: activeJobId,
             onProgress,
-            progressBase: { completed: 0, total },
+            progressBase,
+            intervalMs: pollIntervalMs,
+            fileCount: uploads.length,
           });
         },
       });
 
+      const response = result.response;
+      const returnedJobId = result.returnedJobId;
+      if (returnedJobId && returnedJobId !== activeJobId) {
+        activeJobId = returnedJobId;
+        stopPolling?.();
+        if (!resolvedProgressUrl) {
+          warnMissingProgressUrl();
+        } else {
+          stopPolling = startProgressPolling({
+            progressUrl: resolvedProgressUrl,
+            jobId: activeJobId,
+            onProgress,
+            progressBase: { ...progressBase, jobId: activeJobId },
+            intervalMs: pollIntervalMs,
+            fileCount: uploads.length,
+          });
+        }
+      }
+
       if (!response.ok) {
         const errorText = await response.text();
+        stopPolling?.();
+        emitErrorProgress({
+          onProgress,
+          progressBase,
+          message: 'Processed failed',
+          detail: errorText || `Server responded with ${response.status}`,
+        });
         throw new Error(`Server responded with ${response.status}: ${errorText}`);
       }
 
       const data = await handleResponse(response, `${uploads.length} files`);
-      stopEstimate?.();
-      results.push({ file: 'batch', ok: true, data });
+      stopPolling?.();
+      results.push({ file: 'batch', ok: true, data, jobId: activeJobId });
     } catch (err) {
       const message = `Batch upload failed. You can refresh the collection to see any completed files. ${err?.message || ''}`.trim();
       console.error('❌ Batch upload failed:', err?.message || err);
+      stopPolling?.();
+      emitErrorProgress({
+        onProgress,
+        progressBase: { completed: 0, total },
+        message: 'Processed failed',
+        detail: err?.message || message,
+      });
       results.push({ file: 'batch', ok: false, error: message, silentFailure: true });
     }
 
@@ -385,37 +596,75 @@ export async function testSharpCloud(files, { prefix, onProgress, apiUrl, apiKey
   for (const file of uploads) {
     console.log(`🚀 Uploading ${file.name}...`);
 
+    let stopPolling = null;
     try {
+      let activeJobId = getJobId?.(file) || jobId || generateJobId();
       const formData = new FormData();
       formData.append('file', file, file.name || 'upload');
-      applyCommonFields(formData);
-
-      let stopEstimate = null;
-      const response = await postFormDataWithProgress(resolvedUrl, resolvedKey, formData, {
+      applyCommonFields(formData, activeJobId);
+      const progressBase = { completed: results.length, total, jobId: activeJobId };
+      const result = await postFormDataWithProgress(resolvedUrl, resolvedKey, formData, {
         onProgress,
-        progressBase: { completed: results.length, total },
+        progressBase,
         onUploadDone: () => {
-          stopEstimate = startProcessingEstimate({
-            totalMs: 40000,
-            fileCount: 1,
-            warmupMs: 0,
-            perFileMs: 40000,
+          if (!resolvedProgressUrl) {
+            warnMissingProgressUrl();
+            return;
+          }
+          stopPolling = startProgressPolling({
+            progressUrl: resolvedProgressUrl,
+            jobId: activeJobId,
             onProgress,
-            progressBase: { completed: results.length, total },
+            progressBase,
+            intervalMs: pollIntervalMs,
+            fileCount: 1,
           });
         },
       });
 
+      const response = result.response;
+      const returnedJobId = result.returnedJobId;
+      if (returnedJobId && returnedJobId !== activeJobId) {
+        activeJobId = returnedJobId;
+        stopPolling?.();
+        if (!resolvedProgressUrl) {
+          warnMissingProgressUrl();
+        } else {
+          stopPolling = startProgressPolling({
+            progressUrl: resolvedProgressUrl,
+            jobId: activeJobId,
+            onProgress,
+            progressBase: { ...progressBase, jobId: activeJobId },
+            intervalMs: pollIntervalMs,
+            fileCount: 1,
+          });
+        }
+      }
+
       if (!response.ok) {
         const errorText = await response.text();
+        stopPolling?.();
+        emitErrorProgress({
+          onProgress,
+          progressBase,
+          message: 'Processed failed',
+          detail: errorText || `Server responded with ${response.status}`,
+        });
         throw new Error(`Server responded with ${response.status}: ${errorText}`);
       }
 
       const data = await handleResponse(response, file.name);
-      stopEstimate?.();
-      results.push({ file: file.name, ok: true, data });
+      stopPolling?.();
+      results.push({ file: file.name, ok: true, data, jobId: activeJobId });
     } catch (err) {
       console.error(`❌ Upload failed for ${file.name}:`, err.message);
+      stopPolling?.();
+      emitErrorProgress({
+        onProgress,
+        progressBase: { completed: results.length, total },
+        message: 'Processed failed',
+        detail: err?.message || 'Upload failed',
+      });
       results.push({ file: file.name, ok: false, error: err.message, silentFailure: true });
     }
 
