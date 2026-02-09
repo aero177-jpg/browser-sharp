@@ -221,6 +221,8 @@ export const resetSplatManager = () => {
   loading.clear();
   if (splatGroup) {
     splatGroup.clear();
-    ensureGroup();
+    if (!scene.children.includes(splatGroup)) {
+      scene.add(splatGroup);
+    }
   }
 };

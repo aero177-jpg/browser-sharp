@@ -463,5 +463,116 @@ export const updateBackgroundImage = (url) => {
   requestRender();
 };
 
+const disposeMeshResources = (mesh) => {
+  if (!mesh) return;
+  if (typeof mesh.dispose === 'function') {
+    try { mesh.dispose(); } catch {}
+  }
+  if (mesh.geometry?.dispose) {
+    try { mesh.geometry.dispose(); } catch {}
+  }
+  const material = mesh.material;
+  if (Array.isArray(material)) {
+    material.forEach((mat) => {
+      if (mat?.dispose) {
+        try { mat.dispose(); } catch {}
+      }
+    });
+  } else if (material?.dispose) {
+    try { material.dispose(); } catch {}
+  }
+};
+
+/**
+ * Hard resets the Three.js viewer without touching app state.
+ * Disposes renderer/resources, recreates canvas/controls, and optionally restores background.
+ */
+export const resetViewer = (viewerEl, { preserveBackground = true } = {}) => {
+  if (!viewerEl) return;
+
+  const preservedBackground = preserveBackground ? bgImageUrl : null;
+
+  cancelPendingBgActivation();
+
+  if (controls) {
+    controls.removeEventListener?.('change', requestRender);
+    controls.dispose?.();
+  }
+
+  if (currentMesh) {
+    scene.remove(currentMesh);
+    disposeMeshResources(currentMesh);
+    currentMesh = null;
+  }
+
+  if (spark) {
+    scene.remove(spark);
+    spark?.dispose?.();
+    spark = null;
+  }
+
+  // Clear any remaining scene children (safety)
+  scene.children.slice().forEach((child) => {
+    scene.remove(child);
+  });
+
+  if (composer) {
+    composer.passes?.forEach((pass) => pass?.dispose?.());
+    composer.renderTarget1?.dispose?.();
+    composer.renderTarget2?.dispose?.();
+  }
+
+  if (renderer) {
+    renderer.dispose();
+    renderer.forceContextLoss?.();
+    renderer.domElement?.remove();
+  }
+
+  if (bgImageContainer) {
+    bgImageContainer.remove();
+  }
+
+  if (fpsContainer) {
+    fpsContainer.remove();
+  }
+
+  renderer = undefined;
+  composer = undefined;
+  renderPass = undefined;
+  outputPass = undefined;
+  camera = undefined;
+  controls = undefined;
+  raycaster = undefined;
+  stereoCamera = undefined;
+  defaultCamera = undefined;
+  defaultControls = undefined;
+  activeCamera = null;
+  needsRender = true;
+  renderSuspended = false;
+
+  bgImageContainer = null;
+  fpsContainer = null;
+
+  initViewer(viewerEl);
+
+  if (preservedBackground) {
+    updateBackgroundImage(preservedBackground);
+  }
+
+  // Re-apply stereo settings from store if available
+  import('./store.js').then(({ useStore }) => {
+    const store = useStore.getState();
+    setStereoEffectEnabled(Boolean(store.stereoEnabled));
+    if (Number.isFinite(store.stereoEyeSep)) {
+      setStereoEyeSeparation(store.stereoEyeSep);
+    }
+    if (Number.isFinite(store.stereoAspect)) {
+      setStereoAspect(store.stereoAspect);
+    }
+  }).catch(() => {});
+
+  requestRender();
+};
+
 // Export THREE and SplatMesh for use in other modules
 export { THREE, SplatMesh };

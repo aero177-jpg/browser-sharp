@@ -271,12 +271,7 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
   const shouldRunTransition = currentMesh && (slideDirection || forceFadeForNonSequential);
   let preloadedEntry = null;
   if (shouldRunTransition) {
-    const isFadeMode = slideMode === 'fade';
-    const slideOpts = isFadeMode
-      ? { duration: 650, amount: 0.35, fadeDelay: 0.5, mode: slideMode }
-      : { duration: 1200, amount: 0.5, fadeDelay: 0.625, mode: slideMode };
-
-    const slideOutPromise = slideOutAnimation(transitionDirection, slideOpts);
+    const slideOutPromise = slideOutAnimation(transitionDirection, { mode: slideMode, preset: 'transition' });
     const prepPromise = entryPromise.catch((err) => {
       console.warn('Failed to preload during transition:', err);
       return null;
@@ -532,7 +527,7 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
       }
       
       // Slide in from the navigation direction (1s pan with quick fade-in)
-      await slideInAnimation(slideDirection, { duration: 1000, amount: 0.5, mode: slideMode });
+      await slideInAnimation(slideDirection, { mode: slideMode, preset: 'cached' });
       
       // Safety cleanup in case slideInAnimation didn't fully clean up
       const viewerEl = document.getElementById('viewer');
@@ -569,7 +564,7 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
       
       if (shouldRunTransition) {
         // Bring content back with fade/slide-in after camera is set
-        await slideInAnimation(transitionDirection, { duration: slideMode === 'fade' ? 750 : 1000, amount: 0.45, mode: slideMode });
+        await slideInAnimation(transitionDirection, { mode: slideMode, preset: 'transition' });
         const viewerEl = document.getElementById('viewer');
         if (viewerEl) {
           viewerEl.classList.remove('slide-out');

@@ -72,7 +72,15 @@ function ControlsModal({ isOpen, onClose, defaultOpenSubsections = [] }) {
                   <li><strong>View image:</strong> Drag your .ply or .sog files onto the page to create a quick collection. If a cloud GPU is configured, you can add image files and you will be prompted to upload them. You can also click “browse” to search your device.</li>
                   <li><strong>Gallery:</strong> Click, swipe, or hover on the left side of the screen, or click the button in the bottom left corner. Here you can browse, add more images, or delete with additional options.</li>
                   <li><strong>Main Settings:</strong> On desktop or landscape mode on mobile, click, swipe, or hover on the right side of the screen, or click the arrow in the upper right corner. On mobile portrait mode, tap or swipe up on the bottom menu handle.</li>
-                  <li><strong>Viewer buttons:</strong> Advance left/right and play/pause slideshow (if slideshow mode is toggled on). Buttons on the right side, from top to bottom, are reset view, fit to screen toggle (if in fullscreen), fullscreen mode toggle, and immersive mode (on mobile).</li>
+                  <li><strong>Viewer buttons:</strong> Advance next/back and play/pause slideshow (if slideshow mode is toggled on). Buttons on the right side, from top to bottom, are reset view, fit to screen toggle (if in fullscreen), fullscreen mode toggle, and immersive mode (on mobile).</li>
+                </ul>
+              </Section>
+               <Section title="Slideshow" isOpen={isSubsectionOpen('getting-started.slideshow')}>
+                <ul>
+                  <li><strong>Start slideshow: </strong>Click the play icon on the bottom left of the screen to toggle. pause by tapping the screen, or clicking the play/pause button between the arrow buttons.</li>
+                  <li><strong>Settings:</strong>Hold the slideshow button for a second to open slide settings.</li>
+                  <li><strong>Continuous mode:</strong> This replaces the side in and out animation with a single sliding animation.</li> 
+                  <li><strong>Transition Range:</strong> Adjusts how wide the orbit or zoom path is, but this can lead to seeing more unwanted artifacts and defects. </li>
                 </ul>
               </Section>
           
@@ -110,6 +118,7 @@ function ControlsModal({ isOpen, onClose, defaultOpenSubsections = [] }) {
                 <li><strong>Right click-drag:</strong> Pan.</li>
                 <li><strong>Scroll:</strong> Zoom.</li>
                 <li><strong>Click:</strong> Toggle UI in fullscreen mode.</li>
+                <li><strong>Tap or Spacebar:</strong> Play / pause slideshow. <strong>Double Tap</strong> to orbit image while paused.</li>
                 <li><strong>R key:</strong> Reset camera, or click focus icon in viewer.</li>
                 <li><strong>Arrow keys:</strong> Advance splats.</li>
                 <li><strong>F11:</strong> Will open normal browser fullscreen, but the fullscreen toggle needs to be clicked in the viewer to get intended "fullscreen mode".</li>
@@ -122,6 +131,7 @@ function ControlsModal({ isOpen, onClose, defaultOpenSubsections = [] }) {
                 <li>Swipe or tap left side of screen to toggle gallery panel.</li>
                 <li>In landscape, swipe/tap right side (or click upper right button) to open main menu. In portrait, swipe/tap bottom.</li>
                 <li>Swipe left or right in the lower part of the viewer (area with arrows) to advance splats.</li>
+                <li><strong>Tap:</strong> Play / pause slideshow. <strong>Double Tap</strong> to orbit image while paused.</li>
                 <li><strong>Immersive mode:</strong> Only tested on Android. Toggle with the “3d rotate” icon in the viewer. Drag to pan while moving the device to orbit. Click the focus icon to fix device sensor drift or set the current device angle as centered.</li>
               </ul>
             </Section>

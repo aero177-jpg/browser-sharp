@@ -2260,6 +2260,8 @@ select option {
 /* On mobile portrait, leave space for bottom sheet */
 @media (max-width: 768px) and (orientation: portrait) {
   .asset-sidebar {
+      height: calc(100% - 130px);
+
     bottom: 45px;
     border-radius: 0 12px 12px 0;
   }

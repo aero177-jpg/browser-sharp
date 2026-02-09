@@ -262,7 +262,7 @@ function AnimationSettings() {
         aria-expanded={animSettingsExpanded}
         onClick={toggleAnimSettingsExpanded}
       >
-        <span class="settings-eyebrow">Animation Settings</span>
+        <span class="settings-eyebrow">Slideshow Settings</span>
         <FontAwesomeIcon icon={faChevronDown} className="chevron" />
       </button>
       

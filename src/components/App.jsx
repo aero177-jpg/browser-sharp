@@ -12,8 +12,8 @@ import SidePanel from './SidePanel';
 import MobileSheet from './MobileSheet';
 import AssetSidebar from './AssetSidebar';
 import AssetNavigation from './AssetNavigation';
-import { initViewer, startRenderLoop, currentMesh, camera, controls, defaultCamera, defaultControls, dollyZoomBaseDistance, dollyZoomBaseFov, requestRender, THREE } from '../viewer';
-import { resize, loadFromStorageSource, loadNextAsset, loadPrevAsset } from '../fileLoader';
+import { initViewer, startRenderLoop, currentMesh, camera, controls, defaultCamera, defaultControls, dollyZoomBaseDistance, dollyZoomBaseFov, requestRender, THREE, resetViewer } from '../viewer';
+import { resize, loadFromStorageSource, loadNextAsset, loadPrevAsset, reloadCurrentAsset } from '../fileLoader';
 import { resetViewWithImmersive } from '../cameraUtils';
 import { enableImmersiveMode, disableImmersiveMode, setImmersiveSensitivityMultiplier, setTouchPanEnabled, syncImmersiveBaseline } from '../immersiveMode';
 import { setupFullscreenHandler } from '../fullscreenHandler';
@@ -31,6 +31,8 @@ import { startSlideshow, stopSlideshow } from '../slideshowController';
 import { useCollectionUploadFlow } from './useCollectionUploadFlow.js';
 import { useViewerDrop } from './useViewerDrop.jsx';
 import PwaReloadPrompt from './PwaReloadPrompt';
+import SlideshowOptionsModal from './SlideshowOptionsModal';
+import { resetSplatManager } from '../splatManager';
 
 /** Delay before resize after panel toggle animation completes */
 const PANEL_TRANSITION_MS = 350;
@@ -96,6 +98,11 @@ function App() {
   const swipeTargetRef = useRef(null);
   const controlsRevealTimeout = useRef(null);
   const [controlsRevealed, setControlsRevealed] = useState(false);
+  const [slideshowOptionsOpen, setSlideshowOptionsOpen] = useState(false);
+  const slideshowHoldTimeout = useRef(null);
+  const slideshowHoldTriggered = useRef(false);
+  const resetHoldTimeout = useRef(null);
+  const resetHoldTriggered = useRef(false);
 
   // Outside click handler to close side panel
   useOutsideClick(
@@ -160,6 +167,19 @@ function App() {
    */
   const handleResetView = useCallback(() => {
     resetViewWithImmersive();
+  }, []);
+
+  const handleHardResetView = useCallback(async () => {
+    const viewerEl = document.getElementById('viewer');
+    if (!viewerEl) return;
+
+    resetViewer(viewerEl, { preserveBackground: true });
+    resetSplatManager();
+    void initVrSupport(viewerEl);
+
+    await reloadCurrentAsset();
+    resize();
+    requestRender();
   }, []);
 
   /**
@@ -237,6 +257,60 @@ function App() {
     setSlideshowMode(true);
     startSlideshow();
   }, [slideshowMode, setSlideshowMode]);
+
+  const handleSlideshowHoldStart = useCallback(() => {
+    slideshowHoldTriggered.current = false;
+    if (slideshowHoldTimeout.current) {
+      clearTimeout(slideshowHoldTimeout.current);
+    }
+    slideshowHoldTimeout.current = setTimeout(() => {
+      slideshowHoldTriggered.current = true;
+      setSlideshowOptionsOpen(true);
+      slideshowHoldTimeout.current = null;
+    }, 1000);
+  }, []);
+
+  const handleSlideshowHoldEnd = useCallback(() => {
+    if (slideshowHoldTimeout.current) {
+      clearTimeout(slideshowHoldTimeout.current);
+      slideshowHoldTimeout.current = null;
+    }
+  }, []);
+
+  const handleSlideshowButtonClick = useCallback(() => {
+    if (slideshowHoldTriggered.current) {
+      slideshowHoldTriggered.current = false;
+      return;
+    }
+    handleSlideshowToggle();
+  }, [handleSlideshowToggle]);
+
+  const handleResetHoldStart = useCallback(() => {
+    resetHoldTriggered.current = false;
+    if (resetHoldTimeout.current) {
+      clearTimeout(resetHoldTimeout.current);
+    }
+    resetHoldTimeout.current = setTimeout(() => {
+      resetHoldTriggered.current = true;
+      handleHardResetView();
+      resetHoldTimeout.current = null;
+    }, 2000);
+  }, [handleHardResetView]);
+
+  const handleResetHoldEnd = useCallback(() => {
+    if (resetHoldTimeout.current) {
+      clearTimeout(resetHoldTimeout.current);
+      resetHoldTimeout.current = null;
+    }
+  }, []);
+
+  const handleResetButtonClick = useCallback(() => {
+    if (resetHoldTriggered.current) {
+      resetHoldTriggered.current = false;
+      return;
+    }
+    handleResetView();
+  }, [handleResetView]);
 
   const handleToggleFillMode = useCallback(() => {
     toggleFillMode();
@@ -618,7 +692,11 @@ function App() {
           {assets.length > 0 && (
             <button
               class={`bottom-page-btn immersive-toggle ${slideshowMode ? 'is-active' : 'is-inactive'}`}
-              onClick={handleSlideshowToggle}
+              onClick={handleSlideshowButtonClick}
+              onPointerDown={handleSlideshowHoldStart}
+              onPointerUp={handleSlideshowHoldEnd}
+              onPointerLeave={handleSlideshowHoldEnd}
+              onPointerCancel={handleSlideshowHoldEnd}
               aria-pressed={slideshowMode}
               aria-label={slideshowMode ? 'Stop slideshow' : 'Start slideshow'}
               title={slideshowMode ? 'Stop slideshow' : 'Start slideshow'}
@@ -664,7 +742,11 @@ function App() {
             
               <button 
                 class="bottom-page-btn" 
-                onClick={handleResetView}
+                onClick={handleResetButtonClick}
+                onPointerDown={handleResetHoldStart}
+                onPointerUp={handleResetHoldEnd}
+                onPointerLeave={handleResetHoldEnd}
+                onPointerCancel={handleResetHoldEnd}
                 aria-label="Reset camera view"
                 title="Reset view (R)"
               >
@@ -715,6 +797,10 @@ function App() {
         isOpen={controlsModalOpen}
         onClose={() => setControlsModalOpen(false)}
         defaultOpenSubsections={controlsModalDefaultSubsections}
+      />
+      <SlideshowOptionsModal
+        isOpen={slideshowOptionsOpen}
+        onClose={() => setSlideshowOptionsOpen(false)}
       />
       <PwaReloadPrompt />
       {dropModal}
