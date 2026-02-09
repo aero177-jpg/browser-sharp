@@ -82,7 +82,7 @@
   position: absolute;
   inset: -30px; /* oversize to avoid edge showing when rotated */
   background-image: var(--bg);
-  background-size: 200% 220%;
+  background-size: 130% 220%;
   filter: blur(40px) saturate(.8) brightness(1.8) contrast(1.2);
   transform-origin: center;
   will-change: transform, background-position;
@@ -97,7 +97,7 @@
   position: absolute;
   inset: -30px; /* oversize to avoid edge showing when rotated */
   background-image: var(--bg);
-  background-size: 200% 220%;
+  background-size: 130% 220%;
   filter: blur(40px) saturate(.5) brightness(2.8) contrast(1.4);
   transform-origin: center;
   will-change: transform, background-position;
@@ -109,10 +109,10 @@
 
 /* rotate: stronger rotation + pan */
 .frosted-hero--anim-rotate .frosted-hero__blur-layer::before {
-  animation: frosted-pan 60s ease-in-out infinite alternate-reverse, frosted-rotate 40s ease-in-out 0s infinite reverse;
+  animation: frosted-pan 40s ease-in-out infinite alternate-reverse, frosted-rotate 30s ease-in-out 0s infinite reverse;
 }
 .frosted-hero--anim-rotate .frosted-hero__blur-layer--stroke::before {
-  animation: frosted-pan 60s ease-in-out .3s infinite alternate-reverse, frosted-rotate 40s ease-in-out 0s infinite reverse;
+  animation: frosted-pan 40s ease-in-out .3s infinite alternate-reverse, frosted-rotate 30s ease-in-out 0s infinite reverse;
 }
 
 

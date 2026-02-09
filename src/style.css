@@ -2591,7 +2591,9 @@ select option {
 }
 
 .controls-modal__intro {
-  margin-bottom: 12px;
+  margin-left: 10px;
+  /* font-size: 12px; */
+  margin-bottom: 8px;
   flex-shrink: 0;
 }
 
@@ -2615,9 +2617,19 @@ select option {
 
 .controls-section {
   margin-bottom: 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  /* border-bottom: 1px solid rgba(255, 255, 255, 0.1); */
   padding: 8px 0;
 }
+
+.controls-section-divider {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  margin-top: 3px;
+}
+.controls-section .controls-section .controls-section__title{
+  color: #c5cee4cb!important;
+
+} 
+
 
 .controls-section__summary {
   display: flex;

@@ -44,10 +44,9 @@ function ControlsModal({ isOpen, onClose, defaultOpenSubsections = ['getting-sta
         <h2 class="controls-modal__title">App overview</h2>
         <div class="controls-modal__scroll">
           <Section title="Getting Started" isOpen={isGettingStartedOpen}>
-            <Section title="Overview" isOpen={isSubsectionOpen('getting-started.overview')}>
               <div class="controls-modal__intro">
                 <p class="controls-modal__subtitle">
-                  This viewer has a focus on gaussian splats with an intended perspective. 
+                  This viewer has a focus on 3dgs files with an intended perspective, viewed like an image. 
                   This is not recommended for navigating large environmental splats or 360 exploration. 
                   We highly recommend using <strong>.sog</strong> formatted files for storage and performance gains. 
                 </p>
@@ -57,21 +56,29 @@ function ControlsModal({ isOpen, onClose, defaultOpenSubsections = ['getting-sta
                     target="_blank"
                     rel="noreferrer"
                   >
-                    This ml-sharp fork
+                    Our ml-sharp fork
                   </a>{' '}
                   includes a fast .sog export in the pipeline, and includes camera metadata for clean integration with this viewer, as well as integrations with your connected storage.
                 </p>
               </div>
-            </Section>
-            <Section title={"Loading files"} isOpen={isSubsectionOpen('getting-started.loading-files')}>    
-              test
+ 
+
+              <Section title="Viewer overview" isOpen={isSubsectionOpen('getting-started.viewer-overview')}>
+                <ul>
+                  <li><strong>View image:</strong> Drag your .ply or .sog files onto the page to create a quick collection. If a cloud GPU is configured, you can add image files and you will be prompted to upload them. You can also click “browse” to search your device.</li>
+                  <li><strong>Gallery:</strong> Click, swipe, or hover on the left side of the screen, or click the button in the bottom left corner. Here you can browse, add more images, or delete with additional options.</li>
+                  <li><strong>Main Settings:</strong> On desktop or landscape mode on mobile, click, swipe, or hover on the right side of the screen, or click the arrow in the upper right corner. On mobile portrait mode, tap or swipe up on the bottom menu handle.</li>
+                  <li><strong>Viewer buttons:</strong> Advance left/right and play/pause slideshow (if slideshow mode is toggled on). Buttons on the right side, from top to bottom, are reset view, fit to screen toggle (if in fullscreen), fullscreen mode toggle, and immersive mode (on mobile).</li>
+                </ul>
               </Section>
-
-
-            <Section title="Main Settings" isOpen={isSubsectionOpen('getting-started.main-settings')}>
+          
+          <div class="controls-section-divider" />
+          </Section>
+          <Section title="Settings" isOpen={false}>
+              <Section title="Main Settings" isOpen={isSubsectionOpen('getting-started.main-settings')}>
               <ul>
                 <li><strong>Quality:</strong> Adjusts splat density. Experimental is a last resort option, not recommended. Further adjustments can be made in advanced settings.</li>
-                <li><strong>Orbit range:</strong> ml-sharp splats degrade at greater angles, this mitigates this and keeps focus on the target view. Auto adjusts in immersive mode on mobile. Disabled for non "ml-sharp" monocular view splats.</li>
+                <li><strong>Orbit range:</strong> ml-sharp splats degrade at greater angles, this mitigates this and keeps focus on the target view. Auto adjusts in immersive mode on mobile. Disabled for splats missing ml-sharp metadata.</li>
                 <li><strong>FOV:</strong> Auto adjust depending on camera metadata. Click the eye symbol to add a slider to the viewer for a dolly-zoom effect.</li>
                 <li><strong>Recenter:</strong> Bring camera back to starting point. Hold to reset viewer, for example due to render glitch.</li>
                 <li><strong>Set focus depth:</strong> Orbit and zoom to a specified depth. Either click on the splat when prompted, or double click to focus on a point of interest, and click "set anchor as focus". Custom focus will be stored.</li>
@@ -80,13 +87,15 @@ function ControlsModal({ isOpen, onClose, defaultOpenSubsections = ['getting-sta
 
             <Section title="Additional Settings" isOpen={isSubsectionOpen('getting-started.additional-settings')}>
               <ul>
-                <li><strong>Custom Camera:</strong> This viewer auto sets the camera for optimal viewing of ml-sharp generated monocular view splats (with metadata). For others, manually adjust: scale to fill, rotate, double click, and zoom to frame intended view. Hit-or-miss, but worth experimenting.</li>
+                <li><strong>Custom Camera:</strong> This viewer auto sets the camera for optimal viewing of ml-sharp splats (with metadata). For others, manually adjust: scale to fill, rotate, double click, and zoom to frame intended view. Hit-or-miss, but worth experimenting.</li>
                 <li><strong>Tilt Sensitivity:</strong> Adjusts how device rotation effects view in immersive mode.</li>
                 <li><strong>VR toggle:</strong> Appears if an HMD is detected.</li>
                 <li><strong>SBS separation:</strong> Appears if sbs enabled in advanced settings (experimental). Effects stereo depth perceived. Click focus icon for auto adjust.</li>
                 <li><strong>SBS stereo aspect:</strong> Manual aspect ratio adjustment to match display.</li>
               </ul>
             </Section>
+                      <div class="controls-section-divider" />
+
           </Section>
 
           <Section title="Controls" isOpen={isControlsOpen}>
@@ -109,23 +118,34 @@ function ControlsModal({ isOpen, onClose, defaultOpenSubsections = ['getting-sta
                 <li>Swipe or tap left side of screen to toggle gallery panel.</li>
                 <li>In landscape, swipe/tap right side (or click upper right button) to open main menu. In portrait, swipe/tap bottom.</li>
                 <li>Swipe left or right in the lower part of the viewer (area with arrows) to advance splats.</li>
-                <li><strong>Immersive mode:</strong> **Only tested on Android. Toggle with '3d rotate' icon in viewer. drag to pan while moving device to orbit. Click focus icon to fix device sensor drift or set current device angle as centered.</li>
+                <li><strong>Immersive mode:</strong> Only tested on Android. Toggle with the “3d rotate” icon in the viewer. Drag to pan while moving the device to orbit. Click the focus icon to fix device sensor drift or set the current device angle as centered.</li>
               </ul>
             </Section>
+                      <div class="controls-section-divider" />
+
           </Section>
 
           <Section title="Connections" isOpen={isConnectionsOpen}>
+            You can choose to add a remote connection, a local folder (or app storage on mobile). All remote connection configs are stored locally, this app is strictly a frontend client. 
             <Section title="Storage" isOpen={isSubsectionOpen('connections.storage')}>
               <ul>
-                <li>Coming soon.</li>
+                <li><strong>None:</strong></li> Files are added for session storage only. This is the default if you just drag and drop files in, and is a good option for quick viewing of a few files, but files will need to be re-added each session and can't be added from mobile.
+                <li><strong>Local folder:</strong></li> This allows you to select a folder on your device to use as a collection. Files added to this folder will be added to the viewer, and files deleted from this folder will be removed from the viewer. This is a good option for desktop users who want to manage files locally. This must be given access for each new session.
+                <li><strong>Supabase:</strong></li> This is easy to setup, and requires only an API key and URL. When you set up policies, if you add "delete" this app can delete locally and in your storage. This solution has a smaller free tier storage, and charges for bandwith after 5gb a month.
+                                <li><strong>Cloudflare R2:</strong></li> This is a bit more complex to set up, and requires an endpoint URL, access key, Account ID, and secret key, but has a much larger free tier storage and bandwidth, and is a great option for large collections. 
+
               </ul>
+
             </Section>
 
             <Section title="Cloud GPU" isOpen={isSubsectionOpen('connections.cloud-gpu')}>
-              <ul>
-                <li>Coming soon.</li>
-              </ul>
+             Using our ml-sharp fork and github action, you can set up a containerized version of ml-sharp on modal.com using their free tier. It connects to this viewer for seamless uploads and processing. If you are in a supabase or r2 collection, the results will be send to your storage and automatically added to the viewer. Otherwise, the files will be downloaded to your device to manually be added. 
+          <ul>
+                <li><strong>Endpoint Url</strong> This is found on your modal dashboard, ml-sharp-optimized container, under process_image. It should look something like "https://{'<user>'}--ml-sharp-optimized-abc123.modal.run".</li>
+          </ul>
             </Section>
+                      <div class="controls-section-divider" />
+
           </Section>
 
           <Section title="Troubleshooting" isOpen={isTroubleshootingOpen}>
@@ -137,6 +157,12 @@ function ControlsModal({ isOpen, onClose, defaultOpenSubsections = ['getting-sta
                 <li><strong>Missing previews:</strong> Only generated on first load. Click "batch previews" in advanced settings to generate all (experimental; captures previews by rapidly loading splats).</li>
                 <li><strong>'Cracks' in splat:</strong> Thin areas may show cracks in low quality. "High" quality alleviates this but impacts performance.</li>
                 <li><strong>Irratic recenter:</strong> This can be caused by experimenting with the fov slider, and can easily be sorted by refreshing the file. </li>
+              </ul>
+            </Section>
+            <Section title={"Collections"} isOpen={isSubsectionOpen('troubleshooting.collections')}>
+              <ul>
+                <li><strong>Files not appearing:</strong> If using a connected cloud storage, make sure you have the correct permissions set up. For Supabase, you can set up a policy with "select" permissions for the relevant table. For R2, make sure your access key and secret key are correct, and that your bucket is set to public.</li>
+                <li><strong>Issues with cloud GPU:</strong> </li> Large upload batches can cause occasional timeouts, and cause some inaccuracies with the progress bar. If the process is complete, but no new images, try manually refreshing the connection.
               </ul>
             </Section>
           </Section>
