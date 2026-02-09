@@ -334,6 +334,7 @@ export const useStore = create(
   cameraSettingsExpanded: true,
   galleryExpanded: true,
   controlsModalOpen: false,
+  controlsModalDefaultSubsections: [],
   
   // Mobile state - initialize with actual values to prevent flash on load
   isMobile: typeof window !== 'undefined' && Math.min(window.innerWidth, window.innerHeight) <= 768,
@@ -369,6 +370,15 @@ export const useStore = create(
 
   /** Opens/closes the controls modal */
   setControlsModalOpen: (controlsModalOpen) => set({ controlsModalOpen }),
+
+  /** Sets default open subsections for the controls modal */
+  setControlsModalDefaultSubsections: (controlsModalDefaultSubsections) => set({ controlsModalDefaultSubsections }),
+
+  /** Opens the controls modal with specific subsections expanded */
+  openControlsModalWithSections: (controlsModalDefaultSubsections) => set({
+    controlsModalOpen: true,
+    controlsModalDefaultSubsections,
+  }),
 
   /** Toggles the controls modal */
   toggleControlsModal: () => set((state) => ({ controlsModalOpen: !state.controlsModalOpen })),

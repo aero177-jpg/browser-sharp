@@ -2207,7 +2207,7 @@ select option {
   position: absolute;
   left: 0;
   top: 0;
-  height: calc(100% - 80px);
+  height: calc(100% - 100px);
   width: 100px;
   background: rgba(12, 16, 26, 0.331);
   backdrop-filter: blur(6px);

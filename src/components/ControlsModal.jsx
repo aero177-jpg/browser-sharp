@@ -19,21 +19,25 @@ const Section = ({ title, children, isOpen = false }) => {
   );
 };
 
-function ControlsModal({ isOpen, onClose, defaultOpenSubsections = ['getting-started.main-settings'] }) {
+function ControlsModal({ isOpen, onClose, defaultOpenSubsections = [] }) {
   const openKeysSet = new Set(defaultOpenSubsections);
   const isSubsectionOpen = (key) => openKeysSet.has(key);
   const isAnyOpen = (keys) => keys.some((key) => openKeysSet.has(key));
 
   const gettingStartedKeys = [
     'getting-started.overview',
-    'getting-started.main-settings',
-    'getting-started.additional-settings',
+    'getting-started.viewer-overview',
+  ];
+  const settingsKeys = [
+    'settings.main-settings',
+    'settings.additional-settings',
   ];
   const controlsKeys = ['controls.desktop', 'controls.mobile'];
   const connectionsKeys = ['connections.storage', 'connections.cloud-gpu'];
   const troubleshootingKeys = ['troubleshooting.render'];
 
   const isGettingStartedOpen = isAnyOpen(gettingStartedKeys);
+  const isSettingsOpen = isAnyOpen(settingsKeys);
   const isControlsOpen = isAnyOpen(controlsKeys);
   const isConnectionsOpen = isAnyOpen(connectionsKeys);
   const isTroubleshootingOpen = isAnyOpen(troubleshootingKeys);
@@ -74,8 +78,8 @@ function ControlsModal({ isOpen, onClose, defaultOpenSubsections = ['getting-sta
           
           <div class="controls-section-divider" />
           </Section>
-          <Section title="Settings" isOpen={false}>
-              <Section title="Main Settings" isOpen={isSubsectionOpen('getting-started.main-settings')}>
+            <Section title="Settings" isOpen={isSettingsOpen}>
+              <Section title="Main Settings" isOpen={isSubsectionOpen('settings.main-settings')}>
               <ul>
                 <li><strong>Quality:</strong> Adjusts splat density. Experimental is a last resort option, not recommended. Further adjustments can be made in advanced settings.</li>
                 <li><strong>Orbit range:</strong> ml-sharp splats degrade at greater angles, this mitigates this and keeps focus on the target view. Auto adjusts in immersive mode on mobile. Disabled for splats missing ml-sharp metadata.</li>
@@ -85,7 +89,7 @@ function ControlsModal({ isOpen, onClose, defaultOpenSubsections = ['getting-sta
               </ul>
             </Section>
 
-            <Section title="Additional Settings" isOpen={isSubsectionOpen('getting-started.additional-settings')}>
+            <Section title="Additional Settings" isOpen={isSubsectionOpen('settings.additional-settings')}>
               <ul>
                 <li><strong>Custom Camera:</strong> This viewer auto sets the camera for optimal viewing of ml-sharp splats (with metadata). For others, manually adjust: scale to fill, rotate, double click, and zoom to frame intended view. Hit-or-miss, but worth experimenting.</li>
                 <li><strong>Tilt Sensitivity:</strong> Adjusts how device rotation effects view in immersive mode.</li>
@@ -126,7 +130,10 @@ function ControlsModal({ isOpen, onClose, defaultOpenSubsections = ['getting-sta
           </Section>
 
           <Section title="Connections" isOpen={isConnectionsOpen}>
-            You can choose to add a remote connection, a local folder (or app storage on mobile). All remote connection configs are stored locally, this app is strictly a frontend client. 
+            You can choose to add a remote connection, a local folder (or app storage on mobile). All remote connection configs are stored locally only, this app is strictly a frontend client. Configs can be exported/imported in advanced settings.
+<br/>
+<br/>
+            Splats are not automatically cached in browser due to size constraints, but can be manually cached in advanced settings for offline viewing, and bandwidth savings.
             <Section title="Storage" isOpen={isSubsectionOpen('connections.storage')}>
               <ul>
                 <li><strong>None:</strong></li> Files are added for session storage only. This is the default if you just drag and drop files in, and is a good option for quick viewing of a few files, but files will need to be re-added each session and can't be added from mobile.

@@ -73,14 +73,14 @@ const DEFAULT_CONFIG = {
 // Continuous zoom configuration
 const CONTINUOUS_ZOOM_DURATION = 5; // seconds
 const CONTINUOUS_ZOOM_START_RATIO_BY_SIZE = {
-  small: 0.0,  // no initial pull-back
-  medium: 0.12,
-  large: 0.18, // slight pull-back
+  small: 0.04,  // subtle pull-back
+  medium: 0.08,
+  large: 0.12, // reduced pull-back vs previous large
 };
 const CONTINUOUS_ZOOM_END_RATIO_BY_SIZE = {
-  small: 0.4,  // allow further zoom-in
-  medium: 0.32,
-  large: 0.25,
+  small: 0.22,  // modest move past home
+  medium: 0.30,
+  large: 0.36, // allow further zoom-in on large
 };
 
 // Continuous orbit configuration
@@ -94,9 +94,9 @@ const CONTINUOUS_VERTICAL_ORBIT_ANGLE_DEG = 12; // total orbit angle on either s
 const CONTINUOUS_VERTICAL_ORBIT_PAN_SCALE = 0.4; // scales pan amount vs slide amount (large)
 
 const CONTINUOUS_SIZE_SCALE = {
-  small: 0.6,
-  medium: 0.8,
-  large: 1.0,
+  small: 0.45,
+  medium: 0.65,
+  large: 0.85,
 };
 
 const getStoreState = () => useStore.getState();
@@ -384,7 +384,10 @@ const calculateSlideGeometry = (mode, direction, amount, isSlideOut) => {
     case 'zoom':
       // Zoom: move along forward axis
       const zoomAmount = distance * (isSlideOut ? 0.3 : 0.25);
-      const zoomDir = isSlideOut ? 1 : -1;
+      let zoomDir = isSlideOut ? 1 : -1;
+      if (direction === 'prev') {
+        zoomDir *= -1;
+      }
       const zoomOffset = forward.clone().multiplyScalar(zoomAmount * zoomDir);
       offsetPosition = currentPosition.clone().add(zoomOffset);
       offsetTarget = currentTarget.clone();
@@ -610,8 +613,8 @@ export const slideInAnimation = (direction, { duration = 1200, amount = 0.45, mo
       const durationScale = getDurationScale(durationSec, CONTINUOUS_ZOOM_DURATION);
       const { start: startRatio, end: endRatio } = getContinuousZoomRatios();
 
-      const startOffset = forward.clone().multiplyScalar(-distance * startRatio * durationScale);
-      const endOffset = forward.clone().multiplyScalar(distance * endRatio * durationScale);
+      const startOffset = forward.clone().multiplyScalar(-distance * startRatio);
+      const endOffset = forward.clone().multiplyScalar(distance * endRatio);
       const startPosition = currentPosition.clone().add(startOffset);
       const endPosition = currentPosition.clone().add(endOffset);
 
@@ -656,8 +659,7 @@ export const slideInAnimation = (direction, { duration = 1200, amount = 0.45, mo
 
       const durationSec = getContinuousDurationSeconds(mode, CONTINUOUS_ORBIT_DURATION);
       const sizeScale = getContinuousSizeScale();
-      const durationScale = getDurationScale(durationSec, CONTINUOUS_ORBIT_DURATION);
-      const motionScale = sizeScale * durationScale;
+      const motionScale = sizeScale;
 
       const orbitAngle = (Math.PI / 180) * CONTINUOUS_ORBIT_ANGLE_DEG * motionScale;
       const panAmount = distance * amount * CONTINUOUS_ORBIT_PAN_SCALE * motionScale;
@@ -722,8 +724,7 @@ export const slideInAnimation = (direction, { duration = 1200, amount = 0.45, mo
 
       const durationSec = getContinuousDurationSeconds(mode, CONTINUOUS_VERTICAL_ORBIT_DURATION);
       const sizeScale = getContinuousSizeScale();
-      const durationScale = getDurationScale(durationSec, CONTINUOUS_VERTICAL_ORBIT_DURATION);
-      const motionScale = sizeScale * durationScale;
+      const motionScale = sizeScale;
 
       const orbitAngle = (Math.PI / 180) * CONTINUOUS_VERTICAL_ORBIT_ANGLE_DEG * motionScale;
       const panAmount = distance * amount * CONTINUOUS_VERTICAL_ORBIT_PAN_SCALE * motionScale;

@@ -187,7 +187,7 @@ function CameraControls() {
   const qualityPreset = useStore((state) => state.qualityPreset);
   const setQualityPreset = useStore((state) => state.setQualityPreset);
   const controlsModalOpen = useStore((state) => state.controlsModalOpen);
-  const setControlsModalOpen = useStore((state) => state.setControlsModalOpen);
+  const openControlsModalWithSections = useStore((state) => state.openControlsModalWithSections);
 
   // Ref for camera range slider to avoid DOM queries
   const rangeSliderRef = useRef(null);
@@ -829,7 +829,8 @@ function CameraControls() {
             title="Controls"
             onClick={(e) => {
               e.stopPropagation();
-              setControlsModalOpen(true);
+              const controlsKey = isMobile ? 'controls.mobile' : 'controls.desktop';
+              openControlsModalWithSections(['settings.main-settings', controlsKey]);
             }}
             style={{ width: '28px', height: '22px', fontSize: '11px' }}
           >

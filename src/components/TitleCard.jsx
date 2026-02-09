@@ -34,7 +34,7 @@ function TitleCard({
   // Sources state for collections button
   const [sources, setSources] = useState(() => getSourcesArray());
   const [showCollectionsModal, setShowCollectionsModal] = useState(false);
-  const toggleControlsModal = useStore((state) => state.toggleControlsModal);
+  const openControlsModalWithSections = useStore((state) => state.openControlsModalWithSections);
 
 
   // Subscribe to source changes
@@ -137,7 +137,7 @@ function TitleCard({
       <div class={helpButtonClass}>
         <button
           class="action-btn help-btn"
-          onClick={toggleControlsModal}
+          onClick={() => openControlsModalWithSections(['getting-started.viewer-overview'])}
           aria-label="Open controls"
           title="Controls"
         >

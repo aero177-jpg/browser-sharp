@@ -298,8 +298,30 @@ export const MinimizeIcon = ({ size = 16, className, ...props }) => (
 <path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M21 8h-3a2 2 0 0 1-2-2V3"/><path d="M3 16h3a2 2 0 0 1 2 2v3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/>  </svg>
 );
 
+// export const MaximizeIcon = ({ size = 16, className, ...props }) => (
+//   <svg
+//     width={size}
+//     height={size}
+//     viewBox="0 0 24 24"
+//     fill="none"
+//     stroke="currentColor"
+//     strokeWidth="2"
+//     strokeLinecap="round"
+//     strokeLinejoin="round"
+//     aria-hidden="true"
+//     class={className}
+//     {...props}
+//   >
+//     <path d="M3 7V5a2 2 0 0 1 2-2h2" />
+//     <path d="M17 3h2a2 2 0 0 1 2 2v2" />
+//     <path d="M21 17v2a2 2 0 0 1-2 2h-2" />
+//     <path d="M7 21H5a2 2 0 0 1-2-2v-2" />
+//     <rect width="10" height="8" x="7" y="8" rx="1" />
+//   </svg>
+// );
+
 export const MaximizeIcon = ({ size = 16, className, ...props }) => (
-  <svg
+    <svg
     width={size}
     height={size}
     viewBox="0 0 24 24"
@@ -312,11 +334,24 @@ export const MaximizeIcon = ({ size = 16, className, ...props }) => (
     class={className}
     {...props}
   >
-    <path d="M3 7V5a2 2 0 0 1 2-2h2" />
-    <path d="M17 3h2a2 2 0 0 1 2 2v2" />
-    <path d="M21 17v2a2 2 0 0 1-2 2h-2" />
-    <path d="M7 21H5a2 2 0 0 1-2-2v-2" />
-    <rect width="10" height="8" x="7" y="8" rx="1" />
-  </svg>
+<path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg>
 );
 
+export const slideShowToggleIcon = ({ size = 16, className, ...props }) => (
+     <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+    class={className}
+    {...props}>
+      <path d="M15.033 9.44a.647.647 0 0 1 0 1.12l-4.065 2.352a.645.645 0 0 1-.968-.56V7.648a.645.645 0 0 1 .967-.56z"/>
+      <path d="M7 21h10"/>
+      <rect width="20" height="14" x="2" y="3" rx="2"/>
+      </svg>
+);

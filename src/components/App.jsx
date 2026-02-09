@@ -21,12 +21,13 @@ import useOutsideClick from '../utils/useOutsideClick';
 import useSwipe from '../utils/useSwipe';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faExpandAlt, faCompressAlt } from '@fortawesome/free-solid-svg-icons';
-import { FocusIcon, Rotate3DIcon, MaximizeIcon, MinimizeIcon } from '../icons/customIcons';
+import { FocusIcon, Rotate3DIcon, MaximizeIcon, MinimizeIcon, slideShowToggleIcon as SlideShowToggleIcon } from '../icons/customIcons';
 import { initVrSupport } from '../vrMode';
 import { getSourcesArray } from '../storage/index.js';
 import { getSource, createPublicUrlSource, registerSource, saveSource } from '../storage/index.js';
 import ConnectStorageDialog from './ConnectStorageDialog';
 import ControlsModal from './ControlsModal';
+import { startSlideshow, stopSlideshow } from '../slideshowController';
 import { useCollectionUploadFlow } from './useCollectionUploadFlow.js';
 import { useViewerDrop } from './useViewerDrop.jsx';
 import PwaReloadPrompt from './PwaReloadPrompt';
@@ -66,10 +67,12 @@ function App() {
   const immersiveSensitivity = useStore((state) => state.immersiveSensitivity);
   const slideshowMode = useStore((state) => state.slideshowMode);
   const slideshowPlaying = useStore((state) => state.slideshowPlaying);
+  const setSlideshowMode = useStore((state) => state.setSlideshowMode);
   const fillMode = useStore((state) => state.fillMode);
   const toggleFillMode = useStore((state) => state.toggleFillMode);
   const controlsModalOpen = useStore((state) => state.controlsModalOpen);
   const setControlsModalOpen = useStore((state) => state.setControlsModalOpen);
+  const controlsModalDefaultSubsections = useStore((state) => state.controlsModalDefaultSubsections);
   
   // Local state for viewer initialization
   const [viewerReady, setViewerReady] = useState(false);
@@ -223,6 +226,17 @@ function App() {
       }
     }
   }, []);
+
+  const handleSlideshowToggle = useCallback(() => {
+    if (slideshowMode) {
+      stopSlideshow();
+      setSlideshowMode(false);
+      return;
+    }
+
+    setSlideshowMode(true);
+    startSlideshow();
+  }, [slideshowMode, setSlideshowMode]);
 
   const handleToggleFillMode = useCallback(() => {
     toggleFillMode();
@@ -600,7 +614,18 @@ function App() {
         onPointerDown={() => slideshowMode && slideshowPlaying && revealBottomControls(true, 1000)}
       >
         {/* Left: Asset index button */}
-        <div class="bottom-controls-left">
+        <div class="bottom-controls-right">
+          {assets.length > 0 && (
+            <button
+              class={`bottom-page-btn immersive-toggle ${slideshowMode ? 'is-active' : 'is-inactive'}`}
+              onClick={handleSlideshowToggle}
+              aria-pressed={slideshowMode}
+              aria-label={slideshowMode ? 'Stop slideshow' : 'Start slideshow'}
+              title={slideshowMode ? 'Stop slideshow' : 'Start slideshow'}
+            >
+              <SlideShowToggleIcon size={18} />
+            </button>
+          )}
           {assets.length > 0 && (
             <button
               class="bottom-page-btn"
@@ -689,6 +714,7 @@ function App() {
       <ControlsModal
         isOpen={controlsModalOpen}
         onClose={() => setControlsModalOpen(false)}
+        defaultOpenSubsections={controlsModalDefaultSubsections}
       />
       <PwaReloadPrompt />
       {dropModal}
