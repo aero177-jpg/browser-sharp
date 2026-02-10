@@ -97,9 +97,9 @@ function StorageSourceItem({
   const setCurrentAssetIndex = useStore((state) => state.setCurrentAssetIndex);
   const setUploadState = useStore((state) => state.setUploadState);
 
-  const allowAssets = source.type !== 'local-folder';
+  const allowAssets = true;
   const allowImages = true;
-  const cacheEnabled = source.type !== 'app-storage';
+  const cacheEnabled = source.type !== 'app-storage' && source.type !== 'local-folder';
   const actionButtonStyle = { minWidth: listOnly ? '100px' : '70px' };
 
   const refreshCacheFlagsForSource = useCallback(async () => {

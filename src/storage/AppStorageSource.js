@@ -8,9 +8,14 @@
 import { AssetSource } from './AssetSource.js';
 import { createSourceId, MANIFEST_VERSION } from './types.js';
 import { saveSource } from './sourceManager.js';
-
-const BASE_DIR = 'radia';
-const COLLECTIONS_DIR = `${BASE_DIR}/collections`;
+import {
+  loadCollectionManifest,
+  saveCollectionManifest,
+  loadCachedAssetBlob,
+  saveCachedAssetBlob,
+  deleteCachedAssetBlob,
+  getRemovedAssetNames,
+} from './assetCache.js';
 
 const stripLeadingSlash = (value) => (value || '').replace(/^\/+/, '');
 
@@ -19,9 +24,7 @@ const getFilename = (path) => {
   return parts[parts.length - 1] || path;
 };
 
-const base64ToArrayBuffer = () => {
-  throw new Error('App storage is not available in the web build');
-};
+const isIndexedDbSupported = () => typeof indexedDB !== 'undefined';
 
 export class AppStorageSource extends AssetSource {
   constructor(config) {
@@ -40,62 +43,85 @@ export class AppStorageSource extends AssetSource {
     };
   }
 
-  _collectionRoot() {
-    return `${COLLECTIONS_DIR}/${this.config.config.collectionId}`;
-  }
-
-  _assetsRoot() {
-    return `${this._collectionRoot()}/assets`;
-  }
-
-  _manifestPath() {
-    return `${this._collectionRoot()}/manifest.json`;
-  }
-
-  _assetFsPath(relativePath) {
-    const safePath = stripLeadingSlash(relativePath);
-    return `${this._collectionRoot()}/${safePath}`;
-  }
-
-  _remotePathForFileName(name) {
-    return `assets/${name}`;
-  }
-
   async connect() {
-    this._connected = false;
-    return { success: false, error: 'App storage is not available in the web build' };
+    if (!isIndexedDbSupported()) {
+      this._connected = false;
+      return { success: false, error: 'IndexedDB is not available in this browser' };
+    }
+
+    await this._ensureManifestLoaded();
+    this._connected = true;
+    return { success: true };
   }
 
   async _loadManifest() {
-    this._manifest = null;
-    return null;
+    const manifest = await loadCollectionManifest(this.id);
+    if (!manifest) {
+      this._manifest = null;
+      return null;
+    }
+    this._manifest = manifest;
+    return manifest;
   }
 
   async _saveManifest(manifest) {
     this._manifest = manifest;
+    await saveCollectionManifest(manifest);
     await saveSource(this.toJSON());
   }
 
   async _ensureManifestLoaded() {
-    if (!this._manifest) {
-      const manifest = {
-        version: MANIFEST_VERSION,
-        name: this.config.config.collectionName || this.config.name,
-        assets: [],
-      };
-      await this._saveManifest(manifest);
-    }
-    return this._manifest;
+    if (this._manifest) return this._manifest;
+
+    const existing = await this._loadManifest();
+    if (existing) return existing;
+
+    const manifest = {
+      version: MANIFEST_VERSION,
+      sourceId: this.id,
+      sourceName: this.name,
+      sourceType: this.type,
+      name: this.config.config.collectionName || this.config.name,
+      assets: [],
+      removed: [],
+    };
+    await this._saveManifest(manifest);
+    return manifest;
   }
 
   async listAssets() {
-    this._assets = [];
-    return this._assets;
+    const manifest = await this._ensureManifestLoaded();
+    const removedNames = new Set(await getRemovedAssetNames(this.id));
+    const assets = (manifest?.assets || [])
+      .filter((asset) => asset?.name && !removedNames.has(asset.name))
+      .map((asset) => ({
+        id: `${this.id}/${asset.name}`,
+        name: asset.name,
+        path: asset.path || asset.name,
+        sourceId: this.id,
+        sourceType: this.type,
+        preview: null,
+        previewSource: null,
+        loaded: false,
+        size: asset.size ?? null,
+      }));
+
+    this._assets = assets;
+    return assets;
   }
 
   async fetchAssetData(asset) {
-    void asset;
-    return base64ToArrayBuffer();
+    const fileName = asset?.name || getFilename(asset?.path || '');
+    if (!fileName) {
+      throw new Error('Missing asset name');
+    }
+
+    const record = await loadCachedAssetBlob(fileName);
+    if (!record?.blob) {
+      throw new Error(`Cached asset not found: ${fileName}`);
+    }
+
+    return record.blob.arrayBuffer();
   }
 
   async fetchAssetFile(asset) {
@@ -115,8 +141,33 @@ export class AppStorageSource extends AssetSource {
       .map(item => typeof item === 'string' ? item : item?.path)
       .filter(Boolean)
       .map(p => stripLeadingSlash(p));
+    if (!toDelete.length) return { success: true, removed: [] };
 
-    return { success: false, removed: [], failed: toDelete.map(path => ({ path, error: 'App storage is not available in the web build' })) };
+    const manifest = await this._ensureManifestLoaded();
+    const removed = [];
+    const failed = [];
+
+    for (const path of toDelete) {
+      const fileName = getFilename(path);
+      try {
+        const removedOk = await deleteCachedAssetBlob(fileName);
+        if (!removedOk) {
+          failed.push({ path, error: 'Failed to remove cached asset' });
+          continue;
+        }
+        removed.push(path);
+      } catch (err) {
+        failed.push({ path, error: err?.message || 'Failed to remove cached asset' });
+      }
+    }
+
+    if (manifest) {
+      const removedSet = new Set(removed.map((path) => getFilename(path)));
+      manifest.assets = (manifest.assets || []).filter((asset) => !removedSet.has(asset?.name));
+      await this._saveManifest(manifest);
+    }
+
+    return { success: failed.length === 0, removed, failed };
   }
 
   /**
@@ -125,8 +176,36 @@ export class AppStorageSource extends AssetSource {
    * @returns {Promise<{success: boolean, error?: string, imported?: number}>}
    */
   async importFiles(files) {
-    void files;
-    return { success: false, error: 'App storage is not available in the web build' };
+    if (!isIndexedDbSupported()) {
+      return { success: false, error: 'IndexedDB is not available in this browser' };
+    }
+
+    if (!files?.length) return { success: true, imported: 0 };
+
+    const manifest = await this._ensureManifestLoaded();
+    let imported = 0;
+
+    for (const file of files) {
+      if (!file?.name) continue;
+      const ok = await saveCachedAssetBlob(file.name, file, { size: file.size, type: file.type });
+      if (ok) {
+        imported += 1;
+        const existing = (manifest.assets || []).find((asset) => asset?.name === file.name);
+        if (existing) {
+          existing.size = file.size ?? existing.size ?? null;
+          existing.path = existing.path || file.name;
+        } else {
+          manifest.assets.push({
+            name: file.name,
+            path: file.name,
+            size: file.size ?? null,
+          });
+        }
+      }
+    }
+
+    await this._saveManifest(manifest);
+    return { success: true, imported };
   }
 }
 

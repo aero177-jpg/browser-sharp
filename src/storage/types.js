@@ -146,9 +146,9 @@ export const SOURCE_TIERS = {
   'app-storage': {
     tier: 1,
     label: 'App Storage',
-    description: 'Store collections inside the app for offline use',
+    description: 'Store inside app or browser for offline use',
     benefits: ['Runs fully offline', 'No re-authorization required', 'Private to the app'],
-    requirements: ['Available on Android/iOS app builds'],
+    requirements: [],
     icon: 'database',
   },
   'supabase-storage': {

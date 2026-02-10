@@ -274,7 +274,7 @@ export function useCollectionUploadFlow({
         return;
       }
 
-      if (type === 'app-storage' && typeof resolvedSource?.importFiles === 'function') {
+      if ((type === 'app-storage' || type === 'local-folder') && typeof resolvedSource?.importFiles === 'function') {
         const result = await resolvedSource.importFiles(valid);
         if (!result?.success) {
           onStatus?.('error');

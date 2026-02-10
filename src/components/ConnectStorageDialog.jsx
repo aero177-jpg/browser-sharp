@@ -43,6 +43,12 @@ import CloudGpuForm from './CloudGpuForm.jsx';
 import { useCollectionUploadFlow } from './useCollectionUploadFlow.js';
 import Modal from './Modal';
 
+const isMobileUserAgent = () => {
+  if (typeof navigator === 'undefined') return false;
+  const ua = navigator.userAgent || '';
+  return /Android|iPhone|iPad|iPod|Mobile/i.test(ua);
+};
+
 const ICONS = {
   folder: faFolder,
   cloud: faCloud,
@@ -1839,8 +1845,8 @@ function R2Form({ onConnect, onBack, onClose }) {
 
 function ConnectStorageDialog({ isOpen, onClose, onConnect, editSource, onEditComplete, initialTier = null }) {
   const [selectedTier, setSelectedTier] = useState(editSource?.type || initialTier || null);
-  const localSupported = isFileSystemAccessSupported();
-  const appStorageSupported = false;
+  const localSupported = isFileSystemAccessSupported() && !isMobileUserAgent();
+  const appStorageSupported = typeof indexedDB !== 'undefined';
 
   useEffect(() => {
     if (editSource) {
@@ -1887,7 +1893,7 @@ function ConnectStorageDialog({ isOpen, onClose, onConnect, editSource, onEditCo
           </p>
 
           <div class="storage-tiers">
-            {!appStorageSupported && localSupported && (
+            {localSupported && (
               <TierCard
                 type="local-folder"
                 selected={false}

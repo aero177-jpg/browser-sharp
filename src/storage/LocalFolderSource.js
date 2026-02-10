@@ -59,7 +59,7 @@ export class LocalFolderSource extends AssetSource {
       canReadMetadata: false, // Could be extended to read .meta.json files
       canReadPreviews: true, // Can read matching image files
       persistent: true,
-      writable: false,
+      writable: true,
     };
   }
 
@@ -347,6 +347,54 @@ export class LocalFolderSource extends AssetSource {
     this._assets = assets;
 
     return assets;
+  }
+
+  /**
+   * Import files into the local folder (write to disk).
+   * Requires readwrite permission on the directory handle.
+   * @param {File[]} files
+   * @returns {Promise<{success: boolean, imported?: number, error?: string}>}
+   */
+  async importFiles(files = []) {
+    if (!isFileSystemAccessSupported()) {
+      return { success: false, error: 'File System Access API is not supported in this browser' };
+    }
+
+    if (!files?.length) {
+      return { success: true, imported: 0 };
+    }
+
+    const handle = await this.getHandle();
+    if (!handle) {
+      return { success: false, error: 'No folder access. Reconnect the folder to grant permission.' };
+    }
+
+    try {
+      let permission = await handle.queryPermission({ mode: 'readwrite' });
+      if (permission !== 'granted') {
+        permission = await handle.requestPermission({ mode: 'readwrite' });
+      }
+
+      if (permission !== 'granted') {
+        return { success: false, error: 'Write permission was not granted for this folder.' };
+      }
+
+      let imported = 0;
+      for (const file of files) {
+        if (!file?.name) continue;
+        const fileHandle = await handle.getFileHandle(file.name, { create: true });
+        const writable = await fileHandle.createWritable();
+        await writable.write(file);
+        await writable.close();
+        imported += 1;
+      }
+
+      this._connected = true;
+      return { success: true, imported };
+    } catch (err) {
+      console.error('Local folder import failed:', err);
+      return { success: false, error: err?.message || 'Failed to write files to folder' };
+    }
   }
 
   /**
