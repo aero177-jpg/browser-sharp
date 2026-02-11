@@ -390,7 +390,9 @@ function AssetSidebar() {
                 ) : (
                   <div class="preview-spinner" />
                 )}
-                {asset.isCached && <span class="asset-cache-dot" />}
+                {asset.isCached && asset.sourceType !== 'app-storage' && (
+                  <span class="asset-cache-dot" />
+                )}
               </div>
             </button>
           ))}

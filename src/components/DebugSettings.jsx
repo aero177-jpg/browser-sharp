@@ -722,7 +722,7 @@ function DebugSettings() {
           <span>Render debug</span>
         </div>
 
-        <div class="control-row">
+        {/* <div class="control-row">
           <span class="control-label">Upload overlay</span>
           <button
             type="button"
@@ -731,7 +731,7 @@ function DebugSettings() {
           >
             {debugOverlayButtonLabel}
           </button>
-        </div>
+        </div> */}
 
         <div class="control-row">
           <span class="control-label">Stochastic rendering</span>

@@ -248,7 +248,7 @@ function CloudGpuForm({ onBack }) {
           <p>The URL is generated when you deploy the container app. The API Key is defined by you in the container's secrets.</p>
         </FaqItem>
 
-        <FaqItem question="Is this required for Supabase uploads?">
+        <FaqItem question="Is this required?">
           <p>No. You only need Cloud GPU settings if you plan to convert images before upload.</p>
         </FaqItem>
       </div>

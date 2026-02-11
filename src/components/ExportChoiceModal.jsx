@@ -11,9 +11,9 @@ import Modal from './Modal';
 
 function ExportOptionItem({ title, subtitle, icon: Icon, selected, onSelect, onConfirm, disabled }) {
   const selectedStyle = selected ? {
-    borderColor: 'rgba(110, 231, 255, 0.4)',
-    background: 'rgba(110, 231, 255, 0.1)',
-    boxShadow: '0 0 0 1px rgba(110, 231, 255, 0.2), 0 0 15px rgba(110, 231, 255, 0.15)',
+    borderColor: '#63828866',
+    background: '#253039',
+    boxShadow: 'rgba(110, 231, 255, 0.2) 0px 0px 0px 0px, rgba(132, 198, 203, 0.15) 0 0 8px',
   } : {};
   const disabledStyle = disabled ? {
     opacity: 0.55,
@@ -42,7 +42,7 @@ function ExportOptionItem({ title, subtitle, icon: Icon, selected, onSelect, onC
     >
       <div class="collection-info">
         <div class="collection-icon" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <Icon size={20} />
+          <Icon size={20} color={selected ? undefined : "#5e707cb2"} />
         </div>
         <div class="collection-details">
           <span class="collection-name" style={{ marginBottom: '4px' }}>{title}</span>

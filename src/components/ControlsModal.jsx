@@ -43,7 +43,7 @@ function ControlsModal({ isOpen, onClose, defaultOpenSubsections = [] }) {
   const isTroubleshootingOpen = isAnyOpen(troubleshootingKeys);
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} maxWidth={650}>
+    <Modal isOpen={isOpen} onClose={onClose} maxWidth={650} className="storage-dialog controls-modal">
       <div class="controls-modal">
         <h2 class="controls-modal__title">App overview</h2>
         <div class="controls-modal__scroll">
@@ -80,7 +80,7 @@ function ControlsModal({ isOpen, onClose, defaultOpenSubsections = [] }) {
                   <li><strong>Start slideshow: </strong>Click the play icon on the bottom left of the screen to toggle. pause by tapping the screen, or clicking the play/pause button between the arrow buttons.</li>
                   <li><strong>Settings: </strong>Hold the slideshow button for a second to open slide settings.</li>
                   <li><strong>Continuous mode:</strong> This replaces the side in and out animation with a single sliding animation.</li> 
-                  <li><strong>Landscape zoom:</strong> file-level setting that allows for a deeper zoom animation for images with a distant subject.</li>
+                  <li><strong>Zoom target:</strong> Sets a zoom limit for the current image, overriding slideshow continuous mode presets. "Far" is recommended for landscapes or distant subjects, for example.</li>
                   <li><strong>Transition Range:</strong> Adjusts how wide the orbit or zoom path is, but this can lead to seeing more unwanted artifacts or deformed splats. </li>
                 </ul>
               </Section>
@@ -141,7 +141,7 @@ function ControlsModal({ isOpen, onClose, defaultOpenSubsections = [] }) {
           </Section>
 
           <Section title="Connections" isOpen={isConnectionsOpen}>
-            You can choose to add a remote connection, a local folder (or app storage on mobile). All remote connection configs are stored locally only, this app is strictly a frontend client. Configs can be exported/imported in advanced settings.
+            You can choose to add a remote connection, a local folder, or app storage (best for mobile or PWA desktop app). All remote connection configs are stored locally only, this app is strictly a frontend client. Configs can be exported/imported in advanced settings.
 <br/>
 <br/>
             Splats are not automatically cached in browser due to size constraints, but can be manually cached in advanced settings for offline viewing, and bandwidth savings.
@@ -177,10 +177,10 @@ function ControlsModal({ isOpen, onClose, defaultOpenSubsections = [] }) {
                 <li><strong>Irratic recenter:</strong> This can be caused by experimenting with the fov slider, and can easily be sorted by refreshing the file. </li>
               </ul>
             </Section>
-            <Section title={"Collections"} isOpen={isSubsectionOpen('troubleshooting.collections')}>
+            <Section title="Collections" isOpen={isSubsectionOpen('troubleshooting.collections')}>
               <ul>
                 <li><strong>Files not appearing:</strong> If using a connected cloud storage, make sure you have the correct permissions set up. For Supabase, you can set up a policy with "select" permissions for the relevant table. For R2, make sure your access key and secret key are correct, and that your bucket is set to public.</li>
-                <li><strong>Issues with cloud GPU:</strong> </li> Large upload batches can cause occasional timeouts, and cause some inaccuracies with the progress bar. If the process is complete, but no new images, try manually refreshing the connection.
+                <li><strong>Issues with cloud GPU:</strong> Large upload batches (over 20 images) can cause occasional timeouts, and cause some inaccuracies with the progress bar. If the process is complete, but no new images, try manually refreshing the connection.</li>
               </ul>
             </Section>
           </Section>

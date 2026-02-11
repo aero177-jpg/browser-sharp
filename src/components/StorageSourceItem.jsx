@@ -100,7 +100,7 @@ function StorageSourceItem({
   const allowAssets = true;
   const allowImages = true;
   const cacheEnabled = source.type !== 'app-storage' && source.type !== 'local-folder';
-  const actionButtonStyle = { minWidth: listOnly ? '100px' : '70px' };
+  const actionButtonStyle = { minWidth: listOnly ? '100px' : '80px' };
 
   const refreshCacheFlagsForSource = useCallback(async () => {
     if (!cacheEnabled) {
@@ -470,8 +470,11 @@ function StorageSourceItem({
     e.stopPropagation();
     if (!source.isConnected()) return;
 
-    await refreshAssets();
-  }, [refreshAssets, source]);
+    const refreshed = await refreshAssets();
+    if (refreshed) {
+      onSelect?.(source);
+    }
+  }, [refreshAssets, source, onSelect]);
 
   const handleUploadClick = useCallback((e) => {
     e.stopPropagation();
@@ -625,7 +628,7 @@ function StorageSourceItem({
         onChange={handleUploadChange}
       />
       <div
-        class={`source-item ${isConnected ? 'connected' : ''} ${status} ${isActive ? 'active' : ''}`}
+        class={`source-item ${isConnected ? 'connected' : ''} ${status} ${isActive ? 'active' : ''} ${listOnly ? 'list-only' : ''}`}
         onClick={handleClick}
         style={{ display: 'flex', flexDirection: 'column' }}
       >
