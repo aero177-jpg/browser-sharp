@@ -80,6 +80,7 @@ const UI_PREFERENCES_KEY = 'ui-preferences';
 
 const DEFAULT_UI_PREFS = {
   bgBlur: 40,
+  disableTransparentUi: false,
   animation: {
     intensity: 'medium',
     direction: 'left',
@@ -87,6 +88,7 @@ const DEFAULT_UI_PREFS = {
     continuousMotionSize: 'large',
     continuousMotionDuration: 7,
     slideshowContinuousMode: false,
+    continuousDollyZoom: false,
     slideshowDuration: 3,
     custom: {
       duration: 2.5,
@@ -107,6 +109,10 @@ const normalizeUiPrefs = (raw) => {
     prefs.bgBlur = raw.bgBlur;
   }
 
+  if (typeof raw.disableTransparentUi === 'boolean') {
+    prefs.disableTransparentUi = raw.disableTransparentUi;
+  }
+
   if (raw.animation && typeof raw.animation === 'object') {
     const anim = {};
 
@@ -116,6 +122,9 @@ const normalizeUiPrefs = (raw) => {
     if (typeof raw.animation.continuousMotionSize === 'string') anim.continuousMotionSize = raw.animation.continuousMotionSize;
     if (typeof raw.animation.slideshowContinuousMode === 'boolean') {
       anim.slideshowContinuousMode = raw.animation.slideshowContinuousMode;
+    }
+    if (typeof raw.animation.continuousDollyZoom === 'boolean') {
+      anim.continuousDollyZoom = raw.animation.continuousDollyZoom;
     }
 
     if (Number.isFinite(raw.animation.continuousMotionDuration)) {
@@ -152,6 +161,11 @@ const persistUiPrefs = (state) => {
     prefs.bgBlur = state.bgBlur;
   }
 
+  if (typeof state.disableTransparentUi === 'boolean'
+    && state.disableTransparentUi !== DEFAULT_UI_PREFS.disableTransparentUi) {
+    prefs.disableTransparentUi = state.disableTransparentUi;
+  }
+
   if (state.animationIntensity && state.animationIntensity !== DEFAULT_UI_PREFS.animation.intensity) {
     anim.intensity = state.animationIntensity;
   }
@@ -169,6 +183,9 @@ const persistUiPrefs = (state) => {
   }
   if (typeof state.slideshowContinuousMode === 'boolean' && state.slideshowContinuousMode !== DEFAULT_UI_PREFS.animation.slideshowContinuousMode) {
     anim.slideshowContinuousMode = state.slideshowContinuousMode;
+  }
+  if (typeof state.continuousDollyZoom === 'boolean' && state.continuousDollyZoom !== DEFAULT_UI_PREFS.animation.continuousDollyZoom) {
+    anim.continuousDollyZoom = state.continuousDollyZoom;
   }
   if (Number.isFinite(state.slideshowDuration) && state.slideshowDuration !== DEFAULT_UI_PREFS.animation.slideshowDuration) {
     anim.slideshowDuration = state.slideshowDuration;
@@ -280,6 +297,7 @@ export const useStore = create(
   continuousMotionSize: persistedUiPrefs.animation?.continuousMotionSize ?? 'large',
   continuousMotionDuration: persistedUiPrefs.animation?.continuousMotionDuration ?? 7,
   slideshowContinuousMode: persistedUiPrefs.animation?.slideshowContinuousMode ?? false,
+  continuousDollyZoom: persistedUiPrefs.animation?.continuousDollyZoom ?? false,
   slideshowMode: false,
   slideshowUseCustom: false,
   slideshowDuration: persistedUiPrefs.animation?.slideshowDuration ?? 3,
@@ -353,6 +371,7 @@ export const useStore = create(
   immersiveMode: false,
   immersiveSensitivity: 1.0,
   bgBlur: persistedUiPrefs.bgBlur ?? 40,
+  disableTransparentUi: persistedUiPrefs.disableTransparentUi ?? false,
   fillMode: true,
   
   // Debug
@@ -458,6 +477,12 @@ export const useStore = create(
   setSlideshowContinuousMode: (enabled) => {
     set({ slideshowContinuousMode: enabled });
     persistUiPrefs({ ...get(), slideshowContinuousMode: enabled });
+  },
+
+  /** Enables/disables continuous dolly-zoom (zoom + continuous) */
+  setContinuousDollyZoom: (enabled) => {
+    set({ continuousDollyZoom: enabled });
+    persistUiPrefs({ ...get(), continuousDollyZoom: enabled });
   },
   
   /** Enables/disables slideshow mode */
@@ -612,6 +637,12 @@ export const useStore = create(
   setBgBlur: (bgBlur) => {
     set({ bgBlur });
     persistUiPrefs({ ...get(), bgBlur });
+  },
+
+  /** Enables/disables transparent UI for modals */
+  setDisableTransparentUi: (disableTransparentUi) => {
+    set({ disableTransparentUi: Boolean(disableTransparentUi) });
+    persistUiPrefs({ ...get(), disableTransparentUi: Boolean(disableTransparentUi) });
   },
 
   /** Enables/disables stochastic rendering in Spark */

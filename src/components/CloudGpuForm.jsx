@@ -57,7 +57,7 @@ function CloudGpuForm({ onBack }) {
         apiUrl: saved?.apiUrl || '',
         apiKey: saved?.apiKey || '',
         gpuType: saved?.gpuType || 'a10',
-        batchUploads: saved?.batchUploads ?? false,
+        batchUploads: saved?.batchUploads ?? true,
       };
     },
     []
@@ -203,9 +203,9 @@ function CloudGpuForm({ onBack }) {
             />
             <span>Enable batch uploads</span>
           </label>
-          <div style={{ fontSize: '0.85em', color: 'var(--text-secondary, #bbb)', marginTop: '6px' }}>
-            Faster, but less robust — a failed image can stop the whole batch.
-          </div>
+          <i style={{ fontSize: '0.85em', marginTop: '6px', color: "#a0aec0" }}>
+            Faster, but less reliable on large batches.
+          </i>
         </div>
       </div>
 

@@ -296,7 +296,7 @@ function AppStorageForm({ onConnect, onBack }) {
       </div>
 
       <div class="form-field">
-        <label>Import assets (optional)</label>
+        <label>Import 3dgs files (optional)</label>
         <input
           ref={uploadInputRef}
           type="file"
@@ -306,7 +306,7 @@ function AppStorageForm({ onConnect, onBack }) {
           onChange={handleUploadChange}
         />
         <button class="secondary-button" onClick={handlePickFiles} type="button" style={{ marginTop: '8px' }}>
-          {selectedFiles.length > 0 ? `Selected ${selectedFiles.length} file(s)` : 'Pick files'}
+          {selectedFiles.length > 0 ? `Selected ${selectedFiles.length} file(s)` : 'Choose files'}
         </button>
         <span class="field-hint">Supported: {supportedExtensions.join(', ')}</span>
       </div>
@@ -521,7 +521,7 @@ function UrlCollectionForm({ onConnect, onBack, initialSource, editMode = false,
             );
           })}
         </div>
-        <button class="add-url-btn" onClick={addRow} type="button">
+        <button class="primary-button" onClick={addRow} type="button">
           <FontAwesomeIcon icon={faPlus} />
           <span>Add another URL</span>
         </button>

@@ -18,6 +18,7 @@ import { clearRemovedAssets, getSource, isSourceAsset, loadAssetFile } from '../
 import { zipSync } from 'fflate';
 import TransferDataModal from './TransferDataModal';
 import ExportChoiceModal from './ExportChoiceModal';
+import BatchPreviewModal from './BatchPreviewModal';
 
 
 function DebugSettings() {
@@ -35,6 +36,8 @@ function DebugSettings() {
   const setUploadState = useStore((state) => state.setUploadState);
   const bgBlur = useStore((state) => state.bgBlur);
   const setBgBlur = useStore((state) => state.setBgBlur);
+  const disableTransparentUi = useStore((state) => state.disableTransparentUi);
+  const setDisableTransparentUi = useStore((state) => state.setDisableTransparentUi);
   const debugStochasticRendering = useStore((state) => state.debugStochasticRendering);
   const setDebugStochasticRendering = useStore((state) => state.setDebugStochasticRendering);
   const debugFpsLimitEnabled = useStore((state) => state.debugFpsLimitEnabled);
@@ -62,6 +65,7 @@ function DebugSettings() {
   const [isRestoringRemoved, setIsRestoringRemoved] = useState(false);
   const [transferModalOpen, setTransferModalOpen] = useState(false);
   const [exportModalOpen, setExportModalOpen] = useState(false);
+  const [batchPreviewModalOpen, setBatchPreviewModalOpen] = useState(false);
 
   // Debug upload overlay simulation
   const [debugOverlayStep, setDebugOverlayStep] = useState(0);
@@ -272,19 +276,12 @@ function DebugSettings() {
   }, [addLog, updateAssetPreview]);
 
   /** Generate previews for all assets in batch mode */
-  const handleGenerateAllPreviews = useCallback(async () => {
+  const startGenerateAllPreviews = useCallback(async () => {
     const assetList = getAssetList();
     if (assetList.length === 0) {
       addLog('[BatchPreview] No assets loaded');
       return;
     }
-
-    const confirmed = window.confirm(
-      `Generate previews for all ${assetList.length} assets?\n\n` +
-      `This will rapidly load each asset without animations and capture a preview image. ` +
-      `The UI will be hidden during generation.`
-    );
-    if (!confirmed) return;
 
     setGeneratingBatch(true);
     setBatchProgress({ current: 0, total: assetList.length, name: '' });
@@ -307,6 +304,15 @@ function DebugSettings() {
       refreshAssets();
     }
   }, [addLog, refreshAssets]);
+
+  const handleOpenBatchPreviewModal = useCallback(() => {
+    setBatchPreviewModalOpen(true);
+  }, []);
+
+  const handleConfirmBatchPreview = useCallback(() => {
+    setBatchPreviewModalOpen(false);
+    startGenerateAllPreviews();
+  }, [startGenerateAllPreviews]);
 
   /** Abort batch preview generation */
   const handleAbortBatchPreview = useCallback(() => {
@@ -607,6 +613,18 @@ function DebugSettings() {
           </div>
         </div>
 
+        <div class="control-row">
+          <span class="control-label">Disable transparent UI</span>
+          <label class="switch">
+            <input
+              type="checkbox"
+              checked={disableTransparentUi}
+              onChange={(e) => setDisableTransparentUi(e.target.checked)}
+            />
+            <span class="switch-track" aria-hidden="true" />
+          </label>
+        </div>
+
         <div class="settings-divider">
           <span>Cache</span>
         </div>
@@ -675,7 +693,7 @@ function DebugSettings() {
               <button
                 type="button"
                 class="secondary"
-                onClick={handleGenerateAllPreviews}
+                onClick={handleOpenBatchPreviewModal}
               >
                 Generate All
               </button>
@@ -802,6 +820,13 @@ function DebugSettings() {
               ? `Estimate based on ${collectionInfo.sogCount} .sog file${collectionInfo.sogCount === 1 ? '' : 's'} × 11MB.`
               : '')
         }
+      />
+      <BatchPreviewModal
+        isOpen={batchPreviewModalOpen}
+        onClose={() => setBatchPreviewModalOpen(false)}
+        onConfirm={handleConfirmBatchPreview}
+        assetCount={assets.length}
+        isBusy={generatingBatch}
       />
     </>
   );

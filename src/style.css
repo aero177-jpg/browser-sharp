@@ -21,11 +21,11 @@ body {
 }
 a {
   font-weight: 500;
-  color: #68cfe3;
+  color: #7487aa;
   text-decoration: none;
 }
 a:hover {
-  color: #90e0f0;
+  color: #8aa0c9;;
   text-decoration: underline;
 }
 /* Remove blue tap highlight on mobile/touch for buttons and interactive elements */
@@ -2539,6 +2539,17 @@ select option {
   transition: all 0.2s ease;
 }
 
+.modal-actions button.modal-confirm-btn {
+  background: #31516345;
+  border: 1px solid #4b5a64;
+  color: rgb(170, 188, 202);
+}
+
+.modal-actions button.modal-confirm-btn:hover {
+background: #3e576c52;
+    border-color: #5d6c857a;
+}
+
 .modal-actions button:hover {
   background: rgba(255, 255, 255, 0.1);
 }
@@ -2702,8 +2713,11 @@ select option {
 }
 
 .controls-modal ul {
-  margin: 0;
-  padding-left: 18px;
+border-radius: 10px;
+    padding: 10px 18px 10px 24px;
+    background: #181a1fb6;
+    border: 1px solid #4a55685c;
+    margin: 0;
 }
 
 .controls-modal li {
@@ -2922,14 +2936,14 @@ select option {
   width: 100%;
 }
 
-.storage-tier-card:hover:not(.disabled) {
-  background: rgba(110, 231, 255, 0.05);
-  border-color: rgba(110, 231, 255, 0.2);
+.storage-tier-card:hover:not(.disabled):not(.selected) {
+ background: #515d6f52;
+    border-color: #5d6c857a;
 }
 
 .storage-tier-card.selected {
-  background: rgba(110, 231, 255, 0.08);
-  border-color: rgba(110, 231, 255, 0.4);
+ background: #364351bf;
+    border-color: #587283;
 }
 
 .storage-tier-card.disabled {
@@ -2944,7 +2958,8 @@ select option {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(110, 231, 255, 0.1);
+  background: rgb(25 26 30 / 65%);
+  border: 1px solid #343c497a;
   border-radius: 10px;
   font-size: 18px;
   color: var(--faded-blue);
@@ -3160,8 +3175,8 @@ select option {
   padding: 12px 20px;
   background: #31516345;
   border: 1px solid #4b5a64;
+  color: rgb(134 171 196);
   border-radius: 8px;
-  color: var(--faded-blue);
   font-size: 15px;
   font-weight: 500;
   cursor: pointer;
@@ -3170,12 +3185,11 @@ select option {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  color: rgb(170, 188, 202);
 }
 
 .primary-button:hover:not(:disabled) {
-  background: #3f788540;
-  border-color: #5faab980;
+background: #3e576c52;
+    border-color: #5d6c857a;
 }
 
 .primary-button:disabled {
@@ -3267,8 +3281,9 @@ select option {
 }
 
 .form-section {
+  color: #b5c0cf;
   margin-top: 14px;
-  background: rgba(0, 0, 0, 0.15);
+  background: #1012178f;
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 8px;
   padding: 12px;
@@ -3377,10 +3392,10 @@ select option {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(255, 80, 80, 0.1);
-  border: 1px solid rgba(255, 80, 80, 0.2);
+  background: rgba(243, 111, 111, 0.04);
+  border: 1px solid rgba(246, 121, 121, 0.107);
   border-radius: 6px;
-  color: #ff6b6b;
+  color: #d36969c6;
   cursor: pointer;
   transition: all 0.2s ease;
   font-size: 14px;
@@ -3782,7 +3797,8 @@ select option {
 }
 
 .faq-answer {
-  padding: 0 14px 14px 42px;
+  margin-top: -15px;
+  padding: 0 14px 0px 42px;
   font-size: 13px;
   color: #a0aec0;
   line-height: 1.6;
@@ -3856,6 +3872,48 @@ select option {
   cursor: not-allowed;
 }
 
+.list-item {
+  /* width: 100%;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  transition: all 0.2s ease;
+  text-align: left; */
+   display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  background: #22293085;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-align: left;
+  color: inherit;
+  width: 100%;
+}
+
+.list-item:hover {
+   background: #44535742;
+  border-color: #404c5b;
+}
+
+.list-item:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.list-item .selected {
+
+}
+
 .collection-info {
   display: flex;
   align-items: center;
@@ -3905,7 +3963,7 @@ select option {
 
 .collection-arrow {
   transform: scaleX(1.2);
-  color: #4a5568;
+  color: #5c849f;
   font-size: 12px;
   flex-shrink: 0;
 }

@@ -2,7 +2,7 @@
  * Continuous slideshow animations: zoom, orbit, and vertical-orbit.
  * These run as long-lived GSAP tweens during slideshow "continuous" mode.
  */
-import { camera, controls, requestRender, THREE } from "./viewer.js";
+import { camera, controls, requestRender, THREE, updateDollyZoomBaselineFromCamera } from "./viewer.js";
 import { useStore } from "./store.js";
 import gsap from "gsap";
 
@@ -20,6 +20,12 @@ const CONTINUOUS_ZOOM_END_RATIO_BY_SIZE = {
   small: 0.22,
   medium: 0.30,
   large: 0.36,
+};
+
+const CONTINUOUS_DOLLY_ZOOM_DEGREES_BY_SIZE = {
+  small: { startDelta: 10, endDelta: 0 },
+  medium: { startDelta: 20, endDelta: -10 },
+  large: { startDelta: 30, endDelta: -20 },
 };
 
 const CONTINUOUS_ORBIT_DURATION = 10;
@@ -41,6 +47,7 @@ const CONTINUOUS_SIZE_SCALE = {
 // ============================================================================
 
 let continuousZoomTween = null;
+let continuousDollyZoomTween = null;
 let continuousOrbitTween = null;
 let continuousOrbitState = null;
 let continuousVerticalOrbitTween = null;
@@ -88,6 +95,26 @@ const getContinuousZoomRatios = () => {
     start: CONTINUOUS_ZOOM_START_RATIO_BY_SIZE[sizeKey] ?? CONTINUOUS_ZOOM_START_RATIO_BY_SIZE.large,
     end: CONTINUOUS_ZOOM_END_RATIO_BY_SIZE[sizeKey] ?? CONTINUOUS_ZOOM_END_RATIO_BY_SIZE.large,
   };
+};
+
+const resolveDollyZoomProfileKey = () => {
+  const { continuousMotionSize, slideMode, fileCustomAnimation } = getStoreState();
+  const zoomProfile = slideMode === 'zoom' ? fileCustomAnimation?.zoomProfile : null;
+  if (zoomProfile && zoomProfile !== 'default') {
+    return zoomProfile;
+  }
+  const sizeKey = continuousMotionSize ?? 'large';
+  if (sizeKey === 'small') return 'near';
+  if (sizeKey === 'medium') return 'medium';
+  return 'far';
+};
+
+const getContinuousDollyZoomDeltas = () => {
+  const profileKey = resolveDollyZoomProfileKey();
+  if (profileKey === 'near') return CONTINUOUS_DOLLY_ZOOM_DEGREES_BY_SIZE.small;
+  if (profileKey === 'medium') return CONTINUOUS_DOLLY_ZOOM_DEGREES_BY_SIZE.medium;
+  if (profileKey === 'far') return CONTINUOUS_DOLLY_ZOOM_DEGREES_BY_SIZE.large;
+  return CONTINUOUS_DOLLY_ZOOM_DEGREES_BY_SIZE.large;
 };
 
 const getDurationScale = (durationSec, baseDurationSec) => {
@@ -167,6 +194,13 @@ export const cancelContinuousZoomAnimation = () => {
   }
 };
 
+export const cancelContinuousDollyZoomAnimation = () => {
+  if (continuousDollyZoomTween) {
+    continuousDollyZoomTween.kill();
+    continuousDollyZoomTween = null;
+  }
+};
+
 export const cancelContinuousOrbitAnimation = () => {
   if (continuousOrbitTween) {
     continuousOrbitTween.kill();
@@ -207,6 +241,7 @@ export const continuousZoomSlideIn = (duration, amount, options = {}) => {
     const currentTarget = controls.target.clone();
     const distance = currentPosition.distanceTo(currentTarget);
     const forward = new THREE.Vector3().subVectors(currentTarget, currentPosition).normalize();
+
 
     const durationSec = getContinuousDurationSeconds('continuous-zoom', CONTINUOUS_ZOOM_DURATION);
     const { start: startRatio, end: endRatio } = getContinuousZoomRatios();
@@ -249,6 +284,60 @@ export const continuousZoomSlideIn = (duration, amount, options = {}) => {
       requestRender();
       startMainAnimation();
     }
+
+    scheduleSlideInCleanup(viewerEl, fadeDurationSec, resolve);
+  });
+};
+
+/**
+ * Continuous dolly-zoom slide-in: animate FOV with dolly compensation.
+ * @returns {Promise} Resolves when CSS fade completes (tween continues in background).
+ */
+export const continuousDollyZoomSlideIn = (duration, amount, options = {}) => {
+  return new Promise((resolve) => {
+    cancelContinuousDollyZoomAnimation();
+    cancelContinuousZoomAnimation();
+    cancelContinuousOrbitAnimation();
+    cancelContinuousVerticalOrbitAnimation();
+    const { viewerEl, fadeDurationSec, canAnimate } = beginContinuousSlideIn(duration);
+    if (!canAnimate) { resolve(); return; }
+
+    const { startDelta, endDelta } = getContinuousDollyZoomDeltas();
+
+    const baseFov = camera.fov;
+    const baseDistance = camera.position.distanceTo(controls.target);
+    const baseDirection = new THREE.Vector3()
+      .subVectors(camera.position, controls.target)
+      .normalize();
+    const baseTan = Math.tan(THREE.MathUtils.degToRad(baseFov / 2));
+
+    const startFov = THREE.MathUtils.clamp(baseFov + startDelta, 20, 120);
+    const endFov = THREE.MathUtils.clamp(baseFov + endDelta, 20, 120);
+
+    const durationSec = getContinuousDurationSeconds('continuous-dolly-zoom', CONTINUOUS_ZOOM_DURATION);
+    const proxy = { t: 0 };
+
+    continuousDollyZoomTween = gsap.to(proxy, {
+      t: 1,
+      duration: durationSec,
+      ease: "none",
+      onUpdate: () => {
+        const newFov = THREE.MathUtils.lerp(startFov, endFov, proxy.t);
+        const newTan = Math.tan(THREE.MathUtils.degToRad(newFov / 2));
+        const newDistance = baseDistance * (baseTan / newTan);
+
+        camera.position.copy(controls.target).addScaledVector(baseDirection, newDistance);
+        camera.fov = newFov;
+        camera.updateProjectionMatrix();
+        controls.update();
+        getStoreState().setFov(Math.round(newFov));
+        requestRender();
+      },
+      onComplete: () => {
+        continuousDollyZoomTween = null;
+        updateDollyZoomBaselineFromCamera();
+      },
+    });
 
     scheduleSlideInCleanup(viewerEl, fadeDurationSec, resolve);
   });
@@ -431,10 +520,11 @@ export const continuousVerticalOrbitSlideIn = (duration, amount, options = {}) =
 
 /** Returns the currently active continuous tween, or null. */
 export const getActiveContinuousTween = () =>
-  continuousZoomTween ?? continuousOrbitTween ?? continuousVerticalOrbitTween ?? null;
+  continuousDollyZoomTween ?? continuousZoomTween ?? continuousOrbitTween ?? continuousVerticalOrbitTween ?? null;
 
 /** Pauses all active continuous tweens in place. */
 export const pauseContinuousAnimations = () => {
+  if (continuousDollyZoomTween) continuousDollyZoomTween.pause();
   if (continuousZoomTween) continuousZoomTween.pause();
   if (continuousOrbitTween) continuousOrbitTween.pause();
   if (continuousVerticalOrbitTween) continuousVerticalOrbitTween.pause();
@@ -442,6 +532,7 @@ export const pauseContinuousAnimations = () => {
 
 /** Resumes all paused continuous tweens. */
 export const resumeContinuousAnimations = () => {
+  if (continuousDollyZoomTween) continuousDollyZoomTween.resume();
   if (continuousZoomTween) continuousZoomTween.resume();
   if (continuousOrbitTween) continuousOrbitTween.resume();
   if (continuousVerticalOrbitTween) continuousVerticalOrbitTween.resume();

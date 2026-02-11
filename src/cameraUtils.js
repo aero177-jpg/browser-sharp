@@ -140,6 +140,7 @@ export const applyFocusDistanceOverride = (distance) => {
   const target = camera.position.clone().addScaledVector(focusDirection, distance);
   controls.target.copy(target);
   controls.update();
+  updateDollyZoomBaselineFromCamera();
   requestRender();
 };
 
@@ -165,6 +166,7 @@ export const applyCameraPose = (pose) => {
   camera.updateProjectionMatrix();
   controls.target.copy(pose.target);
   controls.update();
+  updateDollyZoomBaselineFromCamera();
 };
 
 const hasPoseDelta = (from, to) => {

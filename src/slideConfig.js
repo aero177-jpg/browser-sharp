@@ -189,6 +189,7 @@ export const createSlideOutSpeedProfile = (config, totalDuration) => {
 
 export const isContinuousMode = (mode) => (
   mode === 'continuous-zoom' ||
+  mode === 'continuous-dolly-zoom' ||
   mode === 'continuous-orbit' ||
   mode === 'continuous-orbit-vertical'
 );

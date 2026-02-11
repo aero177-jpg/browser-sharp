@@ -12,6 +12,7 @@ import { hasMultipleAssets } from "./assetManager.js";
 import { cancelLoadZoomAnimation } from "./customAnimations.js";
 import {
   cancelContinuousZoomAnimation,
+  cancelContinuousDollyZoomAnimation,
   cancelContinuousOrbitAnimation,
   cancelContinuousVerticalOrbitAnimation,
   pauseContinuousAnimations,
@@ -20,6 +21,7 @@ import {
 } from "./cameraAnimations.js";
 import {
   continuousZoomSlideIn,
+  continuousDollyZoomSlideIn,
   continuousOrbitSlideIn,
   continuousVerticalOrbitSlideIn,
 } from "./continuousAnimations.js";
@@ -154,6 +156,7 @@ export const resetSlideshow = () => {
 
   cancelLoadZoomAnimation();
   cancelContinuousZoomAnimation();
+  cancelContinuousDollyZoomAnimation();
   cancelContinuousOrbitAnimation();
   cancelContinuousVerticalOrbitAnimation();
 
@@ -272,7 +275,9 @@ const startContinuousForCurrentMode = () => {
   const mode =
     baseSlideMode === 'horizontal' ? 'continuous-orbit' :
     baseSlideMode === 'vertical'   ? 'continuous-orbit-vertical' :
-    baseSlideMode === 'zoom'       ? 'continuous-zoom' :
+    baseSlideMode === 'zoom'
+      ? (store.continuousDollyZoom ? 'continuous-dolly-zoom' : 'continuous-zoom')
+      : null;
     null;
   if (!mode) return;
 
@@ -280,8 +285,9 @@ const startContinuousForCurrentMode = () => {
   const opts = { glideDuration: GLIDE_DURATION };
   console.log(`[Slideshow] Starting continuous ${mode} animation (glide ${GLIDE_DURATION}s)`);
 
-  if (mode === 'continuous-zoom')           continuousZoomSlideIn(duration, amount, opts);
-  else if (mode === 'continuous-orbit')     continuousOrbitSlideIn(duration, amount, opts);
+  if (mode === 'continuous-zoom')                continuousZoomSlideIn(duration, amount, opts);
+  else if (mode === 'continuous-dolly-zoom')     continuousDollyZoomSlideIn(duration, amount, opts);
+  else if (mode === 'continuous-orbit')          continuousOrbitSlideIn(duration, amount, opts);
   else if (mode === 'continuous-orbit-vertical') continuousVerticalOrbitSlideIn(duration, amount, opts);
 };
 

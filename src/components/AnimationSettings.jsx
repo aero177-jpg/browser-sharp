@@ -81,6 +81,7 @@ function AnimationSettings() {
   const currentAssetIndex = useStore((state) => state.currentAssetIndex);
   const slideshowMode = useStore((state) => state.slideshowMode);
   const slideshowContinuousMode = useStore((state) => state.slideshowContinuousMode);
+  const continuousDollyZoom = useStore((state) => state.continuousDollyZoom);
   const slideshowDuration = useStore((state) => state.slideshowDuration);
   const slideshowPlaying = useStore((state) => state.slideshowPlaying);
   const animSettingsExpanded = useStore((state) => state.animSettingsExpanded);
@@ -97,6 +98,7 @@ function AnimationSettings() {
   const setContinuousMotionDurationStore = useStore((state) => state.setContinuousMotionDuration);
   const setSlideshowModeStore = useStore((state) => state.setSlideshowMode);
   const setSlideshowContinuousModeStore = useStore((state) => state.setSlideshowContinuousMode);
+  const setContinuousDollyZoomStore = useStore((state) => state.setContinuousDollyZoom);
   const setSlideshowDurationStore = useStore((state) => state.setSlideshowDuration);
   const setCustomAnimation = useStore((state) => state.setCustomAnimation);
   const setFileCustomAnimation = useStore((state) => state.setFileCustomAnimation);
@@ -406,6 +408,20 @@ function AnimationSettings() {
                 <option key={value} value={value}>{label}</option>
               ))}
             </select>
+          </div>
+        )}
+
+        {slideMode === 'zoom' && slideshowContinuousMode && (
+          <div class="control-row animate-toggle-row">
+            <span class="control-label">Dolly Zoom</span>
+            <label class="switch">
+              <input
+                type="checkbox"
+                checked={continuousDollyZoom}
+                onChange={(e) => setContinuousDollyZoomStore(e.target.checked)}
+              />
+              <span class="switch-track" aria-hidden="true" />
+            </label>
           </div>
         )}
 

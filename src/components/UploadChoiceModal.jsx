@@ -15,18 +15,6 @@ import { loadCloudGpuSettings } from '../storage/cloudGpuSettings.js';
 import Modal from './Modal';
 
 function UploadOptionItem({ title, subtitle, icon: Icon, selected, onSelect, onConfirm, disabled }) {
-  const selectedStyle = selected ? {
-    borderColor: '#63828866',
-    background: '#253039',
-    boxShadow: 'rgba(110, 231, 255, 0.2) 0px 0px 0px 0px, rgba(132, 198, 203, 0.15) 0 0 8px',
-  } : {};
-  const disabledStyle = disabled ? {
-    opacity: 0.55,
-    cursor: 'not-allowed',
-    borderColor: 'rgba(255, 255, 255, 0.08)',
-    boxShadow: 'none'
-  } : {};
-  const combinedStyle = { ...selectedStyle, ...disabledStyle };
 
   const handleClick = () => {
     if (disabled) return;
@@ -39,10 +27,9 @@ function UploadOptionItem({ title, subtitle, icon: Icon, selected, onSelect, onC
 
   return (
     <button
-      class={`existing-collection-item ${selected ? 'selected' : ''}`}
+      class={`storage-tier-card ${selected ? 'selected' : ''}`}
       onClick={handleClick}
       type="button"
-      style={combinedStyle}
       disabled={disabled}
     >
       <div class="collection-info">
@@ -148,9 +135,9 @@ function UploadChoiceModal({
       </div>
 
       {note && (
-        <p class="dialog-subtitle" style={{ marginTop: '12px', color: 'var(--text-muted, #888)' }}>
+        <i class="dialog-subtitle" style={{ marginTop: '12px', color: '#8a9bb8' }}>
           {note}
-        </p>
+        </i>
       )}
 
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '24px' }}>

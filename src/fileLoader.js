@@ -36,7 +36,7 @@ import {
   applyFullOrbitConstraints,
   restoreOrbitConstraints,
 } from "./customMetadata.js";
-import { slideOutAnimation, slideInAnimation, cancelContinuousZoomAnimation, cancelContinuousOrbitAnimation, cancelContinuousVerticalOrbitAnimation } from "./cameraAnimations.js";
+import { slideOutAnimation, slideInAnimation, cancelContinuousZoomAnimation, cancelContinuousDollyZoomAnimation, cancelContinuousOrbitAnimation, cancelContinuousVerticalOrbitAnimation } from "./cameraAnimations.js";
 import { resetSlideshowTimer } from "./slideshowController.js";
 import { isImmersiveModeActive, pauseImmersiveMode, resumeImmersiveMode } from "./immersiveMode.js";
 import { applyIntrinsicsAspect, updateViewerAspectRatio, resize } from "./layout.js";
@@ -255,7 +255,7 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
       : baseSlideMode === 'vertical'
         ? 'continuous-orbit-vertical'
         : baseSlideMode === 'zoom'
-          ? 'continuous-zoom'
+          ? (store.continuousDollyZoom ? 'continuous-dolly-zoom' : 'continuous-zoom')
           : baseSlideMode)
     : baseSlideMode;
 
@@ -367,7 +367,7 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
 
     setCurrentMesh(entry.mesh);
     viewerEl.classList.add("has-mesh");
-    spark.update({ scene });
+    spark?.update?.({ scene });
 
     // Fire-and-forget neighbor preloading (don't block current asset)
     const neighborIds = new Set(neighborAssets.map((neighbor) => neighbor.id));
@@ -378,7 +378,7 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
       .filter((neighbor) => neighbor.id !== asset.id)
       .forEach((neighbor) => {
         ensureSplatEntry(neighbor)
-          .then(() => spark.update({ scene }))
+          .then(() => spark?.update?.({ scene }))
           .catch((err) => {
             console.warn(`[SplatManager] Failed to preload ${neighbor.name}:`, err);
           });
@@ -510,6 +510,7 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
 
     // Stop any in-progress continuous zoom before applying new camera settings
     cancelContinuousZoomAnimation();
+    cancelContinuousDollyZoomAnimation();
     cancelContinuousOrbitAnimation();
     cancelContinuousVerticalOrbitAnimation();
 
@@ -900,7 +901,7 @@ export const handleMultipleFiles = async (files) => {
   resetSplatManager();
   setCurrentMesh(null);
   hasLoadedFirstAsset = false; // Reset first load flag for new asset list
-  spark.update({ scene });
+  spark?.update?.({ scene });
 
   // Update store with assets
   store.setAssets(result.assets);
@@ -1061,7 +1062,7 @@ export const loadFromStorageSource = async (source, options = {}) => {
       resetSplatManager();
       setCurrentMesh(null);
       hasLoadedFirstAsset = false;
-      spark.update({ scene });
+      spark?.update?.({ scene });
       clearBackground();
       const pageEl = document.querySelector(".page");
       if (pageEl) {
@@ -1074,7 +1075,7 @@ export const loadFromStorageSource = async (source, options = {}) => {
     resetSplatManager();
     setCurrentMesh(null);
     hasLoadedFirstAsset = false; // Reset first load flag for new source
-    spark.update({ scene });
+    spark?.update?.({ scene });
     
     // Clear background
     clearBackground();

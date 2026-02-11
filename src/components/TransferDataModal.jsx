@@ -88,7 +88,7 @@ function TransferOptionItem({ title, subtitle, icon, selected, onToggle, disable
 
   return (
     <button
-      class={`existing-collection-item ${selected ? 'selected' : ''}`}
+      class={`storage-tier-card ${selected ? 'selected' : ''}`}
       onClick={disabled ? undefined : onToggle}
       type="button"
       style={disabledStyle}

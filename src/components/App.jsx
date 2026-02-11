@@ -267,7 +267,7 @@ function App() {
       slideshowHoldTriggered.current = true;
       setSlideshowOptionsOpen(true);
       slideshowHoldTimeout.current = null;
-    }, 700);
+    }, 500);
   }, []);
 
   const handleSlideshowHoldEnd = useCallback(() => {

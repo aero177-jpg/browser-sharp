@@ -94,7 +94,7 @@ const getCollectionUploadCopy = (source) => {
       assetTitle: '3dgs asset upload',
       assetSubtitle: 'Uploads supported 3DGS assets to Supabase storage.',
       imageTitle: 'Images to convert',
-      imageSubtitle: 'Sends images to Cloud GPU and uploads the results to Supabase.',
+      imageSubtitle: 'Sends images to cloud GPU and uploads the results to Supabase.',
       note: '',
     };
   }
@@ -106,7 +106,7 @@ const getCollectionUploadCopy = (source) => {
       assetTitle: '3dgs asset upload',
       assetSubtitle: 'Uploads supported 3DGS assets to R2 storage.',
       imageTitle: 'Images to convert',
-      imageSubtitle: 'Sends images to Cloud GPU and uploads the results to R2.',
+      imageSubtitle: 'Sends images to cloud GPU and uploads the results to R2.',
       note: '',
     };
   }
@@ -118,7 +118,7 @@ const getCollectionUploadCopy = (source) => {
       assetTitle: '3dgs asset import',
       assetSubtitle: 'Saves supported 3DGS assets into app storage.',
       imageTitle: 'Images to convert',
-      imageSubtitle: 'Sends images to Cloud GPU and saves results into app storage.',
+      imageSubtitle: 'Sends images to cloud GPU and saves results into app storage.',
       note: '',
     };
   }
@@ -130,7 +130,7 @@ const getCollectionUploadCopy = (source) => {
       assetTitle: '3dgs assets',
       assetSubtitle: 'Adds supported 3DGS assets to the temporary queue.',
       imageTitle: 'Images to convert',
-      imageSubtitle: 'Sends images to Cloud GPU and downloads the results.',
+      imageSubtitle: 'Sends images to cloud GPU and downloads the results.',
       note: 'Files added here are temporary unless saved to a storage collection.',
     };
   }
@@ -141,7 +141,7 @@ const getCollectionUploadCopy = (source) => {
     assetTitle: '3dgs assets',
     assetSubtitle: 'Adds supported 3DGS assets to the temporary queue.',
     imageTitle: 'Images to convert',
-    imageSubtitle: 'Sends images to Cloud GPU and adds converted assets to the queue.',
+    imageSubtitle: 'Sends images to cloud GPU and adds converted assets to the queue.',
     note: 'Files added here are temporary unless saved to a storage collection.',
   };
 };

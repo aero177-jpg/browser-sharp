@@ -7,7 +7,7 @@
  * This file re-exports the public API from both so existing import sites
  * can keep importing from "./cameraAnimations.js" with no changes.
  */
-import { camera, controls, requestRender, THREE, bgImageContainer } from "./viewer.js";
+import { camera, controls, requestRender, THREE, bgImageContainer, updateDollyZoomBaselineFromCamera, dollyZoomBaseDistance, dollyZoomBaseFov } from "./viewer.js";
 import { cancelLoadZoomAnimation } from "./customAnimations.js";
 import { useStore } from "./store.js";
 import gsap from "gsap";
@@ -18,6 +18,7 @@ export { SLIDESHOW_CONFIG, SLIDE_PRESETS } from "./slideConfig.js";
 // Re-export continuous cancel helpers (public)
 export {
   cancelContinuousZoomAnimation,
+  cancelContinuousDollyZoomAnimation,
   cancelContinuousOrbitAnimation,
   cancelContinuousVerticalOrbitAnimation,
   pauseContinuousAnimations,
@@ -41,8 +42,10 @@ import {
 
 import {
   cancelContinuousZoomAnimation,
+  cancelContinuousDollyZoomAnimation,
   cancelContinuousOrbitAnimation,
   cancelContinuousVerticalOrbitAnimation,
+  continuousDollyZoomSlideIn,
   continuousZoomSlideIn,
   continuousOrbitSlideIn,
   continuousVerticalOrbitSlideIn,
@@ -260,7 +263,9 @@ const calculateSlideGeometry = (mode, direction, amount, isSlideOut) => {
     }
 
     case 'fade':
+    case 'dolly-zoom':
     case 'continuous-zoom':
+    case 'continuous-dolly-zoom':
     case 'continuous-orbit':
     case 'continuous-orbit-vertical':
       offsetPosition = currentPosition.clone();
@@ -344,7 +349,7 @@ export const slideOutAnimation = (direction, options = {}) => {
       return;
     }
 
-    const geometryMode = mode === 'continuous-zoom' ? 'fade' : mode;
+    const geometryMode = (mode === 'continuous-zoom' || mode === 'continuous-dolly-zoom' || mode === 'dolly-zoom') ? 'fade' : mode;
     const geometry = calculateSlideGeometry(geometryMode, direction, amount, true);
     const { startPosition, endPosition, startTarget, endTarget, orbitAxis, orbitAngle } = geometry;
 
@@ -427,17 +432,34 @@ export const slideInAnimation = (direction, options = {}) => {
 
     // Delegate continuous modes to their own module
     if (mode === 'continuous-zoom') {
-      continuousZoomSlideIn(duration, amount).then(resolve);
+      continuousZoomSlideIn(duration, amount).then(() => {
+        updateDollyZoomBaselineFromCamera();
+        resolve();
+      });
+      return;
+    }
+    if (mode === 'continuous-dolly-zoom') {
+      continuousDollyZoomSlideIn(duration, amount).then(() => {
+        updateDollyZoomBaselineFromCamera();
+        resolve();
+      });
       return;
     }
     if (mode === 'continuous-orbit') {
-      continuousOrbitSlideIn(duration, amount).then(resolve);
+      continuousOrbitSlideIn(duration, amount).then(() => {
+        updateDollyZoomBaselineFromCamera();
+        resolve();
+      });
       return;
     }
     if (mode === 'continuous-orbit-vertical') {
-      continuousVerticalOrbitSlideIn(duration, amount).then(resolve);
+      continuousVerticalOrbitSlideIn(duration, amount).then(() => {
+        updateDollyZoomBaselineFromCamera();
+        resolve();
+      });
       return;
     }
+
 
     // Standard slide-in (horizontal / vertical / zoom / fade)
     const viewerEl = document.getElementById('viewer');
@@ -496,6 +518,7 @@ export const slideInAnimation = (direction, options = {}) => {
       onComplete: () => {
         currentGsapTween = null;
         slideAnimationState = null;
+        updateDollyZoomBaselineFromCamera();
         if (viewerEl) viewerEl.classList.remove('slide-out', 'slide-in');
         resolve();
       },

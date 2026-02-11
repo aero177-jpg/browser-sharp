@@ -10,18 +10,6 @@ import { CollectionIcon, ImageIcon } from '../icons/customIcons';
 import Modal from './Modal';
 
 function ExportOptionItem({ title, subtitle, icon: Icon, selected, onSelect, onConfirm, disabled }) {
-  const selectedStyle = selected ? {
-    borderColor: '#63828866',
-    background: '#253039',
-    boxShadow: 'rgba(110, 231, 255, 0.2) 0px 0px 0px 0px, rgba(132, 198, 203, 0.15) 0 0 8px',
-  } : {};
-  const disabledStyle = disabled ? {
-    opacity: 0.55,
-    cursor: 'not-allowed',
-    borderColor: 'rgba(255, 255, 255, 0.08)',
-    boxShadow: 'none',
-  } : {};
-  const combinedStyle = { ...selectedStyle, ...disabledStyle };
 
   const handleClick = () => {
     if (disabled) return;
@@ -34,10 +22,9 @@ function ExportOptionItem({ title, subtitle, icon: Icon, selected, onSelect, onC
 
   return (
     <button
-      class={`existing-collection-item ${selected ? 'selected' : ''}`}
+      class={`storage-tier-card ${selected ? 'selected' : ''}`}
       onClick={handleClick}
       type="button"
-      style={combinedStyle}
       disabled={disabled}
     >
       <div class="collection-info">
