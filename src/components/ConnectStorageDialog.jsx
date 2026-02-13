@@ -15,7 +15,6 @@ import {
   faExclamationTriangle,
   faChevronRight,
   faChevronDown,
-  faPlus,
   faLink,
   faQuestion,
   faFolderOpen,
@@ -350,13 +349,13 @@ function AppStorageForm({ onConnect, onBack }) {
 }
 
 function UrlCollectionForm({ onConnect, onBack, initialSource, editMode = false, onSaveEdit }) {
-  const initialUrls = useMemo(() => {
+  const initialUrlText = useMemo(() => {
     if (editMode && initialSource?.config?.config?.assetPaths?.length) {
-      return [...initialSource.config.config.assetPaths];
+      return initialSource.config.config.assetPaths.join('\n');
     }
-    return [''];
+    return '';
   }, [editMode, initialSource]);
-  const [urls, setUrls] = useState(initialUrls);
+  const [urlText, setUrlText] = useState(initialUrlText);
   const [collectionName, setCollectionName] = useState(
     editMode ? (initialSource?.name || initialSource?.config?.name || '') : ''
   );
@@ -365,24 +364,12 @@ function UrlCollectionForm({ onConnect, onBack, initialSource, editMode = false,
 
   useEffect(() => {
     if (editMode && initialSource) {
-      setUrls(initialSource?.config?.config?.assetPaths?.length ? [...initialSource.config.config.assetPaths] : ['']);
+      setUrlText(initialSource?.config?.config?.assetPaths?.length ? initialSource.config.config.assetPaths.join('\n') : '');
       setCollectionName(initialSource?.name || initialSource?.config?.name || '');
       setStatus('idle');
       setError(null);
     }
   }, [editMode, initialSource]);
-
-  const updateUrl = useCallback((index, value) => {
-    setUrls((prev) => prev.map((u, i) => (i === index ? value : u)));
-  }, []);
-
-  const addRow = useCallback(() => {
-    setUrls((prev) => [...prev, '']);
-  }, []);
-
-  const removeRow = useCallback((index) => {
-    setUrls((prev) => (prev.length === 1 ? [''] : prev.filter((_, i) => i !== index)));
-  }, []);
 
   const isValidUrl = useCallback((url) => {
     if (!url.trim()) return false;
@@ -395,12 +382,12 @@ function UrlCollectionForm({ onConnect, onBack, initialSource, editMode = false,
   }, []);
 
   const allUrlsValid = useMemo(() => {
-    const nonEmpty = urls.filter(u => u.trim());
+    const nonEmpty = urlText.split(/\r?\n/).map((u) => u.trim()).filter(Boolean);
     return nonEmpty.length > 0 && nonEmpty.every(u => isValidUrl(u));
-  }, [urls, isValidUrl]);
+  }, [urlText, isValidUrl]);
 
   const handleConnect = useCallback(async () => {
-    const cleaned = urls.map((u) => u.trim()).filter(Boolean);
+    const cleaned = urlText.split(/\r?\n/).map((u) => u.trim()).filter(Boolean);
     if (cleaned.length === 0) {
       setError('Add at least one URL');
       return;
@@ -462,7 +449,7 @@ function UrlCollectionForm({ onConnect, onBack, initialSource, editMode = false,
       setError(err.message);
       setStatus('error');
     }
-  }, [urls, collectionName, onConnect, editMode, initialSource, onSaveEdit]);
+  }, [urlText, collectionName, onConnect, editMode, initialSource, onSaveEdit]);
 
   return (
     <div class="storage-form">
@@ -476,9 +463,11 @@ function UrlCollectionForm({ onConnect, onBack, initialSource, editMode = false,
 
       <div class="form-info">
         <ul class="feature-list">
-          <li><FontAwesomeIcon icon={faCheck} /> No setup or credentials required</li>
-          <li><FontAwesomeIcon icon={faCheck} /> Direct HTTP/HTTPS links only, read-only</li>
-          <li><FontAwesomeIcon icon={faCheck} /> Best for quick demos or hosted files</li>
+          <>
+            <li><FontAwesomeIcon icon={faCheck} /> No setup or credentials required</li>
+            <li><FontAwesomeIcon icon={faCheck} /> Direct HTTP/HTTPS links only, read-only</li>
+            <li><FontAwesomeIcon icon={faCheck} /> Best for quick demos or hosted files</li>
+          </>
         </ul>
       </div>
 
@@ -494,38 +483,15 @@ function UrlCollectionForm({ onConnect, onBack, initialSource, editMode = false,
 
       <div class="form-field">
         <label>Asset URLs</label>
-        <div class="url-list">
-          {urls.map((url, index) => {
-            const isValid = isValidUrl(url);
-            const showInvalid = url.trim() && !isValid;
-            return (
-              <div class="url-row" key={`url-${index}`}>
-                <div class="url-input-wrapper">
-                  <input
-                    type="url"
-                    placeholder="https://example.com/scene.sog"
-                    value={url}
-                    onInput={(e) => updateUrl(index, e.target.value)}
-                    class={showInvalid ? 'invalid' : ''}
-                  />
-                </div>
-                <button
-                  class="url-remove-btn"
-                  onClick={() => removeRow(index)}
-                  title="Remove URL"
-                  type="button"
-                >
-                  <FontAwesomeIcon icon={faTimes} />
-                </button>
-              </div>
-            );
-          })}
-        </div>
-        <button class="primary-button" onClick={addRow} type="button">
-          <FontAwesomeIcon icon={faPlus} />
-          <span>Add another URL</span>
-        </button>
-        <span class="field-hint">Provide direct links to .sog/.ply files. Invalid URLs show a red outline.</span>
+        <textarea
+          rows={8}
+          placeholder={'https://example.com/scene-1.sog\nhttps://example.com/scene-2.ply'}
+          value={urlText}
+          onInput={(e) => setUrlText(e.target.value)}
+        />
+        <span class="field-hint">
+          One URL per line. Only direct http/https links to .sog/.ply files are accepted.
+        </span>
       </div>
 
       {error && (
@@ -1225,7 +1191,14 @@ function R2Form({ onConnect, onBack, onClose }) {
   const hasQueueFiles = queueFiles.length > 0;
 
   const initialSettings = useMemo(
-    () => loadR2Settings() || { accountId: '', accessKeyId: '', secretAccessKey: '', bucket: '', publicBaseUrl: '' },
+    () => loadR2Settings() || {
+      accountId: '',
+      accessKeyId: '',
+      secretAccessKey: '',
+      bucket: '',
+      publicBaseUrl: '',
+      permissions: { canRead: true, canWrite: true, canDelete: true },
+    },
     []
   );
   const [savedSettings, setSavedSettings] = useState(initialSettings);
@@ -1234,6 +1207,7 @@ function R2Form({ onConnect, onBack, onClose }) {
   const [secretAccessKey, setSecretAccessKey] = useState(initialSettings.secretAccessKey);
   const [bucket, setBucket] = useState(initialSettings.bucket);
   const [publicBaseUrl, setPublicBaseUrl] = useState(initialSettings.publicBaseUrl);
+  const [permissions, setPermissions] = useState({ canRead: true, ...(initialSettings.permissions || { canWrite: true, canDelete: true }) });
   const [collectionName, setCollectionName] = useState('');
   const [status, setStatus] = useState('idle');
   const [error, setError] = useState(null);
@@ -1246,8 +1220,12 @@ function R2Form({ onConnect, onBack, onClose }) {
   const [showR2Config, setShowR2Config] = useState(false);
   const [selectedExisting, setSelectedExisting] = useState(null);
 
+  const hasWritePermission = permissions.canWrite;
+
   const r2Configured = Boolean(
-    savedSettings.accountId && savedSettings.accessKeyId && savedSettings.secretAccessKey && savedSettings.bucket && savedSettings.publicBaseUrl
+    savedSettings?.permissions?.canRead &&
+    savedSettings.publicBaseUrl &&
+    (savedSettings.accountId && savedSettings.accessKeyId && savedSettings.secretAccessKey && savedSettings.bucket)
   );
   const trimmedSettings = useMemo(() => ({
     accountId: accountId.trim(),
@@ -1255,23 +1233,30 @@ function R2Form({ onConnect, onBack, onClose }) {
     secretAccessKey: secretAccessKey.trim(),
     bucket: bucket.trim(),
     publicBaseUrl: publicBaseUrl.trim().replace(/\/+$/, ''),
-  }), [accountId, accessKeyId, secretAccessKey, bucket, publicBaseUrl]);
+    permissions: { ...permissions, canRead: true },
+  }), [accountId, accessKeyId, secretAccessKey, bucket, publicBaseUrl, permissions]);
   const trimmedSaved = useMemo(() => ({
     accountId: savedSettings.accountId?.trim?.() || '',
     accessKeyId: savedSettings.accessKeyId?.trim?.() || '',
     secretAccessKey: savedSettings.secretAccessKey?.trim?.() || '',
     bucket: savedSettings.bucket?.trim?.() || '',
     publicBaseUrl: savedSettings.publicBaseUrl?.trim?.() || '',
+    permissions: savedSettings.permissions || { canRead: true, canWrite: true, canDelete: true },
   }), [savedSettings]);
   const isSettingsReady = Boolean(
-    trimmedSettings.accountId && trimmedSettings.accessKeyId && trimmedSettings.secretAccessKey && trimmedSettings.bucket && trimmedSettings.publicBaseUrl
+    trimmedSettings.permissions.canRead &&
+    trimmedSettings.publicBaseUrl &&
+    trimmedSettings.accountId && trimmedSettings.accessKeyId && trimmedSettings.secretAccessKey && trimmedSettings.bucket
   );
   const settingsChanged =
     trimmedSettings.accountId !== trimmedSaved.accountId ||
     trimmedSettings.accessKeyId !== trimmedSaved.accessKeyId ||
     trimmedSettings.secretAccessKey !== trimmedSaved.secretAccessKey ||
     trimmedSettings.bucket !== trimmedSaved.bucket ||
-    trimmedSettings.publicBaseUrl !== trimmedSaved.publicBaseUrl;
+    trimmedSettings.publicBaseUrl !== trimmedSaved.publicBaseUrl ||
+    trimmedSettings.permissions.canRead !== trimmedSaved.permissions.canRead ||
+    trimmedSettings.permissions.canWrite !== trimmedSaved.permissions.canWrite ||
+    trimmedSettings.permissions.canDelete !== trimmedSaved.permissions.canDelete;
   const shouldFadeSaveText = !isSettingsReady || (r2Configured && !settingsChanged);
 
   const slugify = useCallback((value) => {
@@ -1304,8 +1289,16 @@ function R2Form({ onConnect, onBack, onClose }) {
     }
   }, [r2Configured, accountId, accessKeyId, secretAccessKey, bucket]);
 
-  const handleSaveSettings = useCallback(async () => {
-    if (!trimmedSettings.accountId || !trimmedSettings.accessKeyId || !trimmedSettings.secretAccessKey || !trimmedSettings.bucket || !trimmedSettings.publicBaseUrl) {
+  const handleTestConnection = useCallback(async () => {
+    if (!trimmedSettings.permissions.canRead) {
+      setError('Read permission is required.');
+      return;
+    }
+    if (!trimmedSettings.publicBaseUrl) {
+      setError('Public base URL is required.');
+      return;
+    }
+    if (!trimmedSettings.accountId || !trimmedSettings.accessKeyId || !trimmedSettings.secretAccessKey || !trimmedSettings.bucket) {
       setError('Fill Account ID, access key, secret, bucket, and public base URL.');
       return;
     }
@@ -1318,11 +1311,21 @@ function R2Form({ onConnect, onBack, onClose }) {
       accessKeyId: trimmedSettings.accessKeyId,
       secretAccessKey: trimmedSettings.secretAccessKey,
       bucket: trimmedSettings.bucket,
+      publicBaseUrl: trimmedSettings.publicBaseUrl,
+      permissions: trimmedSettings.permissions,
     });
 
     if (!testResult.success) {
       setError(`Connection failed: ${testResult.error}`);
-      setStatus('idle');
+    } else if (testResult.permissions) {
+      setPermissions({ canRead: true, ...testResult.permissions });
+    }
+    setStatus('idle');
+  }, [trimmedSettings]);
+
+  const handleSaveSettings = useCallback(async () => {
+    if (!isSettingsReady) {
+      setError('Read + public base URL + account/key/bucket are required.');
       return;
     }
 
@@ -1332,6 +1335,7 @@ function R2Form({ onConnect, onBack, onClose }) {
       secretAccessKey: trimmedSettings.secretAccessKey,
       bucket: trimmedSettings.bucket,
       publicBaseUrl: trimmedSettings.publicBaseUrl,
+      permissions: trimmedSettings.permissions,
     });
     setSavedSettings({
       accountId: trimmedSettings.accountId,
@@ -1339,13 +1343,13 @@ function R2Form({ onConnect, onBack, onClose }) {
       secretAccessKey: trimmedSettings.secretAccessKey,
       bucket: trimmedSettings.bucket,
       publicBaseUrl: trimmedSettings.publicBaseUrl,
+      permissions: trimmedSettings.permissions,
     });
 
     setStatus('idle');
     setError(null);
-
     await loadExistingCollections();
-  }, [trimmedSettings, loadExistingCollections]);
+  }, [isSettingsReady, trimmedSettings, loadExistingCollections]);
 
   const handleChooseExisting = useCallback((collection) => {
     setSelectedExisting(collection);
@@ -1366,9 +1370,10 @@ function R2Form({ onConnect, onBack, onClose }) {
         accessKeyId: accessKeyId.trim(),
         secretAccessKey: secretAccessKey.trim(),
         bucket: bucket.trim(),
-        publicBaseUrl: publicBaseUrl.trim(),
+        publicBaseUrl: publicBaseUrl.trim().replace(/\/+$/, ''),
         collectionId: selectedExisting.id,
         collectionName: selectedExisting.name,
+        permissions: trimmedSettings.permissions,
       });
 
       const result = await source.connect({ refreshManifest: false, verifyUpload: false });
@@ -1387,7 +1392,7 @@ function R2Form({ onConnect, onBack, onClose }) {
       setError(err.message);
       setStatus('error');
     }
-  }, [accountId, accessKeyId, secretAccessKey, bucket, publicBaseUrl, onClose, selectedExisting]);
+  }, [accountId, accessKeyId, secretAccessKey, bucket, publicBaseUrl, onClose, selectedExisting, trimmedSettings]);
 
   const handleConnectAndSwitch = useCallback(async () => {
     if (!selectedExisting) return;
@@ -1401,9 +1406,10 @@ function R2Form({ onConnect, onBack, onClose }) {
         accessKeyId: accessKeyId.trim(),
         secretAccessKey: secretAccessKey.trim(),
         bucket: bucket.trim(),
-        publicBaseUrl: publicBaseUrl.trim(),
+        publicBaseUrl: publicBaseUrl.trim().replace(/\/+$/, ''),
         collectionId: selectedExisting.id,
         collectionName: selectedExisting.name,
+        permissions: trimmedSettings.permissions,
       });
 
       const result = await source.connect();
@@ -1422,7 +1428,7 @@ function R2Form({ onConnect, onBack, onClose }) {
       setError(err.message);
       setStatus('error');
     }
-  }, [accountId, accessKeyId, secretAccessKey, bucket, publicBaseUrl, onConnect, selectedExisting]);
+  }, [accountId, accessKeyId, secretAccessKey, bucket, publicBaseUrl, onConnect, selectedExisting, trimmedSettings]);
 
   const handleCreateNew = useCallback(async () => {
     if (!r2Configured) {
@@ -1431,7 +1437,6 @@ function R2Form({ onConnect, onBack, onClose }) {
     }
 
     const collectionId = slugify(collectionName.trim()) || `collection-${Date.now()}`;
-
     setStatus('connecting');
     setError(null);
 
@@ -1441,9 +1446,10 @@ function R2Form({ onConnect, onBack, onClose }) {
         accessKeyId: accessKeyId.trim(),
         secretAccessKey: secretAccessKey.trim(),
         bucket: bucket.trim(),
-        publicBaseUrl: publicBaseUrl.trim(),
+        publicBaseUrl: publicBaseUrl.trim().replace(/\/+$/, ''),
         collectionId,
         collectionName: collectionName.trim() || undefined,
+        permissions: trimmedSettings.permissions,
       });
 
       const result = await source.connect();
@@ -1453,7 +1459,7 @@ function R2Form({ onConnect, onBack, onClose }) {
         registerSource(source);
         await saveSource(source.toJSON());
 
-        if (uploadExisting && queueFiles.length > 0) {
+        if (hasWritePermission && uploadExisting && queueFiles.length > 0) {
           setStatus('uploading');
           const uploadResult = await source.uploadAssets(queueFiles);
           if (!uploadResult.success) {
@@ -1472,7 +1478,7 @@ function R2Form({ onConnect, onBack, onClose }) {
       setError(err.message);
       setStatus('error');
     }
-  }, [r2Configured, accountId, accessKeyId, secretAccessKey, bucket, publicBaseUrl, collectionName, slugify, onConnect, uploadExisting, queueFiles]);
+  }, [r2Configured, accountId, accessKeyId, secretAccessKey, bucket, publicBaseUrl, collectionName, slugify, onConnect, hasWritePermission, uploadExisting, queueFiles, trimmedSettings]);
 
   if (!r2Configured) {
     return (
@@ -1482,7 +1488,15 @@ function R2Form({ onConnect, onBack, onClose }) {
         </button>
 
         <h3>Connect to Cloudflare R2</h3>
-        <p class="dialog-subtitle">Enter your R2 credentials to get started.</p>
+        <p class="dialog-subtitle">Enter your R2 settings, then test to discover read/write/delete permissions automatically.</p>
+
+        <div class="form-field" style={{ marginTop: '12px' }}>
+          <label>Detected permissions</label>
+          <div class="field-hint">Run Test Connection to refresh these values.</div>
+          <div class="field-hint">Read: {permissions.canRead ? 'Yes' : 'No'}</div>
+          <div class="field-hint">Write: {permissions.canWrite ? 'Yes' : 'No'}</div>
+          <div class="field-hint">Delete: {permissions.canDelete ? 'Yes' : 'No'}</div>
+        </div>
 
         <div class="config-grid" style={{ marginTop: '16px' }}>
           <div class="form-field">
@@ -1535,6 +1549,7 @@ function R2Form({ onConnect, onBack, onClose }) {
             />
             <span class="field-hint">Public delivery URL used by the viewer. API calls use the account endpoint.</span>
           </div>
+
         </div>
 
         {error && (
@@ -1544,21 +1559,32 @@ function R2Form({ onConnect, onBack, onClose }) {
           </div>
         )}
 
-        <button
-          class="primary-button"
-          onClick={handleSaveSettings}
-          disabled={status === 'testing' || !isSettingsReady}
-          style={{ marginTop: '16px' }}
-        >
-          {status === 'testing' ? (
-            <>
-              <FontAwesomeIcon icon={faSpinner} spin />
-              {' '}Testing connection...
-            </>
-          ) : (
-            'Connect to R2'
-          )}
-        </button>
+        <div class="form-actions" style={{ marginTop: '16px', display: 'flex', gap: '8px' }}>
+          <button
+            class="secondary-button"
+            onClick={handleTestConnection}
+            disabled={status === 'testing' || !isSettingsReady}
+            style={{ marginTop: '0px' }}
+          >
+            {status === 'testing' ? (
+              <>
+                <FontAwesomeIcon icon={faSpinner} spin />
+                {' '}Testing...
+              </>
+            ) : (
+              'Test Connection'
+            )}
+          </button>
+
+          <button
+            class="primary-button"
+            onClick={handleSaveSettings}
+            disabled={status === 'testing' || !isSettingsReady}
+            style={{ marginTop: '0px' }}
+          >
+            Save R2 settings
+          </button>
+        </div>
 
         <div class="faq-section" style={{ marginTop: '24px' }}>
           <FaqItem question="Where do I find these keys?">
@@ -1600,6 +1626,13 @@ function R2Form({ onConnect, onBack, onClose }) {
         {showR2Config && (
           <div class="config-grid">
             <div class="form-field">
+              <label>Detected permissions</label>
+              <div class="field-hint">Read: {permissions.canRead ? 'Yes' : 'No'}</div>
+              <div class="field-hint">Write: {permissions.canWrite ? 'Yes' : 'No'}</div>
+              <div class="field-hint">Delete: {permissions.canDelete ? 'Yes' : 'No'}</div>
+            </div>
+
+            <div class="form-field">
               <label>Account ID</label>
               <input
                 type="text"
@@ -1632,7 +1665,7 @@ function R2Form({ onConnect, onBack, onClose }) {
             <div class="form-field">
               <label>Bucket name</label>
               <input
-               type="text"
+                type="text"
                 placeholder="splat-assets"
                 value={bucket}
                 onInput={(e) => setBucket(e.target.value)}
@@ -1649,6 +1682,14 @@ function R2Form({ onConnect, onBack, onClose }) {
               />
               <span class="field-hint">Public delivery URL used by the viewer. API calls use the account endpoint.</span>
             </div>
+
+            <button
+              class="secondary-button"
+              onClick={handleTestConnection}
+              disabled={status === 'testing' || !isSettingsReady}
+            >
+              {status === 'testing' ? 'Testing...' : 'Test Connection'}
+            </button>
 
             <button
               class={`secondary-button save-settings-btn ${isSettingsReady ? 'is-ready' : ''}`}
@@ -1668,49 +1709,49 @@ function R2Form({ onConnect, onBack, onClose }) {
       </div>
 
       <div class="form-section" style={{ marginTop: '16px' }}>
-        <div class="form-row">
-          <div>
-            <strong>
-              <FontAwesomeIcon icon={faFolderOpen} style={{ marginRight: '8px' }} />
-              Add Existing Folder
-            </strong>
+          <div class="form-row">
+            <div>
+              <strong>
+                <FontAwesomeIcon icon={faFolderOpen} style={{ marginRight: '8px' }} />
+                Add Existing Folder
+              </strong>
+            </div>
+            <button
+              class="link-button"
+              onClick={() => {
+                if (!showExisting) loadExistingCollections();
+                setShowExisting(!showExisting);
+              }}
+            >
+              {showExisting ? 'Hide' : 'Browse'}
+            </button>
           </div>
-          <button
-            class="link-button"
-            onClick={() => {
-              if (!showExisting) loadExistingCollections();
-              setShowExisting(!showExisting);
-            }}
-          >
-            {showExisting ? 'Hide' : 'Browse'}
-          </button>
-        </div>
 
-        {showExisting && (
-          <div class="existing-collections-list">
-            {loadingCollections ? (
-              <div class="collections-loading">
-                <FontAwesomeIcon icon={faSpinner} spin />
-                {' '}Scanning bucket...
-              </div>
-            ) : existingCollections.length === 0 ? (
-              <div class="collections-empty">
-                No existing collections found in this bucket.
-              </div>
-            ) : (
-              existingCollections.map((col) => (
-                <ExistingCollectionItem
-                  key={col.id}
-                  collection={col}
-                  onSelect={handleChooseExisting}
-                  isLoading={status === 'connecting'}
-                  selected={selectedExisting?.id === col.id}
-                />
-              ))
-            )}
-          </div>
-        )}
-      </div>
+          {showExisting && (
+            <div class="existing-collections-list">
+              {loadingCollections ? (
+                <div class="collections-loading">
+                  <FontAwesomeIcon icon={faSpinner} spin />
+                  {' '}Scanning bucket...
+                </div>
+              ) : existingCollections.length === 0 ? (
+                <div class="collections-empty">
+                  No existing collections found in this bucket.
+                </div>
+              ) : (
+                existingCollections.map((col) => (
+                  <ExistingCollectionItem
+                    key={col.id}
+                    collection={col}
+                    onSelect={handleChooseExisting}
+                    isLoading={status === 'connecting'}
+                    selected={selectedExisting?.id === col.id}
+                  />
+                ))
+              )}
+            </div>
+          )}
+        </div>
 
       {selectedExisting && (
         <div class="form-section existing-selection-review" style={{ position: 'relative' }}>
@@ -1778,7 +1819,7 @@ function R2Form({ onConnect, onBack, onClose }) {
         </span>
       </div>
 
-      {hasQueueFiles && (
+      {hasWritePermission && hasQueueFiles && (
         <div class="form-field">
           <label class="checkbox-inline">
             <input

@@ -101,6 +101,17 @@ function StorageSourceItem({
   const allowImages = true;
   const cacheEnabled = source.type !== 'app-storage' && source.type !== 'local-folder';
   const actionButtonStyle = { minWidth: listOnly ? '100px' : '80px' };
+  const r2Permissions = source.type === 'r2-bucket'
+    ? (source?.config?.config?.permissions || { canRead: true, canWrite: true, canDelete: true })
+    : null;
+  const canUploadForSource = source.type === 'r2-bucket'
+    ? r2Permissions?.canWrite
+    : true;
+  const canDeleteForSource = source.type === 'r2-bucket'
+    ? r2Permissions?.canDelete
+    : true;
+  const showRefreshAction = true;
+  const showEditAction = source.type === 'public-url';
 
   const refreshCacheFlagsForSource = useCallback(async () => {
     if (!cacheEnabled) {
@@ -494,12 +505,13 @@ function StorageSourceItem({
 
   const handleRemove = useCallback((e) => {
     e.stopPropagation();
+    if (!canDeleteForSource) return;
     const canRemoveCache = cacheEnabled && cachedCount > 0;
     setRemoveCache(canRemoveCache);
     setRemoveRemote(false);
     setRemoveSource(true);
     setShowRemoveModal(true);
-  }, [cachedCount, cacheEnabled]);
+  }, [cachedCount, cacheEnabled, canDeleteForSource]);
 
   const handleConfirmRemove = useCallback(async () => {
     const shouldRemoveCache = removeCache && cachedCount > 0;
@@ -611,11 +623,11 @@ function StorageSourceItem({
     }
   }, [isDefault, source?.id]);
 
-  const handleEditPublicUrl = useCallback((e) => {
+  const handleEditSourceClick = useCallback((e) => {
     e.stopPropagation();
-    if (source.type !== 'public-url') return;
+    if (!showEditAction) return;
     onEditSource?.(source);
-  }, [onEditSource, source]);
+  }, [onEditSource, source, showEditAction]);
 
   return (
     <>
@@ -718,7 +730,7 @@ function StorageSourceItem({
                 <FontAwesomeIcon icon={faSync} />
                 <span>Reconnect</span>
               </button>
-            ) : (
+            ) : showRefreshAction ? (
               <button
                 class="source-action-btn"
                 onClick={handleRefresh}
@@ -728,7 +740,7 @@ function StorageSourceItem({
                 <FontAwesomeIcon icon={faSync} />
                 <span>Refresh</span>
               </button>
-            )}
+            ) : null}
             <button
               class={`source-action-btn ${isDefault ? 'default' : ''}`}
               onClick={handleSetDefault}
@@ -738,10 +750,10 @@ function StorageSourceItem({
               {isDefault && <FontAwesomeIcon icon={faCheck} />}
               <span>{isDefault ? 'Default' : 'Set Default'}</span>
             </button>
-            {source.type === 'public-url' && (
+            {showEditAction && (
               <button
                 class="source-action-btn"
-                onClick={handleEditPublicUrl}
+                onClick={handleEditSourceClick}
                 title="Edit URLs"
                 style={actionButtonStyle}
               >
@@ -760,7 +772,7 @@ function StorageSourceItem({
                 <span>Add files</span>
               </button>
             )}
-            {source.type !== 'public-url' && source.type !== 'app-storage' && (
+            {source.type !== 'public-url' && source.type !== 'app-storage' && canUploadForSource && (
               <button
                 class="source-action-btn"
                 onClick={handleUploadClick}
@@ -787,15 +799,17 @@ function StorageSourceItem({
                 )}
               </button>
             )}
-            <button
-              class="source-action-btn danger"
-              onClick={handleRemove}
-              title="Remove collection"
-              style={actionButtonStyle}
-            >
-              <FontAwesomeIcon icon={faTrash} />
-              <span>Remove...</span>
-            </button>
+            {canDeleteForSource && (
+              <button
+                class="source-action-btn danger"
+                onClick={handleRemove}
+                title="Remove collection"
+                style={actionButtonStyle}
+              >
+                <FontAwesomeIcon icon={faTrash} />
+                <span>Remove...</span>
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -905,7 +919,7 @@ function StorageSourceItem({
           </div>
         )}
 
-        {(source.type === 'supabase-storage' || source.type === 'r2-bucket' || source.type === 'app-storage') && (
+        {(source.type === 'supabase-storage' || (source.type === 'r2-bucket' && canDeleteForSource) || source.type === 'app-storage') && (
           <div class="modal-checkbox">
             <label>
               <input

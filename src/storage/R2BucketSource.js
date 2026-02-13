@@ -19,7 +19,6 @@ import { getSupportedExtensions } from '../formats/index.js';
 import { getR2Client, buildR2Endpoint } from './r2Client.js';
 import { loadR2ManifestCache, saveR2ManifestCache } from './r2Settings.js';
 
-const PREVIEW_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp'];
 const METADATA_SUFFIXES = ['.meta.json', '.metadata.json'];
 
 const isMetadataFile = (filename) => METADATA_SUFFIXES.some((suffix) => filename.toLowerCase().endsWith(suffix));
@@ -47,6 +46,12 @@ const getMetadataAssetBase = (filename) => {
 	if (!matchedSuffix) return null;
 	const withoutSuffix = name.slice(0, -matchedSuffix.length);
 	return getBaseName(withoutSuffix).toLowerCase();
+};
+
+const DEFAULT_PERMISSIONS = {
+	canRead: true,
+	canWrite: true,
+	canDelete: true,
 };
 
 const stripLeadingSlash = (value) => value.replace(/^\/+/, '');
@@ -90,6 +95,23 @@ export class R2BucketSource extends AssetSource {
 		this._manifest = null;
 	}
 
+	_permissions() {
+		const next = {
+			...DEFAULT_PERMISSIONS,
+			...(this.config?.config?.permissions || {}),
+		};
+		next.canRead = true;
+		return next;
+	}
+
+	_canWrite() {
+		return this._permissions().canWrite;
+	}
+
+	_canDelete() {
+		return this._permissions().canDelete;
+	}
+
 	_isOffline() {
 		return typeof navigator !== 'undefined' && navigator.onLine === false;
 	}
@@ -122,17 +144,19 @@ export class R2BucketSource extends AssetSource {
 	_publicUrlFor(relativePath) {
 		const base = String(this.config.config.publicBaseUrl || '').replace(/\/+$/, '');
 		// TODO: Support presigned URLs for private buckets if we move beyond public-only access.
-		return base ? `${base}/${this._toStoragePath(relativePath)}` : '';
+		if (!base) return '';
+		return `${base}/${this._toStoragePath(relativePath)}`;
 	}
 
 	getCapabilities() {
+		const permissions = this._permissions();
 		return {
-			canList: true,
+			canList: permissions.canRead,
 			canStream: true,
 			canReadMetadata: true,
-			canReadPreviews: true,
+			canReadPreviews: false,
 			persistent: true,
-			writable: true,
+			writable: this._canWrite(),
 		};
 	}
 
@@ -142,6 +166,11 @@ export class R2BucketSource extends AssetSource {
 			: options;
 
 		const { refreshManifest = true, verifyUpload = false } = normalized;
+		const permissions = this._permissions();
+		if (!permissions.canRead) {
+			return { success: false, error: 'Read permission is required' };
+		}
+
 		const isOffline = this._isOffline();
 
 		if (refreshManifest || !this._manifest) {
@@ -160,7 +189,7 @@ export class R2BucketSource extends AssetSource {
 		try {
 			await this._ensureManifestLoaded();
 
-			if (verifyUpload) {
+			if (verifyUpload && this._canWrite()) {
 				const uploadCheck = await this.verifyUploadPermission();
 				if (!uploadCheck.success) {
 					return uploadCheck;
@@ -291,7 +320,7 @@ export class R2BucketSource extends AssetSource {
 		const supportedExtensions = getSupportedExtensions();
 
 		const assetPaths = relativeFiles.filter((path) => supportedExtensions.includes(getExtension(path)));
-		const { previewByBase, metadataByBase } = this._buildPreviewAndMetadataMaps(storageFiles);
+		const metadataByBase = this._buildMetadataMap(storageFiles);
 
 		const objectByRelative = new Map();
 		for (const obj of objects) {
@@ -304,7 +333,6 @@ export class R2BucketSource extends AssetSource {
 			storageFiles,
 			relativeFiles,
 			assetPaths,
-			previewByBase,
 			metadataByBase,
 			objectByRelative,
 		};
@@ -320,7 +348,6 @@ export class R2BucketSource extends AssetSource {
 				path,
 				name: getFilename(path),
 				size: obj?.Size,
-				preview: scan.previewByBase.get(base) || null,
 				metadata: scan.metadataByBase.get(base) || null,
 			};
 		});
@@ -357,8 +384,8 @@ export class R2BucketSource extends AssetSource {
 				sourceId: this.id,
 				sourceType: this.type,
 				size: item.size,
-				preview: item.preview ? this._publicUrlFor(item.preview) : null,
-				previewSource: item.preview ? 'remote' : null,
+				preview: null,
+				previewSource: null,
 				_metadataPath: typeof item.metadata === 'string' ? item.metadata : null,
 				_inlineMetadata: typeof item.metadata === 'object' ? item.metadata : null,
 				loaded: false,
@@ -388,7 +415,6 @@ export class R2BucketSource extends AssetSource {
 	}
 
 	async fetchPreview(asset) {
-		if (asset.preview) return asset.preview;
 		return null;
 	}
 
@@ -408,18 +434,11 @@ export class R2BucketSource extends AssetSource {
 		return null;
 	}
 
-	_buildPreviewAndMetadataMaps(filePaths) {
-		const previewByBase = new Map();
+	_buildMetadataMap(filePaths) {
 		const metadataByBase = new Map();
 
 		for (const path of filePaths) {
 			const relative = toRelativeFromBase(path, this._basePrefix());
-			const ext = getExtension(relative);
-			const base = getBaseName(relative);
-
-			if (PREVIEW_EXTENSIONS.includes(ext)) {
-				previewByBase.set(base.toLowerCase(), relative);
-			}
 
 			const metadataBase = getMetadataAssetBase(relative);
 			if (metadataBase) {
@@ -427,7 +446,7 @@ export class R2BucketSource extends AssetSource {
 			}
 		}
 
-		return { previewByBase, metadataByBase };
+		return metadataByBase;
 	}
 
 	async rescan({ applyChanges = false } = {}) {
@@ -449,7 +468,6 @@ export class R2BucketSource extends AssetSource {
 			return {
 				path,
 				name: getFilename(path),
-				preview: scan.previewByBase.get(base) || null,
 				metadata: scan.metadataByBase.get(base) || null,
 			};
 		});
@@ -479,6 +497,10 @@ export class R2BucketSource extends AssetSource {
 	}
 
 	async uploadAssets(files) {
+		if (!this._canWrite()) {
+			return { success: false, error: 'Write permission is disabled for this source' };
+		}
+
 		if (!this._connected) {
 			const result = await this.connect({ refreshManifest: true });
 			if (!result.success) return { success: false, error: result.error };
@@ -503,7 +525,7 @@ export class R2BucketSource extends AssetSource {
 			const base = getBaseName(file.name).toLowerCase();
 			const metadataBase = getMetadataAssetBase(file.name);
 
-			if (!supportedExtensions.includes(ext) && !PREVIEW_EXTENSIONS.includes(ext) && !isMetadataFile(file.name)) {
+			if (!supportedExtensions.includes(ext) && !isMetadataFile(file.name)) {
 				results.failed.push({ name: file.name, error: 'Unsupported file type' });
 				continue;
 			}
@@ -542,11 +564,6 @@ export class R2BucketSource extends AssetSource {
 					existing.name = file.name;
 					existing.size = file.size;
 				}
-			} else if (PREVIEW_EXTENSIONS.includes(ext)) {
-				const matched = assetsByBase.get(base) || [];
-				for (const asset of matched) {
-					asset.preview = relative;
-				}
 			} else if (metadataBase) {
 				const matched = assetsByBase.get(metadataBase) || [];
 				for (const asset of matched) {
@@ -563,6 +580,10 @@ export class R2BucketSource extends AssetSource {
 	}
 
 	async deleteAssets(items) {
+		if (!this._canDelete()) {
+			return { success: false, error: 'Delete permission is disabled for this source' };
+		}
+
 		if (!this._connected) {
 			const result = await this.connect({ refreshManifest: true });
 			if (!result.success) return { success: false, error: result.error };
@@ -590,9 +611,6 @@ export class R2BucketSource extends AssetSource {
 			removedPaths.add(relativePath);
 
 			const manifestEntry = manifest.assets.find((a) => a.path === relativePath);
-			if (manifestEntry?.preview) {
-				targetPaths.add(this._toStoragePath(manifestEntry.preview));
-			}
 			if (manifestEntry?.metadata) {
 				targetPaths.add(this._toStoragePath(manifestEntry.metadata));
 			}
@@ -631,6 +649,10 @@ export class R2BucketSource extends AssetSource {
 	}
 
 	async verifyUploadPermission() {
+		if (!this._canWrite()) {
+			return { success: false, error: 'Write permission is disabled for this source' };
+		}
+
 		const client = this._client();
 		const probeName = `${this._basePrefix()}/__upload_probe_${Date.now()}.txt`;
 
@@ -653,10 +675,25 @@ export class R2BucketSource extends AssetSource {
 	}
 }
 
-export const createR2BucketSource = ({ accountId, accessKeyId, secretAccessKey, bucket, publicBaseUrl, collectionId, name, collectionName }) => {
+export const createR2BucketSource = ({
+	accountId,
+	accessKeyId,
+	secretAccessKey,
+	bucket,
+	publicBaseUrl,
+	collectionId,
+	name,
+	collectionName,
+	permissions,
+}) => {
 	const id = createSourceId('r2-bucket');
-	const displayName = name || collectionName || `R2: ${bucket}/${collectionId}`;
+	const displayName = name || collectionName || `R2: ${bucket ? `${bucket}/` : ''}${collectionId}`;
 	const endpoint = buildR2Endpoint(accountId);
+	const normalizedPermissions = {
+		...DEFAULT_PERMISSIONS,
+		...(permissions || {}),
+	};
+	normalizedPermissions.canRead = true;
 
 	const config = {
 		id,
@@ -666,14 +703,15 @@ export const createR2BucketSource = ({ accountId, accessKeyId, secretAccessKey, 
 		lastAccessed: Date.now(),
 		isDefault: false,
 		config: {
-			accountId: accountId.trim(),
-			accessKeyId: accessKeyId.trim(),
-			secretAccessKey: secretAccessKey.trim(),
+			accountId: String(accountId || '').trim(),
+			accessKeyId: String(accessKeyId || '').trim(),
+			secretAccessKey: String(secretAccessKey || '').trim(),
 			endpoint,
-			bucket: bucket.trim(),
-			publicBaseUrl: publicBaseUrl.trim(),
-			collectionId: collectionId.trim(),
+			bucket: String(bucket || '').trim(),
+			publicBaseUrl: String(publicBaseUrl || '').trim(),
+			collectionId: String(collectionId || '').trim(),
 			collectionName: collectionName || displayName,
+			permissions: normalizedPermissions,
 			hasManifest: false,
 		},
 	};

@@ -2,6 +2,25 @@ const STORAGE_KEY = 'r2-settings';
 const MANIFEST_CACHE_PREFIX = 'r2-manifest-cache:';
 const MANIFEST_CACHE_TTL_MS = 5 * 60 * 1000;
 
+const DEFAULT_PERMISSIONS = {
+  canRead: true,
+  canWrite: true,
+  canDelete: true,
+};
+
+const normalizePermissions = (value) => {
+  const next = {
+    ...DEFAULT_PERMISSIONS,
+    ...(value || {}),
+  };
+
+  next.canRead = next.canRead !== false;
+  next.canWrite = !!next.canWrite;
+  next.canDelete = !!next.canDelete;
+  next.canRead = true;
+  return next;
+};
+
 const buildManifestCacheKey = ({ accountId, bucket, collectionId }) =>
   `${MANIFEST_CACHE_PREFIX}${accountId}::${bucket}::${collectionId}`;
 
@@ -10,10 +29,21 @@ export const loadR2Settings = () => {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
-    if (!parsed.accountId || !parsed.accessKeyId || !parsed.secretAccessKey || !parsed.bucket || !parsed.publicBaseUrl) {
+    const permissions = normalizePermissions(parsed.permissions);
+    const publicBaseUrl = String(parsed.publicBaseUrl || '').trim();
+    if (!permissions.canRead || !publicBaseUrl) {
       return null;
     }
-    return parsed;
+
+    if (!parsed.accountId || !parsed.accessKeyId || !parsed.secretAccessKey || !parsed.bucket) {
+      return null;
+    }
+
+    return {
+      ...parsed,
+      publicBaseUrl,
+      permissions,
+    };
   } catch {
     return null;
   }

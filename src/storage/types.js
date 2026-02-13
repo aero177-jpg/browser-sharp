@@ -64,6 +64,7 @@
  * @property {string} collectionId - Collection identifier under collections/{collectionId}
  * @property {string} [collectionName] - Display name for the collection
  * @property {boolean} hasManifest - Whether manifest.json exists
+ * @property {{ canRead: boolean, canWrite: boolean, canDelete: boolean }} [permissions] - Capability flags detected from bucket policy/CORS
  */
 
 /**

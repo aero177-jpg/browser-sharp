@@ -6,6 +6,8 @@
 
 import {
   ListObjectsV2Command,
+  PutObjectCommand,
+  DeleteObjectsCommand,
 } from '@aws-sdk/client-s3';
 import { getSupportedExtensions } from '../formats/index.js';
 import { loadR2ManifestCache } from './r2Settings.js';
@@ -118,8 +120,57 @@ export async function testR2Connection({ accountId, accessKeyId, secretAccessKey
 
   try {
     const client = getR2Client({ accountId, accessKeyId, secretAccessKey });
-    await client.send(new ListObjectsV2Command({ Bucket: bucket, MaxKeys: 1 }));
-    return { success: true, endpoint: buildR2Endpoint(accountId) };
+    const permissions = {
+      canRead: false,
+      canWrite: false,
+      canDelete: false,
+    };
+
+    try {
+      await client.send(new ListObjectsV2Command({ Bucket: bucket, MaxKeys: 1 }));
+      permissions.canRead = true;
+    } catch {
+      // Read is required to use this source; keep false and return below.
+    }
+
+    let probeKey = null;
+    try {
+      probeKey = `__cap_probe_${Date.now()}.txt`;
+      await client.send(new PutObjectCommand({
+        Bucket: bucket,
+        Key: probeKey,
+        Body: 'ok',
+        ContentType: 'text/plain',
+      }));
+      permissions.canWrite = true;
+    } catch {
+      probeKey = null;
+    }
+
+    try {
+      const deleteKey = probeKey || `__cap_delete_probe_${Date.now()}.txt`;
+      const deleteResult = await client.send(new DeleteObjectsCommand({
+        Bucket: bucket,
+        Delete: { Objects: [{ Key: deleteKey }], Quiet: true },
+      }));
+      permissions.canDelete = !(deleteResult?.Errors?.length);
+    } catch {
+      permissions.canDelete = false;
+    }
+
+    if (!permissions.canRead) {
+      return {
+        success: false,
+        error: 'Connected, but missing read/list permission for this bucket.',
+        permissions,
+      };
+    }
+
+    return {
+      success: true,
+      endpoint: buildR2Endpoint(accountId),
+      permissions,
+    };
   } catch (err) {
     return { success: false, error: err.message };
   }

@@ -152,6 +152,13 @@ const getCollectionPrefix = (source) => {
   return collectionId ? `collections/${collectionId}/assets` : 'collections/default/assets';
 };
 
+const sourceCanWrite = (source) => {
+  if (!source) return true;
+  if (source.type !== 'r2-bucket') return true;
+  const permissions = source?.config?.config?.permissions || {};
+  return permissions.canWrite === true;
+};
+
 export function useCollectionUploadFlow({
   source,
   queueAction = 'replace',
@@ -258,6 +265,12 @@ export function useCollectionUploadFlow({
 
     const type = resolvedSource?.type;
 
+    if (type === 'r2-bucket' && !sourceCanWrite(resolvedSource)) {
+      onStatus?.('error');
+      reportError('Upload is disabled for this R2 source (write permission is off).');
+      return;
+    }
+
     onLoadingChange?.(true);
     try {
       if ((type === 'supabase-storage' || type === 'r2-bucket') && typeof resolvedSource?.uploadAssets === 'function') {
@@ -306,6 +319,12 @@ export function useCollectionUploadFlow({
     }
 
     const type = resolvedSource?.type;
+
+    if (type === 'r2-bucket' && !sourceCanWrite(resolvedSource)) {
+      onStatus?.('error');
+      reportError('Upload is disabled for this R2 source (write permission is off).');
+      return;
+    }
     const prefix = type === 'supabase-storage' || type === 'r2-bucket' ? getCollectionPrefix(resolvedSource) : undefined;
     const returnMode = type === 'supabase-storage' || type === 'r2-bucket' ? undefined : 'direct';
     const downloadMode = type === 'app-storage' || (!resolvedSource && !prepareOnly) || prepareOnly ? 'store' : undefined;
