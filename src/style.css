@@ -3099,6 +3099,16 @@ border-radius: 10px;
   gap: 8px;
 }
 
+.feature-list.bullet-list {
+  list-style: disc;
+  padding-left: 18px;
+}
+
+.feature-list.bullet-list li {
+  display: list-item;
+  font-style: italic;
+}
+
 .feature-list li svg {
   color: #48bb78;
   font-size: 12px;

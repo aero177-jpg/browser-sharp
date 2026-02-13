@@ -143,17 +143,17 @@ function ControlsModal({ isOpen, onClose, defaultOpenSubsections = [] }) {
           </Section>
 
           <Section title="Connections" isOpen={isConnectionsOpen}>
-            You can choose to add a remote connection, a local folder, or app storage (best for mobile or PWA desktop app). All remote connection configs are stored locally only, this app is strictly a frontend client. Configs can be exported/imported in advanced settings.
-<br/>
-<br/>
-            Splats are not automatically cached in browser due to size constraints, but can be manually cached in advanced settings for offline viewing, and bandwidth savings.
+            <p className='controls-modal__subtitle'>You can choose to add a remote connection, a local folder, or app storage (best for mobile or PWA desktop app). All remote connection configs are stored locally only, this app is strictly a frontend client. Configs can be exported/imported in advanced settings.         <br/>
+<br/>    Splats are not automatically cached in browser due to size constraints, but can be manually cached in advanced settings for offline viewing, and bandwidth savings.
+</p>
+
             <Section title="Storage" isOpen={isSubsectionOpen('connections.storage')}>
               <ul>
-                <li><strong>None:</strong></li> Files are added for session storage only. This is the default if you just drag and drop files in, and is a good option for quick viewing of a few files, but files will need to be re-added each session and can't be added from mobile.
-                <li><strong>Local folder:</strong></li> This allows you to select a folder on your device to use as a collection. Files added to this folder will be added to the viewer, and files deleted from this folder will be removed from the viewer. This is a good option for desktop users who want to manage files locally. This must be given access for each new session.
-                <li><strong>Supabase:</strong></li> This is easy to setup, and requires only an API key and URL. When you set up policies, if you add "delete" this app can delete locally and in your storage. This solution has a smaller free tier storage, and charges for bandwith after 5gb a month.
-                                <li><strong>Cloudflare R2:</strong></li> This is a bit more complex to set up, and requires an endpoint URL, access key, Account ID, and secret key, but has a much larger free tier storage and bandwidth, and is a great option for large collections. 
-
+                <li><strong>None:</strong> Files are added for session storage only. This is the default if you just drag and drop files in, and is a good option for quick viewing of a few files, but files will need to be re-added each session and can't be added from mobile.</li>
+                <li><strong>Local folder:</strong> This allows you to select a folder on your device to use as a collection. Files added to this folder will be added to the viewer, and files deleted from this folder will be removed from the viewer. This is a good option for desktop users who want to manage files locally. This must be given access for each new session.</li>
+                <li><strong>Supabase:</strong> This is easy to setup, and requires only an API key and URL. When you set up policies, if you add "delete" this app can delete locally and in your storage. This solution has a smaller free tier storage, and charges for bandwith after 5gb a month. It does not require payment info to setup.</li>
+                <li><strong>Cloudflare R2:</strong> This is a bit more complex to set up, and requires access key, Account ID, and secret key, but has a much larger free tier storage and bandwidth, and is a great option for large collections. Cloudflare requires payment info to sign up, but does not charge for bandwidth under their free tier.</li>
+                <li><strong>URL List:</strong> This is a read-only option where you can input a list of public URLs to .sog or .ply files. This is a good option for sharing collections, but does not support adding or deleting files from the viewer.</li>
               </ul>
 
             </Section>

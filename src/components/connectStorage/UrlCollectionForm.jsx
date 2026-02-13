@@ -124,11 +124,11 @@ function UrlCollectionForm({ onConnect, onBack, initialSource, editMode = false,
       <h3>{editMode ? 'Edit URL collection' : 'Create URL collection'}</h3>
 
       <div class="form-info">
-        <ul class="feature-list">
+        <ul class="feature-list bullet-list">
           <>
-            <li><FontAwesomeIcon icon={faCheck} /> No setup or credentials required</li>
-            <li><FontAwesomeIcon icon={faCheck} /> Direct HTTP/HTTPS links only, read-only</li>
-            <li><FontAwesomeIcon icon={faCheck} /> Best for quick demos or hosted files</li>
+            <li>No setup or credentials required</li>
+            <li>Direct HTTP/HTTPS links only, read-only</li>
+            <li>Best for quick demos or hosted files</li>
           </>
         </ul>
       </div>
@@ -164,7 +164,7 @@ function UrlCollectionForm({ onConnect, onBack, initialSource, editMode = false,
       )}
 
       <button
-        class="primary-button save-collection-btn"
+        class="primary-button"
         onClick={handleConnect}
         disabled={status === 'connecting' || !allUrlsValid}
       >

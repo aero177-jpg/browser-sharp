@@ -59,10 +59,10 @@ function LocalFolderForm({ onConnect, onBack }) {
 
       <div class="form-info">
         <p>Select a folder containing splat files (.ply, .sog).</p>
-        <ul class="feature-list">
-          <li><FontAwesomeIcon icon={faCheck} /> Works offline after selection</li>
-          <li><FontAwesomeIcon icon={faCheck} /> Fast loading from local disk</li>
-          <li><FontAwesomeIcon icon={faCheck} /> Connection persists across sessions</li>
+        <ul class="feature-list bullet-list">
+          <li> Works offline after selection</li>
+          <li> Fast loading from local disk</li>
+          <li> Connection persists across sessions</li>
         </ul>
       </div>
 

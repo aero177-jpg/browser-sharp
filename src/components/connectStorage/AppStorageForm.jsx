@@ -107,15 +107,16 @@ function AppStorageForm({ onConnect, onBack }) {
       </div>
 
       <div class="form-info">
-        <ul class="feature-list">
-          <li><FontAwesomeIcon icon={faCheck} /> Stored inside the app (private)</li>
-          <li><FontAwesomeIcon icon={faCheck} /> Works fully offline</li>
-          <li><FontAwesomeIcon icon={faCheck} /> No re-authorization prompts</li>
+        <ul class="feature-list bullet-list">
+          <li> Stored inside the app</li>
+          <li> Works fully offline</li>
+          <li> Optimal for standalone use via PWA install</li>
+
         </ul>
       </div>
 
       <div class="form-field">
-        <label>Import 3dgs files (optional)</label>
+        <label>Import files (optional)</label>
         <input
           ref={uploadInputRef}
           type="file"
