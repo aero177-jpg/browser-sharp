@@ -96,14 +96,14 @@ function R2Form({ onConnect, onBack, onClose }) {
   }, [encryptSecretKey, savedSettings.secretAccessKeyEncrypted]);
 
   const hasWritePermission = permissions.canWrite;
+  const hasEncryptedStoredKey = Boolean(savedSettings?.secretAccessKeyEncrypted || savedSettings?.isEncrypted);
   const r2PasswordLocked = Boolean(savedSettings?.requiresPassword && !secretAccessKey.trim());
-  const vaultLockedForConfigChanges = Boolean(vaultPasswordExists && !isVaultUnlocked());
+  const vaultLockedForConfigChanges = Boolean(hasEncryptedStoredKey && vaultPasswordExists && !isVaultUnlocked());
   const showVaultPasswordInput = Boolean(
     !isVaultUnlocked() && (
       r2PasswordLocked ||
       encryptSecretKey ||
-      Boolean(savedSettings?.secretAccessKeyEncrypted) ||
-      vaultPasswordExists
+      Boolean(savedSettings?.secretAccessKeyEncrypted)
     )
   );
 
@@ -630,12 +630,6 @@ function R2Form({ onConnect, onBack, onClose }) {
               />
               <span>
                 Encrypt key
-                {' '}
-                <FontAwesomeIcon
-                  icon={faInfoCircle}
-                  title="Encrypted at rest in local storage; details coming soon."
-                  style={{ opacity: 0.8 }}
-                />
               </span>
             </label>
             <span class="field-hint">

@@ -91,13 +91,12 @@ function CloudGpuForm({ onBack }) {
 
   const hasEncryptedStoredKey = Boolean(savedSettings?.apiKeyEncrypted || savedSettings?.isEncrypted);
   const cloudPasswordLocked = Boolean(hasEncryptedStoredKey && !apiKey.trim());
-  const vaultLockedForConfigChanges = Boolean(vaultPasswordExists && !isVaultUnlocked());
+  const vaultLockedForConfigChanges = Boolean(hasEncryptedStoredKey && vaultPasswordExists && !isVaultUnlocked());
   const showVaultPasswordInput = Boolean(
     !isVaultUnlocked() && (
       cloudPasswordLocked ||
       encryptApiKey ||
-      Boolean(savedSettings?.apiKeyEncrypted) ||
-      vaultPasswordExists
+      Boolean(savedSettings?.apiKeyEncrypted)
     )
   );
   const hasStoredApiKey = Boolean(savedSettings?.hasStoredApiKey || savedSettings?.apiKeyEncrypted || savedSettings?.apiKey || apiKey.trim());
@@ -360,12 +359,6 @@ function CloudGpuForm({ onBack }) {
             />
             <span>
               Encrypt key
-              {' '}
-              <FontAwesomeIcon
-                icon={faInfoCircle}
-                title="Encrypted at rest in local storage; details coming soon."
-                style={{ opacity: 0.8 }}
-              />
             </span>
           </label>
           <span class="field-hint">

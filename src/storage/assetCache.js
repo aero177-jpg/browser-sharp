@@ -5,7 +5,7 @@
  * This cache is name-based (file name only) and independent from preview storage.
  */
 
-import { saveFileSettings } from '../fileStorage.js';
+import { loadFileSettings, saveFileSettings } from '../fileStorage.js';
 
 const DB_NAME = 'radia-viewer-asset-cache';
 const DB_VERSION = 1;
@@ -388,6 +388,14 @@ export const clearAllAssetCache = async () => {
   try {
     const db = await openDatabase();
 
+    const cachedFileNames = await new Promise((resolve, reject) => {
+      const tx = db.transaction([ASSET_STORE], 'readonly');
+      const store = tx.objectStore(ASSET_STORE);
+      const request = store.getAllKeys();
+      request.onsuccess = () => resolve(Array.isArray(request.result) ? request.result : []);
+      request.onerror = () => reject(new Error('Failed to list asset cache keys'));
+    });
+
     const counts = await Promise.all([
       new Promise((resolve, reject) => {
         const tx = db.transaction([ASSET_STORE], 'readonly');
@@ -421,6 +429,13 @@ export const clearAllAssetCache = async () => {
         request.onerror = () => reject(new Error('Failed to clear asset cache manifests'));
       }),
     ]);
+
+    for (const fileName of cachedFileNames) {
+      if (!fileName) continue;
+      const existingSettings = await loadFileSettings(fileName);
+      if (!existingSettings) continue;
+      await saveFileSettings(fileName, { isCached: false });
+    }
 
     return {
       assetBlobsCleared: counts[0],

@@ -37,6 +37,36 @@ const iconByKey = {
   clearAssetCache: faHardDrive,
 };
 
+const clearDataSections = [
+  {
+    title: 'Collections',
+    keys: [
+      'clearUrlCollections',
+      'clearSupabaseCollections',
+      'clearR2Collections',
+      'clearLocalFolderCollections',
+      'clearAppStorageCollections',
+    ],
+  },
+  {
+    title: 'Storage & cache',
+    keys: [
+      'clearFileSettings',
+      'clearFilePreviews',
+      'clearAssetCache',
+    ],
+  },
+  {
+    title: 'Settings & preferences',
+    keys: [
+      'clearCloudGpuSettings',
+      'clearSupabaseSettings',
+      'clearR2Settings',
+      'clearViewerPrefs',
+    ],
+  },
+];
+
 const formatSummary = (summary) => {
   const parts = [];
   if (summary.sourcesCleared) parts.push(`${summary.sourcesCleared} sources`);
@@ -55,6 +85,11 @@ function ClearDataModal({ isOpen, onClose, addLog }) {
   const [success, setSuccess] = useState(null);
 
   const hasSelection = useMemo(() => Object.values(clearOptions).some(Boolean), [clearOptions]);
+
+  const optionsByKey = useMemo(
+    () => Object.fromEntries(CLEAR_DATA_OPTIONS.map((option) => [option.key, option])),
+    [],
+  );
 
   const resetState = useCallback(() => {
     setClearOptions(createInitialClearDataOptions());
@@ -126,18 +161,31 @@ function ClearDataModal({ isOpen, onClose, addLog }) {
           paddingRight: '2px',
         }}
       >
-        {CLEAR_DATA_OPTIONS.map((option) => (
-          <SelectableOptionItem
-            key={option.key}
-            title={option.title}
-            subtitle={`${option.subtitle}${option.scope === 'indexeddb' ? ' (IndexedDB)' : ' (localStorage)'}`}
-            icon={iconByKey[option.key] || faTrash}
-            selected={Boolean(clearOptions[option.key])}
-            onToggle={toggleOption(option.key)}
-            indicatorIcon={faXmark}
-            selectedIndicatorBackground="rgba(255, 80, 80, 0.9)"
-            selectedIndicatorColor="#fff"
-          />
+        {clearDataSections.map((section) => (
+          <div key={section.title}>
+            <div class="settings-divider" style={{ margin: '4px 0 10px' }}>
+              {section.title}
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {section.keys.map((key) => {
+                const option = optionsByKey[key];
+                if (!option) return null;
+                return (
+                  <SelectableOptionItem
+                    key={option.key}
+                    title={option.title}
+                    subtitle={`${option.subtitle}${option.scope === 'indexeddb' ? ' (IndexedDB)' : ' (localStorage)'}`}
+                    icon={iconByKey[option.key] || faTrash}
+                    selected={Boolean(clearOptions[option.key])}
+                    onToggle={toggleOption(option.key)}
+                    indicatorIcon={faXmark}
+                    selectedIndicatorBackground="rgba(255, 80, 80, 0.9)"
+                    selectedIndicatorColor="#fff"
+                  />
+                );
+              })}
+            </div>
+          </div>
         ))}
       </div>
 
