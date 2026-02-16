@@ -12,6 +12,7 @@ import { isAndroidUserAgent, testSharpCloud } from '../testSharpCloud.js';
 import { handleAddFiles, handleMultipleFiles, loadFromStorageSource } from '../fileLoader.js';
 import { useStore } from '../store.js';
 import { getSource } from '../storage/index.js';
+import { loadCloudGpuSettings } from '../storage/cloudGpuSettings.js';
 import UploadChoiceModal from './UploadChoiceModal.jsx';
 
 // Constants moved outside hook to avoid recreating each render
@@ -35,6 +36,8 @@ const SUPABASE_RESCAN_INTERVAL_MS = 500;
 const SUPABASE_RESCAN_ATTEMPTS = 6;
 const R2_RESCAN_INTERVAL_MS = 500;
 const R2_RESCAN_ATTEMPTS = 6;
+const DEFAULT_IMAGE_UPLOAD_BATCH_SIZE = 10;
+const ALLOWED_BATCH_SIZES = [3, 5, 10, 15, 20];
 
 const generateJobId = () => {
   const cryptoObj = typeof globalThis !== 'undefined' ? globalThis.crypto : null;
@@ -44,6 +47,22 @@ const generateJobId = () => {
 };
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const chunkFiles = (files, chunkSize) => {
+  const safeSize = Math.max(1, Number(chunkSize) || 1);
+  const chunks = [];
+  for (let index = 0; index < files.length; index += safeSize) {
+    chunks.push(files.slice(index, index + safeSize));
+  }
+  return chunks;
+};
+
+const resolveConfiguredBatchSize = () => {
+  const saved = loadCloudGpuSettings();
+  const size = Number(saved?.batchSize);
+  if (!Number.isFinite(size)) return DEFAULT_IMAGE_UPLOAD_BATCH_SIZE;
+  return ALLOWED_BATCH_SIZES.includes(size) ? size : DEFAULT_IMAGE_UPLOAD_BATCH_SIZE;
+};
 
 const waitForRemoteRescan = async (source, { expectedMin = 1 } = {}) => {
   if (!source || !['supabase-storage', 'r2-bucket'].includes(source?.type) || typeof source?.rescan !== 'function') {
@@ -328,6 +347,9 @@ export function useCollectionUploadFlow({
     const prefix = type === 'supabase-storage' || type === 'r2-bucket' ? getCollectionPrefix(resolvedSource) : undefined;
     const returnMode = type === 'supabase-storage' || type === 'r2-bucket' ? undefined : 'direct';
     const downloadMode = type === 'app-storage' || (!resolvedSource && !prepareOnly) || prepareOnly ? 'store' : undefined;
+    const batchSize = resolveConfiguredBatchSize();
+    const imageBatches = chunkFiles(imageFiles, batchSize);
+    const totalBatches = imageBatches.length;
 
     // Build accessString + storageTarget for the backend
     let cloudStorageTarget;
@@ -358,37 +380,126 @@ export function useCollectionUploadFlow({
       setUploadState?.(state);
     };
 
+    const allResults = [];
+    const allStoredFiles = [];
+    let totalSuccessCount = 0;
     let uploadError = null;
-
-    const initialProgress = { stage: 'upload', upload: { loaded: 0, total: 0, done: false }, completed: 0, total: imageFiles.length };
+    const initialProgress = {
+      stage: 'upload',
+      upload: { loaded: 0, total: 0, done: false },
+      completed: 0,
+      total: imageFiles.length,
+      batch: {
+        index: totalBatches > 0 ? 1 : 0,
+        total: totalBatches,
+        size: imageBatches[0]?.length || 0,
+        start: 1,
+        end: imageBatches[0]?.length || 0,
+      },
+    };
     onUploadProgress?.(initialProgress);
     reportUploadState({ isUploading: true, uploadProgress: initialProgress });
 
     try {
-      const results = await testSharpCloud(imageFiles, {
-        prefix,
-        returnMode,
-        downloadMode,
-        storageTarget: cloudStorageTarget,
-        accessString: cloudAccessString,
-        getJobId: () => generateJobId(),
-        pollIntervalMs: 5000,
-        onProgress: (progress) => {
-          if (progress?.stage === 'error' && progress?.error) {
-            uploadError = progress.error;
-          }
-          onUploadProgress?.(progress);
-          reportUploadState({ isUploading: true, uploadProgress: progress });
-        },
-      });
+      for (let batchIndex = 0; batchIndex < imageBatches.length; batchIndex += 1) {
+        const batchFiles = imageBatches[batchIndex];
+        const batchNumber = batchIndex + 1;
+        const batchStart = batchIndex * batchSize + 1;
+        const batchEnd = batchStart + batchFiles.length - 1;
+        const completedBeforeBatch = batchIndex * batchSize;
 
-      const storedFiles = results.flatMap((result) => result?.data?.files || []);
-      const anySuccess = results.some((r) => r.ok);
-      const silentOnly = results.length > 0 && results.every((r) => r.ok || r.silentFailure);
+        const mapProgress = (progress) => {
+          const rawCompleted = Number(progress?.completed);
+          const localCompleted = Number.isFinite(rawCompleted)
+            ? Math.max(0, Math.min(batchFiles.length, rawCompleted))
+            : 0;
+          const merged = {
+            ...(progress || {}),
+            completed: Math.max(0, Math.min(imageFiles.length, completedBeforeBatch + localCompleted)),
+            total: imageFiles.length,
+            batch: {
+              index: batchNumber,
+              total: totalBatches,
+              size: batchFiles.length,
+              start: batchStart,
+              end: batchEnd,
+            },
+          };
+          return merged;
+        };
+
+        const batchResults = await testSharpCloud(batchFiles, {
+          prefix,
+          returnMode,
+          downloadMode,
+          batchUploads: true,
+          storageTarget: cloudStorageTarget,
+          accessString: cloudAccessString,
+          getJobId: () => generateJobId(),
+          pollIntervalMs: 5000,
+          onProgress: (progress) => {
+            if (progress?.stage === 'error' && progress?.error) {
+              uploadError = progress.error;
+            }
+            const mergedProgress = mapProgress(progress);
+            onUploadProgress?.(mergedProgress);
+            reportUploadState({ isUploading: true, uploadProgress: mergedProgress });
+          },
+        });
+
+        allResults.push(...batchResults);
+        const batchStoredFiles = batchResults.flatMap((result) => result?.data?.files || []);
+        allStoredFiles.push(...batchStoredFiles);
+
+        const batchSuccessCount = batchResults.reduce((sum, result) => sum + (result?.ok ? 1 : 0), 0);
+        totalSuccessCount += batchSuccessCount;
+
+        if (prepareOnly) {
+          continue;
+        }
+
+        if (type === 'app-storage' && batchStoredFiles.length > 0 && typeof resolvedSource?.importFiles === 'function') {
+          const importResult = await resolvedSource.importFiles(batchStoredFiles);
+          if (!importResult?.success) {
+            onStatus?.('error');
+            reportError(importResult?.error || 'Failed to import converted files');
+          } else {
+            await onRefreshAssets?.();
+          }
+          await onAssetsUpdated?.({ mode: 'images', source: resolvedSource, files: batchStoredFiles });
+          const addedCount = importResult?.imported ?? batchStoredFiles.length;
+          scheduleAutoReload(resolvedSource, getPreferredIndex(addedCount));
+          continue;
+        }
+
+        if ((type === 'supabase-storage' || type === 'r2-bucket') && batchSuccessCount > 0) {
+          await onRefreshAssets?.();
+          await onAssetsUpdated?.({ mode: 'images', source: resolvedSource, files: batchFiles });
+          const addedCount = batchSuccessCount || batchFiles.length;
+          const didRescan = await waitForRemoteRescan(resolvedSource, { expectedMin: addedCount });
+          if (!didRescan) {
+            console.warn('[UploadFlow] Remote rescan timed out; falling back to delayed refresh');
+          }
+          scheduleAutoReload(resolvedSource, getPreferredIndex(addedCount));
+          continue;
+        }
+
+        if (!resolvedSource && batchStoredFiles.length > 0) {
+          const shouldAppendBatch = queueAction === 'append' || batchIndex > 0;
+          if (shouldAppendBatch) {
+            await handleAddFiles(batchStoredFiles, { selectFirstAdded: Boolean(selectFirstAdded && batchIndex === 0) });
+          } else {
+            await handleMultipleFiles(batchStoredFiles);
+          }
+        }
+      }
+
+      const anySuccess = totalSuccessCount > 0;
+      const silentOnly = allResults.length > 0 && allResults.every((result) => result?.ok || result?.silentFailure);
 
       if (prepareOnly) {
-        if (storedFiles.length > 0) {
-          onPreparedFiles?.(storedFiles, 'images');
+        if (allStoredFiles.length > 0) {
+          onPreparedFiles?.(allStoredFiles, 'images');
         } else if (!anySuccess) {
           onStatus?.('error');
           reportError('Image conversion failed.');
@@ -396,38 +507,9 @@ export function useCollectionUploadFlow({
         return;
       }
 
-      if (type === 'app-storage' && storedFiles.length > 0 && typeof resolvedSource?.importFiles === 'function') {
-        const importResult = await resolvedSource.importFiles(storedFiles);
-        if (!importResult?.success) {
-          onStatus?.('error');
-          reportError(importResult?.error || 'Failed to import converted files');
-        } else {
-          await onRefreshAssets?.();
-        }
-        await onAssetsUpdated?.({ mode: 'images', source: resolvedSource, files: storedFiles });
-        const addedCount = importResult?.imported ?? storedFiles.length;
-        scheduleAutoReload(resolvedSource, getPreferredIndex(addedCount));
-        return;
-      }
-
-      if ((type === 'supabase-storage' || type === 'r2-bucket') && anySuccess) {
-        await onRefreshAssets?.();
-        await onAssetsUpdated?.({ mode: 'images', source: resolvedSource, files: imageFiles });
-        const addedCount = results.reduce((sum, result) => sum + (result?.ok ? 1 : 0), 0) || imageFiles.length;
-        const didRescan = await waitForRemoteRescan(resolvedSource, { expectedMin: addedCount });
-        if (!didRescan) {
-          console.warn('[UploadFlow] Remote rescan timed out; falling back to delayed refresh');
-        }
-        scheduleAutoReload(resolvedSource, getPreferredIndex(addedCount));
-        return;
-      }
-
-      if (!resolvedSource && storedFiles.length > 0) {
-        await handleQueueAssets(storedFiles);
-        return;
-      }
-
-      if (!anySuccess) {
+      if (anySuccess) {
+        uploadError = null;
+      } else {
         onStatus?.('error');
         if (!silentOnly) {
           reportError('Image conversion failed.');
@@ -448,7 +530,7 @@ export function useCollectionUploadFlow({
         reportUploadState({ isUploading: false, uploadProgress: null });
       }
     }
-  }, [handleQueueAssets, onAssetsUpdated, onLoadingChange, onPreparedFiles, onRefreshAssets, onStatus, onUploadProgress, onUploadState, onUploadingChange, prepareOnly, resolvedSource, scheduleAutoReload, getPreferredIndex, setUploadState]);
+  }, [handleQueueAssets, onAssetsUpdated, onLoadingChange, onPreparedFiles, onRefreshAssets, onStatus, onUploadProgress, onUploadState, onUploadingChange, prepareOnly, queueAction, resolvedSource, scheduleAutoReload, getPreferredIndex, selectFirstAdded, setUploadState]);
 
   const handleFilesForMode = useCallback(async (mode, files) => {
     if (!files?.length) return;

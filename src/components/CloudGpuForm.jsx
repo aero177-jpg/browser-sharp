@@ -34,6 +34,13 @@ const GPU_OPTIONS = [
   { value: 'a100', label: 'A100 $2.50 High performance' },
   { value: 'h100', label: 'H100 $3.95 Fastest' },
 ];
+const BATCH_SIZE_OPTIONS = [3, 5, 10, 15, 20];
+
+const normalizeBatchSize = (value) => {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return 10;
+  return BATCH_SIZE_OPTIONS.includes(numeric) ? numeric : 10;
+};
 
 const VAULT_PASSWORD_MISMATCH_ERROR = 'Password does not match the existing vault password.';
 
@@ -73,6 +80,7 @@ function CloudGpuForm({ onBack }) {
         isEncrypted: Boolean(saved?.isEncrypted || saved?.apiKeyEncrypted),
         gpuType: saved?.gpuType || 'a10',
         batchUploads: saved?.batchUploads ?? true,
+        batchSize: normalizeBatchSize(saved?.batchSize),
       };
     },
     []
@@ -82,6 +90,7 @@ function CloudGpuForm({ onBack }) {
   const [apiKey, setApiKey] = useState(initialSettings.apiKey);
   const [gpuType, setGpuType] = useState(initialSettings.gpuType);
   const [batchUploads, setBatchUploads] = useState(initialSettings.batchUploads);
+  const [batchSize, setBatchSize] = useState(initialSettings.batchSize);
   const [status, setStatus] = useState('idle');
   const [error, setError] = useState(null);
   const [encryptApiKey, setEncryptApiKey] = useState(Boolean(initialSettings.apiKeyEncrypted));
@@ -106,12 +115,14 @@ function CloudGpuForm({ onBack }) {
     apiKey: apiKey.trim(),
     gpuType: (gpuType || 'a10').trim().toLowerCase(),
     batchUploads: Boolean(batchUploads),
-  }), [apiUrl, apiKey, gpuType, batchUploads]);
+    batchSize: normalizeBatchSize(batchSize),
+  }), [apiUrl, apiKey, gpuType, batchUploads, batchSize]);
   const trimmedSaved = useMemo(() => ({
     apiUrl: savedSettings.apiUrl?.trim?.() || '',
     apiKey: savedSettings.apiKey?.trim?.() || '',
     gpuType: savedSettings.gpuType?.trim?.().toLowerCase?.() || 'a10',
     batchUploads: Boolean(savedSettings.batchUploads),
+    batchSize: normalizeBatchSize(savedSettings.batchSize),
   }), [savedSettings]);
   const isSettingsReady = Boolean(trimmedSettings.apiUrl && (trimmedSettings.apiKey || hasStoredApiKey));
   const settingsChanged =
@@ -119,6 +130,7 @@ function CloudGpuForm({ onBack }) {
     trimmedSettings.apiKey !== trimmedSaved.apiKey ||
     trimmedSettings.gpuType !== trimmedSaved.gpuType ||
     trimmedSettings.batchUploads !== trimmedSaved.batchUploads ||
+    trimmedSettings.batchSize !== trimmedSaved.batchSize ||
     Boolean(encryptApiKey) !== Boolean(savedSettings.apiKeyEncrypted);
 
   const handleSave = useCallback(async () => {
@@ -195,6 +207,7 @@ function CloudGpuForm({ onBack }) {
       apiKeyEncrypted: nextEncryptedApiKey || null,
       gpuType: trimmedSettings.gpuType,
       batchUploads: trimmedSettings.batchUploads,
+      batchSize: trimmedSettings.batchSize,
     };
 
     if (!payload.apiKeyEncrypted) {
@@ -245,6 +258,7 @@ function CloudGpuForm({ onBack }) {
       setApiKey(unlocked.apiKey || '');
       setGpuType(unlocked.gpuType || 'a10');
       setBatchUploads(Boolean(unlocked.batchUploads));
+      setBatchSize(normalizeBatchSize(unlocked.batchSize));
       setEncryptApiKey(Boolean(unlocked.apiKeyEncrypted));
     }
 
@@ -391,6 +405,25 @@ function CloudGpuForm({ onBack }) {
             Faster, but less reliable on large batches.
           </i>
         </div>
+
+        {batchUploads && (
+          <div class="form-field">
+            <label>Batch size</label>
+            <select value={String(batchSize)} onChange={(e) => setBatchSize(normalizeBatchSize(e.target.value))}>
+              {BATCH_SIZE_OPTIONS.map((size) => (
+                <option key={size} value={String(size)}>
+                  {size}
+                </option>
+              ))}
+            </select>
+            <div class="field-hint" style={{ marginTop: '6px' }}>
+              Lower is slower but more reliable. Higher is faster but can be unstable.
+            </div>
+            <div class="field-hint">
+              Lower is recommended for local folders. Higher is generally fine for cloud storage.
+            </div>
+          </div>
+        )}
       </div>
 
       {error && (

@@ -42,10 +42,14 @@ function UploadStatusOverlay({ isUploading, uploadProgress, variant = 'default',
     const timer = uploadProgress?.timer || null;
     const totalFiles = timer?.totalFiles || uploadProgress?.total || 0;
     const error = uploadProgress?.error || null;
+    const batch = uploadProgress?.batch || null;
+    const batchPrefix = batch?.total > 1
+      ? `Batch ${batch?.index || 1} of ${batch?.total} • `
+      : '';
 
     if (stage === 'error' || error) {
       return {
-        stageLabel: error?.message || 'Process failed',
+        stageLabel: `${batchPrefix}${error?.message || 'Process failed'}`,
         showSpinner: false,
         showErrorIcon: true,
         showBar: false,
@@ -59,7 +63,7 @@ function UploadStatusOverlay({ isUploading, uploadProgress, variant = 'default',
     // Upload stage: just "Uploading" + spinner, no bar or file count
     if (stage === 'upload') {
       return {
-        stageLabel: 'Uploading',
+        stageLabel: `${batchPrefix}Uploading`,
         showSpinner: true,
         showErrorIcon: false,
         showBar: false,
@@ -74,7 +78,7 @@ function UploadStatusOverlay({ isUploading, uploadProgress, variant = 'default',
         ? `Sending results to storage`
         : 'Sending to storage';
       return {
-        stageLabel: label,
+        stageLabel: `${batchPrefix}${label}`,
         showSpinner: true,
         showErrorIcon: false,
         showBar: false,
@@ -91,10 +95,10 @@ function UploadStatusOverlay({ isUploading, uploadProgress, variant = 'default',
     const etaLabel = etaSeconds > 0 ? formatEta(etaSeconds) : '';
 
     const stageLabel = stage === 'warmup'
-      ? 'GPU warm-up'
+      ? `${batchPrefix}GPU warm-up`
       : totalFiles > 1
-      ? `Processing ${currentFile} of ${totalFiles}`
-      : 'Processing image';
+      ? `${batchPrefix}Processing ${currentFile} of ${totalFiles}`
+      : `${batchPrefix}Processing image`;
 
     return {
       stageLabel,

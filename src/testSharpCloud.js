@@ -112,12 +112,52 @@ const parseXhrHeaders = (rawHeaders) => {
   return headers;
 };
 
+const createTransportError = (message, meta = {}) => {
+  const error = new Error(message || 'Network transport failed.');
+  error.code = meta.code || 'TRANSPORT_ERROR';
+  error.uploadDone = Boolean(meta.uploadDone);
+  error.jobId = meta.jobId || null;
+  error.causeEvent = meta.causeEvent || null;
+  return error;
+};
+
 const resolveProgressUrl = (apiUrl) => {
   if (!apiUrl) return null;
   if (apiUrl.includes('-process-image')) {
     return apiUrl.replace('-process-image', '-get-progress');
   }
   return null;
+};
+
+const waitForProgressDone = async ({
+  progressUrl,
+  jobId,
+  intervalMs = 5000,
+  timeoutMs = 20 * 60 * 1000,
+}) => {
+  if (!progressUrl || !jobId) return { done: false, timedOut: false };
+
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    try {
+      const res = await fetch(`${progressUrl}?job_id=${encodeURIComponent(jobId)}`);
+      if (res.status === 404) {
+        await new Promise((resolve) => setTimeout(resolve, Math.max(500, Number(intervalMs) || 5000)));
+        continue;
+      }
+
+      const data = await res.json();
+      if (Boolean(data?.done)) {
+        return { done: true, timedOut: false, data };
+      }
+    } catch {
+      // keep waiting; polling can be flaky while job is still running
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, Math.max(500, Number(intervalMs) || 5000)));
+  }
+
+  return { done: false, timedOut: true };
 };
 
 const generateJobId = () => {
@@ -290,10 +330,13 @@ const startProgressPolling = ({ progressUrl, jobId, onProgress, progressBase, in
   return stop;
 };
 
-const postFormData = (url, apiKey, formData, { onUploadProgress, onUploadDone } = {}) => new Promise((resolve, reject) => {
+const postFormData = (url, apiKey, formData, { onUploadProgress, onUploadDone, jobId } = {}) => new Promise((resolve, reject) => {
   const xhr = new XMLHttpRequest();
+  let uploadFinished = false;
+
   xhr.open('POST', url, true);
   xhr.responseType = 'arraybuffer';
+  xhr.timeout = 0;
   xhr.setRequestHeader('X-API-KEY', apiKey);
 
   xhr.upload.onprogress = (event) => {
@@ -301,6 +344,7 @@ const postFormData = (url, apiKey, formData, { onUploadProgress, onUploadDone } 
   };
 
   xhr.upload.onloadend = (event) => {
+    uploadFinished = true;
     onUploadProgress?.({ ...event, done: true });
     onUploadDone?.();
   };
@@ -314,11 +358,28 @@ const postFormData = (url, apiKey, formData, { onUploadProgress, onUploadDone } 
     });
   };
 
-  xhr.onerror = () => reject(new Error('Upload failed.'));
+  xhr.onerror = (event) => reject(createTransportError('Upload failed.', {
+    code: 'XHR_NETWORK_ERROR',
+    uploadDone: uploadFinished,
+    jobId,
+    causeEvent: event?.type || 'error',
+  }));
+  xhr.onabort = (event) => reject(createTransportError('Upload was interrupted.', {
+    code: 'XHR_ABORTED',
+    uploadDone: uploadFinished,
+    jobId,
+    causeEvent: event?.type || 'abort',
+  }));
+  xhr.ontimeout = (event) => reject(createTransportError('Upload request timed out.', {
+    code: 'XHR_TIMEOUT',
+    uploadDone: uploadFinished,
+    jobId,
+    causeEvent: event?.type || 'timeout',
+  }));
   xhr.send(formData);
 });
 
-const postFormDataWithProgress = async (url, apiKey, formData, { onProgress, progressBase, onUploadDone } = {}) => {
+const postFormDataWithProgress = async (url, apiKey, formData, { onProgress, progressBase, onUploadDone, jobId } = {}) => {
   const result = await postFormData(url, apiKey, formData, {
     onUploadProgress: (event) => {
       const loaded = Number.isFinite(event?.loaded) ? event.loaded : 0;
@@ -332,6 +393,7 @@ const postFormDataWithProgress = async (url, apiKey, formData, { onProgress, pro
       });
     },
     onUploadDone,
+    jobId,
   });
 
   const response = new Response(result.body ?? null, {
@@ -523,6 +585,7 @@ export async function testSharpCloud(files, { prefix, onProgress, apiUrl, apiKey
       const result = await postFormDataWithProgress(resolvedUrl, resolvedKey, formData, {
         onProgress,
         progressBase,
+        jobId: activeJobId,
         onUploadDone: () => {
           if (!resolvedProgressUrl) {
             warnMissingProgressUrl();
@@ -564,7 +627,7 @@ export async function testSharpCloud(files, { prefix, onProgress, apiUrl, apiKey
         emitErrorProgress({
           onProgress,
           progressBase,
-          message: 'Processed failed',
+          message: 'Processing failed',
           detail: errorText || `Server responded with ${response.status}`,
         });
         throw new Error(`Server responded with ${response.status}: ${errorText}`);
@@ -574,20 +637,41 @@ export async function testSharpCloud(files, { prefix, onProgress, apiUrl, apiKey
       stopPolling?.();
       results.push({ file: 'batch', ok: true, data, jobId: activeJobId });
     } catch (err) {
+      const transportClosedAfterUpload = Boolean(err?.uploadDone && ['XHR_NETWORK_ERROR', 'XHR_ABORTED', 'XHR_TIMEOUT'].includes(err?.code));
+      if (transportClosedAfterUpload && resolvedProgressUrl) {
+        const activeJobId = err?.jobId || jobId || getJobId?.(null) || null;
+        const completion = await waitForProgressDone({
+          progressUrl: resolvedProgressUrl,
+          jobId: activeJobId,
+          intervalMs: pollIntervalMs,
+        });
+
+        if (completion.done && ['r2', 'supabase'].includes((resolvedStorageTarget || '').toLowerCase())) {
+          console.warn('[CloudGPU] Upload connection closed before response, but job completed remotely. Treating as success for remote storage output.');
+          stopPolling?.();
+          results.push({ file: 'batch', ok: true, data: { deferred: true }, jobId: activeJobId, recoveredFromDisconnect: true });
+          if (typeof onProgress === 'function') {
+            onProgress({ completed: total, total, stage: 'done', jobId: activeJobId });
+          }
+          return results;
+        }
+      }
+
       const message = `Batch upload failed. You can refresh the collection to see any completed files. ${err?.message || ''}`.trim();
       console.error('❌ Batch upload failed:', err?.message || err);
       stopPolling?.();
       emitErrorProgress({
         onProgress,
         progressBase: { completed: 0, total },
-        message: 'Processed failed',
+        message: 'Processing failed',
         detail: err?.message || message,
       });
       results.push({ file: 'batch', ok: false, error: message, silentFailure: true });
     }
 
     if (typeof onProgress === 'function') {
-      onProgress({ completed: results.length ? total : 0, total });
+      const successful = results.some((result) => result?.ok);
+      onProgress({ completed: successful ? total : 0, total, stage: successful ? 'done' : 'error' });
     }
 
     return results;
@@ -606,6 +690,7 @@ export async function testSharpCloud(files, { prefix, onProgress, apiUrl, apiKey
       const result = await postFormDataWithProgress(resolvedUrl, resolvedKey, formData, {
         onProgress,
         progressBase,
+        jobId: activeJobId,
         onUploadDone: () => {
           if (!resolvedProgressUrl) {
             warnMissingProgressUrl();
@@ -647,7 +732,7 @@ export async function testSharpCloud(files, { prefix, onProgress, apiUrl, apiKey
         emitErrorProgress({
           onProgress,
           progressBase,
-          message: 'Processed failed',
+          message: 'Processing failed',
           detail: errorText || `Server responded with ${response.status}`,
         });
         throw new Error(`Server responded with ${response.status}: ${errorText}`);
@@ -657,12 +742,32 @@ export async function testSharpCloud(files, { prefix, onProgress, apiUrl, apiKey
       stopPolling?.();
       results.push({ file: file.name, ok: true, data, jobId: activeJobId });
     } catch (err) {
+      const transportClosedAfterUpload = Boolean(err?.uploadDone && ['XHR_NETWORK_ERROR', 'XHR_ABORTED', 'XHR_TIMEOUT'].includes(err?.code));
+      if (transportClosedAfterUpload && resolvedProgressUrl) {
+        const activeJobId = err?.jobId || jobId || getJobId?.(file) || null;
+        const completion = await waitForProgressDone({
+          progressUrl: resolvedProgressUrl,
+          jobId: activeJobId,
+          intervalMs: pollIntervalMs,
+        });
+
+        if (completion.done && ['r2', 'supabase'].includes((resolvedStorageTarget || '').toLowerCase())) {
+          console.warn(`[CloudGPU] Upload connection closed for ${file.name}, but job completed remotely. Treating as success for remote storage output.`);
+          stopPolling?.();
+          results.push({ file: file.name, ok: true, data: { deferred: true }, jobId: activeJobId, recoveredFromDisconnect: true });
+          if (typeof onProgress === 'function') {
+            onProgress({ completed: results.length, total, stage: 'done', jobId: activeJobId });
+          }
+          continue;
+        }
+      }
+
       console.error(`❌ Upload failed for ${file.name}:`, err.message);
       stopPolling?.();
       emitErrorProgress({
         onProgress,
         progressBase: { completed: results.length, total },
-        message: 'Processed failed',
+        message: 'Processing failed',
         detail: err?.message || 'Upload failed',
       });
       results.push({ file: file.name, ok: false, error: err.message, silentFailure: true });
