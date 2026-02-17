@@ -459,6 +459,20 @@ input[type="checkbox"]:disabled:checked {
   gap: 8px;
 }
 
+.viewer-upload-detail-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  padding: 0;
+  pointer-events: auto;
+  position: relative;
+  z-index: 2;
+}
+
 .viewer-upload-error {
   display: flex;
   flex-direction: column;
@@ -3930,7 +3944,7 @@ background: #3e576c52;
 
 .faq-answer {
   margin-top: -15px;
-  padding: 0 14px 0px 42px;
+  padding: 10px 14px 0px 42px;
   font-size: 13px;
   color: #a0aec0;
   line-height: 1.6;

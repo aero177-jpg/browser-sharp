@@ -3,20 +3,74 @@ import { loadCloudGpuSettings } from './storage/cloudGpuSettings.js';
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
+const PHASE_TO_STAGE = {
+  queued: 'warmup',
+  starting_worker: 'warmup',
+  dispatching_inference: 'warmup',
+  preparing_gpu: 'warmup',
+  checking_model_cache: 'warmup',
+  downloading_model: 'warmup',
+  loading_model: 'warmup',
+  model_ready: 'warmup',
+  processing_images: 'processing',
+  serializing_outputs: 'processing',
+  inference_complete: 'processing',
+  uploading_or_staging_results: 'transferring',
+  completed: 'done',
+  complete: 'done',
+  validation_failed: 'error',
+  failed: 'error',
+};
+
+const TERMINAL_STATUSES = new Set(['complete', 'completed', 'failed']);
+const TERMINAL_PHASES = new Set(['complete', 'completed', 'failed', 'validation_failed']);
+const ALLOWED_RESULTS_KEYS = ['files', 'results', 'items', 'outputs', 'output_files'];
+const INITIAL_POLL_INTERVAL_MS = 1500;
+const DEFAULT_PHASE_POLL_INTERVAL_MS = 5000;
+const FAST_PHASE_POLL_INTERVAL_MS = 2000;
+const MAX_POLL_INTERVAL_MS = 15000;
+const FORCE_ASYNC_TRUE_VALUES = new Set(['true', '1', 'yes', 'on']);
+const ETA_WARMUP_MS = 40000;
+const ETA_PER_IMAGE_MS = 10000;
+const ETA_PENALTY_MS = 15000;
+const ETA_PENALTY_COOLDOWN_MS = 8000;
+const FAST_POLL_PHASES = new Set(['loading_model', 'model_ready', 'processing_images']);
+
 export const isAndroidUserAgent = (ua) => {
   const userAgent = ua || (typeof navigator !== 'undefined' ? navigator.userAgent : '');
   return /Android/i.test(userAgent || '');
 };
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const downloadBlob = (blob, filename) => {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename || 'output.bin';
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+};
+
 const extractBoundary = (contentType) => {
-  const match = contentType.match(/boundary=([^;]+)/i);
-  return match ? match[1].trim() : null;
+  const match = String(contentType || '').match(/boundary=([^;]+)/i);
+  return match ? match[1].trim().replace(/^"|"$/g, '') : null;
+};
+
+const resolveLegacyProgressUrl = (submitUrl) => {
+  if (!submitUrl) return null;
+  if (submitUrl.includes('-process-image')) {
+    return submitUrl.replace('-process-image', '-get-progress');
+  }
+  return null;
 };
 
 const indexOfSubarray = (haystack, needle, start = 0) => {
-  for (let i = start; i <= haystack.length - needle.length; i++) {
+  for (let i = start; i <= haystack.length - needle.length; i += 1) {
     let match = true;
-    for (let j = 0; j < needle.length; j++) {
+    for (let j = 0; j < needle.length; j += 1) {
       if (haystack[i + j] !== needle[j]) {
         match = false;
         break;
@@ -29,7 +83,7 @@ const indexOfSubarray = (haystack, needle, start = 0) => {
 
 const parseHeaders = (headerText) => {
   const headers = {};
-  for (const line of headerText.split(/\r?\n/)) {
+  for (const line of String(headerText || '').split(/\r?\n/)) {
     const idx = line.indexOf(':');
     if (idx > -1) {
       const key = line.slice(0, idx).trim().toLowerCase();
@@ -43,6 +97,7 @@ const parseHeaders = (headerText) => {
 const parseMultipartMixed = (buffer, boundary) => {
   const boundaryBytes = textEncoder.encode(`--${boundary}`);
   const endBoundaryBytes = textEncoder.encode(`--${boundary}--`);
+  const headerDivider = textEncoder.encode('\r\n\r\n');
 
   const parts = [];
   let pos = 0;
@@ -56,125 +111,28 @@ const parseMultipartMixed = (buffer, boundary) => {
 
     let partStart = start + boundaryBytes.length;
     if (buffer[partStart] === 13 && buffer[partStart + 1] === 10) {
-      partStart += 2; // skip CRLF
+      partStart += 2;
     }
 
     const nextBoundary = indexOfSubarray(buffer, boundaryBytes, partStart);
     if (nextBoundary === -1) break;
 
     const part = buffer.slice(partStart, nextBoundary);
-    parts.push(part);
+    const headerEnd = indexOfSubarray(part, headerDivider);
+    if (headerEnd !== -1) {
+      const headerBytes = part.slice(0, headerEnd);
+      const body = part.slice(headerEnd + headerDivider.length);
+      parts.push({
+        headers: parseHeaders(textDecoder.decode(headerBytes)),
+        body,
+      });
+    }
 
     pos = nextBoundary;
   }
 
-  const headerDivider = textEncoder.encode('\r\n\r\n');
-
-  return parts
-    .map((part) => {
-      const headerEnd = indexOfSubarray(part, headerDivider);
-      if (headerEnd === -1) return null;
-
-      const headerBytes = part.slice(0, headerEnd);
-      const body = part.slice(headerEnd + headerDivider.length);
-
-      const headerText = textDecoder.decode(headerBytes);
-      const headers = parseHeaders(headerText);
-
-      return { headers, body };
-    })
-    .filter(Boolean);
+  return parts;
 };
-
-const downloadBlob = (blob, filename) => {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename || 'output.bin';
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
-};
-
-const parseXhrHeaders = (rawHeaders) => {
-  const headers = new Headers();
-  if (!rawHeaders) return headers;
-  const lines = rawHeaders.trim().split(/\r?\n/);
-  for (const line of lines) {
-    const idx = line.indexOf(':');
-    if (idx > -1) {
-      const key = line.slice(0, idx).trim();
-      const value = line.slice(idx + 1).trim();
-      headers.append(key, value);
-    }
-  }
-  return headers;
-};
-
-const createTransportError = (message, meta = {}) => {
-  const error = new Error(message || 'Network transport failed.');
-  error.code = meta.code || 'TRANSPORT_ERROR';
-  error.uploadDone = Boolean(meta.uploadDone);
-  error.jobId = meta.jobId || null;
-  error.causeEvent = meta.causeEvent || null;
-  return error;
-};
-
-const resolveProgressUrl = (apiUrl) => {
-  if (!apiUrl) return null;
-  if (apiUrl.includes('-process-image')) {
-    return apiUrl.replace('-process-image', '-get-progress');
-  }
-  return null;
-};
-
-const waitForProgressDone = async ({
-  progressUrl,
-  jobId,
-  intervalMs = 5000,
-  timeoutMs = 20 * 60 * 1000,
-}) => {
-  if (!progressUrl || !jobId) return { done: false, timedOut: false };
-
-  const startedAt = Date.now();
-  while (Date.now() - startedAt < timeoutMs) {
-    try {
-      const res = await fetch(`${progressUrl}?job_id=${encodeURIComponent(jobId)}`);
-      if (res.status === 404) {
-        await new Promise((resolve) => setTimeout(resolve, Math.max(500, Number(intervalMs) || 5000)));
-        continue;
-      }
-
-      const data = await res.json();
-      if (Boolean(data?.done)) {
-        return { done: true, timedOut: false, data };
-      }
-    } catch {
-      // keep waiting; polling can be flaky while job is still running
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, Math.max(500, Number(intervalMs) || 5000)));
-  }
-
-  return { done: false, timedOut: true };
-};
-
-const generateJobId = () => {
-  const cryptoObj = typeof globalThis !== 'undefined' ? globalThis.crypto : null;
-  if (cryptoObj?.randomUUID) return cryptoObj.randomUUID();
-  const rand = Math.random().toString(16).slice(2);
-  return `job-${Date.now()}-${rand}`;
-};
-
-const warnMissingProgressUrl = (() => {
-  let warned = false;
-  return () => {
-    if (warned) return;
-    warned = true;
-    console.warn('[CloudGPU] Progress URL not set. Configure the get-progress endpoint to enable polling.');
-  };
-})();
 
 const parseErrorDetail = (raw) => {
   if (!raw) return '';
@@ -204,135 +162,178 @@ const parseErrorDetail = (raw) => {
   const detailMatch = rawText.match(/"?detail"?\s*[:=]\s*"?([^"\n]+)"?/i);
   if (detailMatch?.[1]) return detailMatch[1].trim();
 
-  // Fallback: return the raw text itself so the user sees *something*
   return rawText;
 };
 
 const emitErrorProgress = ({ onProgress, progressBase, message, detail }) => {
   if (typeof onProgress !== 'function') return;
-  const parsedDetail = parseErrorDetail(detail);
   onProgress({
     ...(progressBase || {}),
     stage: 'error',
     error: {
       message: message || 'Processing failed',
-      detail: parsedDetail,
+      detail: parseErrorDetail(detail),
     },
   });
 };
 
-const startProgressPolling = ({ progressUrl, jobId, onProgress, progressBase, intervalMs = 1000, fileCount = 1, warmupMs = 30000, perFileMs = 10000 }) => {
-  if (!jobId) return () => {};
-
-  const safeFileCount = Math.max(1, Number(fileCount) || 1);
-  const safeWarmup = Math.max(0, Number(warmupMs) || 30000);
-  const safePerFile = Math.max(0, Number(perFileMs) || 10000);
-
-  let stopped = false;
-  let totalEstimateMs = safeWarmup + safeFileCount * safePerFile;
-  let effectiveElapsedMs = 0;
-  let lastTickTime = Date.now();
-  let lastKnownStep = 0;
-  let remoteComplete = false;
-
-  const emit = () => {
-    if (stopped) return;
-
-    const now = Date.now();
-    const dt = now - lastTickTime;
-    lastTickTime = now;
-
-    if (!remoteComplete) {
-      effectiveElapsedMs += dt;
-    }
-
-    const clampedElapsed = Math.min(effectiveElapsedMs, totalEstimateMs);
-    const remainingMs = Math.max(0, totalEstimateMs - clampedElapsed);
-    const percent = totalEstimateMs > 0 ? Math.min(100, (clampedElapsed / totalEstimateMs) * 100) : 100;
-
-    let stage = 'warmup';
-    let currentFile = 0;
-
-    if (remoteComplete) {
-      stage = 'transferring';
-      currentFile = safeFileCount;
-    } else if (clampedElapsed < safeWarmup) {
-      stage = 'warmup';
-    } else {
-      stage = 'processing';
-      const processingElapsed = clampedElapsed - safeWarmup;
-      currentFile = Math.min(safeFileCount, Math.floor(processingElapsed / safePerFile) + 1);
-    }
-
-    onProgress?.({
-      ...(progressBase || {}),
-      jobId,
-      stage,
-      timer: {
-        currentFile,
-        totalFiles: safeFileCount,
-        remainingMs,
-        totalMs: totalEstimateMs,
-        percent,
-        done: remoteComplete,
-      },
-    });
-  };
-
-  const timerInterval = setInterval(emit, 500);
-  emit();
-
-  let pollInterval = null;
-  if (progressUrl) {
-    const pollOnce = async () => {
-      if (stopped || remoteComplete) return;
-      try {
-        const res = await fetch(`${progressUrl}?job_id=${encodeURIComponent(jobId)}`);
-        if (res.status === 404) return;
-        const data = await res.json();
-
-        const step = Number(data?.step) || 0;
-        const isDone = Boolean(data?.done);
-
-        if (step > lastKnownStep && step >= 1) {
-          // step 1 = image 1 starts at warmup, step 2 = image 2 starts at warmup+perFile, etc.
-          const expectedMsForStep = safeWarmup + (step - 1) * safePerFile;
-          if (effectiveElapsedMs < expectedMsForStep) {
-            effectiveElapsedMs = expectedMsForStep;
-          } else if (effectiveElapsedMs > expectedMsForStep + safePerFile) {
-            totalEstimateMs += 5000;
-          }
-          lastTickTime = Date.now();
-          lastKnownStep = step;
-        }
-
-        if (isDone) {
-          remoteComplete = true;
-          lastTickTime = Date.now();
-          emit();
-        }
-      } catch (err) {
-        console.warn('[CloudGPU] Progress polling failed', err);
-      }
-    };
-
-    pollInterval = setInterval(pollOnce, Math.max(500, Number(intervalMs) || 1000));
-    pollOnce();
-  }
-
-  const stop = () => {
-    if (stopped) return;
-    stopped = true;
-    clearInterval(timerInterval);
-    if (pollInterval) clearInterval(pollInterval);
-  };
-
-  return stop;
+const fetchWithApiKey = async (url, apiKey, init = {}) => {
+  const headers = new Headers(init.headers || {});
+  headers.set('X-API-KEY', apiKey);
+  return fetch(url, { ...init, headers });
 };
 
-const postFormData = (url, apiKey, formData, { onUploadProgress, onUploadDone, jobId } = {}) => new Promise((resolve, reject) => {
+const parseJsonSafe = async (response) => {
+  const contentType = response.headers.get('content-type') || '';
+  if (!contentType.toLowerCase().includes('application/json')) {
+    const text = await response.text();
+    try {
+      return JSON.parse(text || '{}');
+    } catch {
+      return { raw: text };
+    }
+  }
+  return response.json();
+};
+
+const clampPercent = (value) => {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return null;
+  return Math.max(0, Math.min(100, numeric));
+};
+
+const toFiniteNumber = (value) => {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+};
+
+const extractBackendMessage = (payload) => {
+  if (typeof payload?.message === 'string' && payload.message.trim()) {
+    return payload.message.trim();
+  }
+  return '';
+};
+
+const extractBackendErrorPayload = (payload) => {
+  if (!payload || typeof payload !== 'object') return null;
+  if (payload.error != null) return payload.error;
+  if (payload.detail != null) return payload.detail;
+  if (payload.message != null && String(payload.status || '').toLowerCase() === 'failed') {
+    return payload.message;
+  }
+  return null;
+};
+
+const normalizeStatus = (statusPayload) => String(statusPayload?.status || '').trim().toLowerCase();
+
+const extractJobLinks = (payload) => {
+  const statusUrl = payload?.status_url || payload?.status_path || null;
+  const resultsUrl = payload?.results_url || payload?.results_path || null;
+  return {
+    jobId: payload?.job_id || null,
+    statusUrl,
+    resultsUrl,
+    submitUrl: payload?.submit_url || null,
+    callId: payload?.call_id || null,
+  };
+};
+
+const extractFilenameFromDisposition = (disposition, fallback) => {
+  if (!disposition) return fallback;
+  const match = disposition.match(/filename\*?=(?:UTF-8''|"?)([^";]+)/i);
+  if (!match?.[1]) return fallback;
+  const clean = decodeURIComponent(match[1].replace(/"/g, '').trim());
+  return clean || fallback;
+};
+
+const extractResultsList = (payload) => {
+  for (const key of ALLOWED_RESULTS_KEYS) {
+    if (Array.isArray(payload?.[key])) return payload[key];
+  }
+  return [];
+};
+
+const normalizeResultItem = (item, index = 0) => {
+  const downloadUrl = item?.download_url || item?.downloadUrl || item?.url || null;
+  const filename = item?.filename || item?.name || `output-${index + 1}.bin`;
+  return { downloadUrl, filename };
+};
+
+const normalizeForceAsync = (value) => {
+  if (value == null) return null;
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    return FORCE_ASYNC_TRUE_VALUES.has(normalized) ? 'true' : 'false';
+  }
+  if (typeof value === 'boolean') return value ? 'true' : 'false';
+  if (typeof value === 'number') return value ? 'true' : 'false';
+  return null;
+};
+
+const emitLegacyProgress = ({ payload, onProgress, progressBase, fileCount }) => {
+  const phase = String(payload?.phase || '').trim().toLowerCase();
+  const step = Math.max(0, Number(payload?.step) || 0);
+  const done = Boolean(payload?.done) || phase === 'complete' || phase === 'completed';
+  const percent = clampPercent(payload?.percent)
+    ?? (done ? 100 : fileCount > 0 ? Math.min(99, Math.round((step / fileCount) * 100)) : 0);
+  const normalizedPercent = percent != null ? Math.max(0, Math.min(100, percent)) : 0;
+  const estimatedTotalMs = ETA_WARMUP_MS + (Math.max(1, Number(fileCount) || 1) * ETA_PER_IMAGE_MS);
+  const remainingMs = done
+    ? 0
+    : Math.max(1000, Math.round(estimatedTotalMs * (1 - (normalizedPercent / 100))));
+
+  let stage = 'processing';
+  if (done) stage = 'transferring';
+  else if (phase && PHASE_TO_STAGE[phase]) stage = PHASE_TO_STAGE[phase];
+  else if (step <= 0) stage = 'warmup';
+
+  onProgress?.({
+    ...(progressBase || {}),
+    stage,
+    phase: phase || undefined,
+    status: payload?.status || phase || undefined,
+    timer: {
+      currentFile: Math.min(Math.max(0, step), Math.max(1, fileCount)),
+      totalFiles: Math.max(1, fileCount),
+      remainingMs,
+      totalMs: estimatedTotalMs,
+      percent: percent ?? 0,
+      done,
+    },
+  });
+};
+
+const startLegacyProgressPolling = ({ legacyProgressUrl, jobId, apiKey, onProgress, progressBase, fileCount, intervalMs }) => {
+  if (!legacyProgressUrl || !jobId) return () => {};
+
+  let stopped = false;
+  const safeIntervalMs = Math.max(500, Number(intervalMs) || 1500);
+
+  const pollOnce = async () => {
+    if (stopped) return;
+    try {
+      const response = await fetchWithApiKey(`${legacyProgressUrl}?job_id=${encodeURIComponent(jobId)}`, apiKey, { method: 'GET' });
+      if (response.status === 404) return;
+      if (!response.ok) return;
+      const payload = await parseJsonSafe(response);
+      emitLegacyProgress({ payload, onProgress, progressBase, fileCount });
+    } catch {
+      // best-effort legacy fallback polling
+    }
+  };
+
+  const timer = setInterval(pollOnce, safeIntervalMs);
+  pollOnce();
+
+  return () => {
+    if (stopped) return;
+    stopped = true;
+    clearInterval(timer);
+  };
+};
+
+const postFormData = (url, apiKey, formData, { onUploadProgress } = {}) => new Promise((resolve, reject) => {
   const xhr = new XMLHttpRequest();
-  let uploadFinished = false;
 
   xhr.open('POST', url, true);
   xhr.responseType = 'arraybuffer';
@@ -340,60 +341,70 @@ const postFormData = (url, apiKey, formData, { onUploadProgress, onUploadDone, j
   xhr.setRequestHeader('X-API-KEY', apiKey);
 
   xhr.upload.onprogress = (event) => {
-    onUploadProgress?.(event);
+    const loaded = Number.isFinite(event?.loaded) ? event.loaded : 0;
+    const total = Number.isFinite(event?.total) ? event.total : 0;
+    onUploadProgress?.({ loaded, total, done: false });
   };
 
-  xhr.upload.onloadend = (event) => {
-    uploadFinished = true;
-    onUploadProgress?.({ ...event, done: true });
-    onUploadDone?.();
+  xhr.upload.onloadend = () => {
+    onUploadProgress?.({ loaded: 0, total: 0, done: true });
   };
 
   xhr.onload = () => {
     resolve({
       status: xhr.status,
       statusText: xhr.statusText,
-      headers: parseXhrHeaders(xhr.getAllResponseHeaders()),
+      headers: new Headers(xhr.getAllResponseHeaders().trim().split(/\r?\n/).filter(Boolean).map((line) => {
+        const idx = line.indexOf(':');
+        return idx > -1 ? [line.slice(0, idx).trim(), line.slice(idx + 1).trim()] : null;
+      }).filter(Boolean)),
       body: xhr.response,
     });
   };
 
-  xhr.onerror = (event) => reject(createTransportError('Upload failed.', {
-    code: 'XHR_NETWORK_ERROR',
-    uploadDone: uploadFinished,
-    jobId,
-    causeEvent: event?.type || 'error',
-  }));
-  xhr.onabort = (event) => reject(createTransportError('Upload was interrupted.', {
-    code: 'XHR_ABORTED',
-    uploadDone: uploadFinished,
-    jobId,
-    causeEvent: event?.type || 'abort',
-  }));
-  xhr.ontimeout = (event) => reject(createTransportError('Upload request timed out.', {
-    code: 'XHR_TIMEOUT',
-    uploadDone: uploadFinished,
-    jobId,
-    causeEvent: event?.type || 'timeout',
-  }));
+  xhr.onerror = () => reject(new Error('Upload failed.'));
+  xhr.onabort = () => reject(new Error('Upload was interrupted.'));
+  xhr.ontimeout = () => reject(new Error('Upload request timed out.'));
   xhr.send(formData);
 });
 
-const postFormDataWithProgress = async (url, apiKey, formData, { onProgress, progressBase, onUploadDone, jobId } = {}) => {
-  const result = await postFormData(url, apiKey, formData, {
-    onUploadProgress: (event) => {
-      const loaded = Number.isFinite(event?.loaded) ? event.loaded : 0;
-      const total = Number.isFinite(event?.total) ? event.total : 0;
-      const done = Boolean(event?.done);
+const handleDirectMultipartResponse = async ({ response, downloadMode, label }) => {
+  const contentType = response.headers.get('content-type') || '';
+  const boundary = extractBoundary(contentType);
+  if (!boundary) {
+    throw new Error('Direct mode response missing multipart boundary.');
+  }
 
+  const buffer = new Uint8Array(await response.arrayBuffer());
+  const parts = parseMultipartMixed(buffer, boundary);
+  const downloaded = [];
+  const storedFiles = [];
+
+  for (const part of parts) {
+    const disposition = part.headers['content-disposition'] || '';
+    const filename = extractFilenameFromDisposition(disposition, label || 'output.bin');
+    const blob = new Blob([part.body], { type: part.headers['content-type'] || 'application/octet-stream' });
+
+    if (downloadMode === 'store') {
+      storedFiles.push(new File([blob], filename, { type: blob.type || 'application/octet-stream' }));
+    } else {
+      downloadBlob(blob, filename);
+    }
+    downloaded.push(filename);
+  }
+
+  return { downloaded, files: storedFiles, direct: true };
+};
+
+const submitJob = async ({ submitUrl, apiKey, formData, onProgress, progressBase, downloadMode, label }) => {
+  const result = await postFormData(submitUrl, apiKey, formData, {
+    onUploadProgress: ({ loaded, total, done }) => {
       onProgress?.({
         ...(progressBase || {}),
         stage: 'upload',
         upload: { loaded, total, done },
       });
     },
-    onUploadDone,
-    jobId,
   });
 
   const response = new Response(result.body ?? null, {
@@ -402,92 +413,473 @@ const postFormDataWithProgress = async (url, apiKey, formData, { onProgress, pro
     headers: result.headers,
   });
 
+  const contentType = String(response.headers.get('content-type') || '').toLowerCase();
+  const resultMode = String(response.headers.get('X-Result-Mode') || response.headers.get('x-result-mode') || '').toLowerCase();
   const returnedJobId = response.headers.get('X-Job-Id') || response.headers.get('x-job-id') || null;
 
-  return { response, returnedJobId };
+  if (response.status === 200 && (contentType.startsWith('multipart/mixed') || resultMode === 'direct')) {
+    if (!contentType.startsWith('multipart/mixed')) {
+      throw new Error('Direct response expected multipart/mixed content.');
+    }
+    const data = await handleDirectMultipartResponse({ response, downloadMode, label });
+    return { mode: 'direct', data, jobId: returnedJobId };
+  }
+
+  const submitPayload = await parseJsonSafe(response);
+  if (response.status !== 202) {
+    const detail = submitPayload?.detail || submitPayload?.error || `Server responded with ${response.status}`;
+    throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail));
+  }
+
+  const links = extractJobLinks(submitPayload);
+  if (!links.statusUrl) {
+    throw new Error('Missing status_url in async submit response.');
+  }
+
+  return { mode: 'async', submitPayload, links, jobId: links.jobId || returnedJobId || null };
 };
 
-const startProcessingEstimate = ({ totalMs, onProgress, progressBase, fileCount, warmupMs = 30000, perFileMs = 10000 }) => {
-  const start = Date.now();
-  const safeWarmup = Math.max(0, Number(warmupMs) || 0);
-  const safePerFile = Math.max(0, Number(perFileMs) || 0);
-  const safeFileCount = Math.max(1, Number(fileCount) || 1);
-  const safeTotal = Math.max(0, Number(totalMs) || (safeWarmup + safeFileCount * safePerFile));
+const normalizePhase = (statusPayload) => {
+  const phase = String(statusPayload?.phase || statusPayload?.status || '').trim().toLowerCase();
+  return phase || 'queued';
+};
 
-  const emit = () => {
-    const elapsedMs = Date.now() - start;
-    const clampedElapsed = Math.min(elapsedMs, safeTotal);
-    const remainingMs = Math.max(0, safeTotal - elapsedMs);
-    const overallProgress = safeTotal > 0 ? Math.min(1, clampedElapsed / safeTotal) : 1;
+const isTerminalPayload = (payload) => {
+  const status = normalizeStatus(payload);
+  const phase = normalizePhase(payload);
+  return TERMINAL_STATUSES.has(status) || TERMINAL_PHASES.has(phase);
+};
 
-    let stage = 'warmup';
-    let stageProgress = 0;
-    let currentFile = 0;
+const parseRemainingMs = (payload) => {
+  const directMs = toFiniteNumber(payload?.remaining_ms)
+    ?? toFiniteNumber(payload?.remainingMs)
+    ?? toFiniteNumber(payload?.eta_ms)
+    ?? toFiniteNumber(payload?.etaMs);
+  if (directMs != null) return Math.max(0, Math.round(directMs));
 
-    if (elapsedMs < safeWarmup) {
-      stage = 'warmup';
-      stageProgress = safeWarmup > 0 ? Math.min(1, elapsedMs / safeWarmup) : 1;
-    } else {
-      stage = 'processing';
-      const processingElapsed = elapsedMs - safeWarmup;
-      const processingTotal = safeFileCount * safePerFile;
-      stageProgress = processingTotal > 0 ? Math.min(1, processingElapsed / processingTotal) : 1;
-      currentFile = Math.min(safeFileCount, Math.floor(processingElapsed / safePerFile) + 1);
+  const seconds = toFiniteNumber(payload?.remaining_seconds)
+    ?? toFiniteNumber(payload?.eta_seconds)
+    ?? toFiniteNumber(payload?.etaSeconds);
+  if (seconds != null) return Math.max(0, Math.round(seconds * 1000));
+
+  return null;
+};
+
+const buildEtaTracker = ({ totalFiles }) => {
+  const startedAtMs = Date.now();
+  const estimatedTotalMs = ETA_WARMUP_MS + (Math.max(1, Number(totalFiles) || 1) * ETA_PER_IMAGE_MS);
+  return {
+    startedAtMs,
+    deadlineAtMs: startedAtMs + estimatedTotalMs,
+    totalEstimateMs: estimatedTotalMs,
+    lastPenaltyAtMs: 0,
+    lastRemainingMs: estimatedTotalMs,
+  };
+};
+
+const computeEta = ({ tracker, payload, percent, isTerminal }) => {
+  const now = Date.now();
+  const elapsedMs = Math.max(0, now - tracker.startedAtMs);
+  const backendRemainingMs = parseRemainingMs(payload);
+  const shouldUseBackendRemaining = isTerminal || (backendRemainingMs != null && backendRemainingMs > 0);
+
+  let remainingMs;
+  let totalMs;
+
+  if (shouldUseBackendRemaining) {
+    remainingMs = backendRemainingMs;
+    totalMs = Math.max(elapsedMs + remainingMs, tracker.totalEstimateMs || 0);
+    tracker.totalEstimateMs = totalMs;
+    tracker.deadlineAtMs = now + remainingMs;
+  } else {
+    if (!isTerminal && now >= tracker.deadlineAtMs && (now - tracker.lastPenaltyAtMs) >= ETA_PENALTY_COOLDOWN_MS) {
+      tracker.deadlineAtMs += ETA_PENALTY_MS;
+      tracker.totalEstimateMs = Math.max(tracker.totalEstimateMs, tracker.deadlineAtMs - tracker.startedAtMs);
+      tracker.lastPenaltyAtMs = now;
     }
 
-    onProgress?.({
-      ...(progressBase || {}),
-      stage,
-      estimate: {
-        elapsedMs: clampedElapsed,
-        totalMs: safeTotal,
-        remainingMs,
-        progress: overallProgress,
-        stageProgress,
-        currentFile,
-        totalFiles: safeFileCount,
-        done: overallProgress >= 1,
-      },
-    });
-  };
+    remainingMs = Math.max(0, tracker.deadlineAtMs - now);
+    totalMs = Math.max(elapsedMs + remainingMs, tracker.totalEstimateMs || 0);
 
-  emit();
-  const interval = setInterval(emit, 500);
+    if (percent != null && percent > 0 && percent < 100) {
+      const projectedTotalMs = elapsedMs / (percent / 100);
+      const projectedRemainingMs = Math.max(0, projectedTotalMs - elapsedMs);
+      if (projectedRemainingMs < remainingMs) {
+        remainingMs = projectedRemainingMs;
+        tracker.deadlineAtMs = now + projectedRemainingMs;
+      }
+      totalMs = Math.max(totalMs, projectedTotalMs);
+      tracker.totalEstimateMs = Math.max(tracker.totalEstimateMs, projectedTotalMs);
+    }
+  }
 
-  return () => {
-    clearInterval(interval);
-    onProgress?.({
-      ...(progressBase || {}),
-      stage: 'done',
-      estimate: {
-        elapsedMs: Math.min(Date.now() - start, safeTotal),
-        totalMs: safeTotal,
-        remainingMs: 0,
-        progress: 1,
-        stageProgress: 1,
-        currentFile: safeFileCount,
-        totalFiles: safeFileCount,
-        done: true,
-      },
-    });
+  if (isTerminal) {
+    remainingMs = 0;
+    totalMs = Math.max(elapsedMs, tracker.totalEstimateMs || elapsedMs);
+  }
+
+  tracker.lastRemainingMs = remainingMs;
+
+  return {
+    remainingMs: Math.max(0, Math.round(remainingMs)),
+    totalMs: Math.max(0, Math.round(totalMs)),
   };
 };
 
+const pollJobStatus = async ({
+  statusUrl,
+  apiKey,
+  onProgress,
+  progressBase,
+  fileCount,
+}) => {
+  let networkErrorCount = 0;
+  const etaTracker = buildEtaTracker({ totalFiles: fileCount });
 
-const extractFilenameFromDisposition = (disposition, fallback) => {
-  if (!disposition) return fallback;
-  const match = disposition.match(/filename="?([^";]+)"?/i);
-  return match?.[1] || fallback;
+  while (true) {
+    try {
+      const response = await fetchWithApiKey(statusUrl, apiKey, { method: 'GET' });
+      if (!response.ok) {
+        const detail = await response.text();
+        throw new Error(detail || `Status polling failed (${response.status})`);
+      }
+
+      const payload = await parseJsonSafe(response);
+      const phase = normalizePhase(payload);
+      const status = normalizeStatus(payload);
+      const percent = clampPercent(payload?.percent);
+      const stage = PHASE_TO_STAGE[phase] || 'processing';
+      const isTerminal = isTerminalPayload(payload);
+      const { remainingMs, totalMs } = computeEta({
+        tracker: etaTracker,
+        payload,
+        percent,
+        isTerminal,
+      });
+      const backendMessage = extractBackendMessage(payload);
+      const backendErrorRaw = extractBackendErrorPayload(payload);
+      const backendErrorDetail = parseErrorDetail(backendErrorRaw);
+
+      onProgress?.({
+        ...(progressBase || {}),
+        stage,
+        phase,
+        status: status || payload?.status || phase,
+        message: backendMessage || undefined,
+        ...(backendErrorDetail ? {
+          error: {
+            message: backendMessage || 'Processing failed',
+            detail: backendErrorDetail,
+          },
+        } : {}),
+        timer: {
+          currentFile: Math.max(0, Number(payload?.step) || Number(payload?.current_file) || 0),
+          totalFiles: Math.max(1, Number(payload?.total_steps) || Number(payload?.total_files) || Number(fileCount) || 1),
+          remainingMs,
+          totalMs,
+          percent,
+          done: isTerminal,
+        },
+      });
+
+      if (isTerminal) {
+        return payload;
+      }
+
+      networkErrorCount = 0;
+      const nextDelay = FAST_POLL_PHASES.has(phase)
+        ? FAST_PHASE_POLL_INTERVAL_MS
+        : DEFAULT_PHASE_POLL_INTERVAL_MS;
+      await sleep(nextDelay);
+    } catch (err) {
+      networkErrorCount += 1;
+      const backoffMs = Math.min(MAX_POLL_INTERVAL_MS, INITIAL_POLL_INTERVAL_MS * (2 ** Math.max(0, networkErrorCount - 1)));
+      console.warn('[CloudGPU] Status polling network error, retrying', err);
+      await sleep(backoffMs);
+    }
+  }
 };
 
-export async function testSharpCloud(files, { prefix, onProgress, apiUrl, apiKey, returnMode, gpuType, downloadMode, batchUploads, storageTarget, accessString, jobId, getJobId, pollIntervalMs } = {}) {
+const fetchAndHandleResults = async ({
+  resultsUrl,
+  apiKey,
+  downloadMode,
+  label,
+  onProgress,
+  progressBase,
+  expectedCount,
+}) => {
+  if (!resultsUrl) {
+    return { downloaded: [], files: [], missingResults: true };
+  }
+
+  const resultsResponse = await fetchWithApiKey(resultsUrl, apiKey, { method: 'GET' });
+  if (resultsResponse.status === 404 || resultsResponse.status === 410) {
+    return { downloaded: [], files: [], missingResults: true };
+  }
+  if (!resultsResponse.ok) {
+    const detail = await resultsResponse.text();
+    throw new Error(detail || `Failed to fetch results (${resultsResponse.status}).`);
+  }
+
+  const payload = await parseJsonSafe(resultsResponse);
+  const list = extractResultsList(payload);
+  if (!list.length) {
+    return { downloaded: [], files: [], missingResults: true };
+  }
+
+  const totalDownloads = Math.max(1, Number(expectedCount) || list.length || 1);
+
+  const downloaded = [];
+  const storedFiles = [];
+  const missingDownloads = [];
+
+  for (let index = 0; index < list.length; index += 1) {
+    const currentDownload = Math.min(totalDownloads, index + 1);
+    const item = normalizeResultItem(list[index], index);
+
+    onProgress?.({
+      ...(progressBase || {}),
+      stage: 'downloading',
+      phase: 'downloading_results',
+      status: 'running',
+      download: {
+        current: currentDownload,
+        total: totalDownloads,
+        filename: item.filename,
+      },
+      timer: {
+        currentFile: currentDownload,
+        totalFiles: totalDownloads,
+        percent: Math.max(0, Math.min(100, Math.round(((currentDownload - 1) / totalDownloads) * 100))),
+        done: false,
+      },
+    });
+
+    if (!item.downloadUrl) {
+      missingDownloads.push(item.filename);
+      continue;
+    }
+
+    const fileResponse = await fetchWithApiKey(item.downloadUrl, apiKey, { method: 'GET' });
+    if (fileResponse.status === 404 || fileResponse.status === 410) {
+      missingDownloads.push(item.filename);
+      continue;
+    }
+    if (!fileResponse.ok) {
+      const detail = await fileResponse.text();
+      throw new Error(detail || `Download failed (${fileResponse.status}).`);
+    }
+
+    const blob = await fileResponse.blob();
+    const disposition = fileResponse.headers.get('content-disposition') || '';
+    const filename = extractFilenameFromDisposition(disposition, item.filename || label || `output-${index + 1}.bin`);
+
+    if (downloadMode === 'store') {
+      storedFiles.push(new File([blob], filename, { type: blob.type || 'application/octet-stream' }));
+    } else {
+      downloadBlob(blob, filename);
+    }
+
+    downloaded.push(filename);
+
+    onProgress?.({
+      ...(progressBase || {}),
+      stage: 'downloading',
+      phase: 'downloading_results',
+      status: 'running',
+      download: {
+        current: currentDownload,
+        total: totalDownloads,
+        filename,
+      },
+      timer: {
+        currentFile: currentDownload,
+        totalFiles: totalDownloads,
+        percent: Math.max(0, Math.min(100, Math.round((currentDownload / totalDownloads) * 100))),
+        done: currentDownload >= totalDownloads,
+      },
+    });
+  }
+
+  return {
+    downloaded,
+    files: storedFiles,
+    missingResults: downloaded.length === 0 && missingDownloads.length > 0,
+    missingDownloads,
+  };
+};
+
+const isRemoteStorageTarget = (storageTarget) => ['r2', 'supabase'].includes((storageTarget || '').toLowerCase());
+
+const generateJobId = () => {
+  const cryptoObj = typeof globalThis !== 'undefined' ? globalThis.crypto : null;
+  if (cryptoObj?.randomUUID) return cryptoObj.randomUUID();
+  const rand = Math.random().toString(16).slice(2);
+  return `job-${Date.now()}-${rand}`;
+};
+
+const buildFormData = ({ files, prefix, returnMode, jobId, gpu, storageTarget, accessString }) => {
+  const formData = new FormData();
+  for (const file of files) {
+    formData.append('file', file, file.name || 'upload');
+  }
+  if (prefix) formData.append('prefix', prefix);
+  if (returnMode) formData.append('return', returnMode);
+  if (jobId) formData.append('jobId', jobId);
+  if (gpu) formData.append('gpu', gpu);
+  if (storageTarget) formData.append('storageTarget', storageTarget);
+  if (accessString) {
+    formData.append('accessString', typeof accessString === 'string' ? accessString : JSON.stringify(accessString));
+  }
+  return formData;
+};
+
+const processAsyncJob = async ({
+  files,
+  label,
+  submitUrl,
+  apiKey,
+  onProgress,
+  progressBase,
+  prefix,
+  returnMode,
+  downloadMode,
+  gpu,
+  storageTarget,
+  accessString,
+  activeJobId,
+  forceAsync,
+  pollIntervalMs,
+}) => {
+  const formData = buildFormData({
+    files,
+    prefix,
+    returnMode,
+    jobId: activeJobId,
+    gpu,
+    storageTarget,
+    accessString,
+  });
+
+  const forceAsyncValue = normalizeForceAsync(forceAsync);
+  if (forceAsyncValue != null) {
+    formData.append('forceAsync', forceAsyncValue);
+    formData.append('force_async', forceAsyncValue);
+  }
+
+  const legacyProgressUrl = resolveLegacyProgressUrl(submitUrl);
+  const stopLegacyPolling = startLegacyProgressPolling({
+    legacyProgressUrl,
+    jobId: activeJobId,
+    apiKey,
+    onProgress,
+    progressBase,
+    fileCount: files.length,
+    intervalMs: pollIntervalMs,
+  });
+
+  try {
+    const submitResult = await submitJob({
+      submitUrl,
+      apiKey,
+      formData,
+      onProgress,
+      progressBase,
+      downloadMode,
+      label,
+    });
+
+    if (submitResult.mode === 'direct') {
+      const resolvedJobId = submitResult.jobId || activeJobId;
+      onProgress?.({ ...(progressBase || {}), stage: 'done', phase: 'completed', jobId: resolvedJobId });
+      return {
+        ...submitResult.data,
+        jobId: resolvedJobId,
+        direct: true,
+      };
+    }
+
+    const { links } = submitResult;
+
+    stopLegacyPolling();
+
+    const resolvedJobId = links.jobId || activeJobId;
+    const pollProgressBase = { ...(progressBase || {}), jobId: resolvedJobId };
+    const finalStatus = await pollJobStatus({
+      statusUrl: links.statusUrl,
+      apiKey,
+      onProgress,
+      progressBase: pollProgressBase,
+      fileCount: files.length,
+    });
+
+    const phase = normalizePhase(finalStatus);
+    if (phase === 'failed' || phase === 'validation_failed') {
+      const detail = finalStatus?.detail || finalStatus?.error || finalStatus?.message || 'Processing failed.';
+      throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail));
+    }
+
+    if (isRemoteStorageTarget(storageTarget)) {
+      onProgress?.({ ...pollProgressBase, stage: 'done', phase: 'completed' });
+      return {
+        downloaded: [],
+        files: [],
+        deferred: true,
+        statusUrl: links.statusUrl,
+        resultsUrl: links.resultsUrl,
+        callId: links.callId,
+      };
+    }
+
+    const resultData = await fetchAndHandleResults({
+      resultsUrl: links.resultsUrl,
+      apiKey,
+      downloadMode,
+      label,
+      onProgress,
+      progressBase: pollProgressBase,
+      expectedCount: files.length,
+    });
+
+    if (resultData.missingResults) {
+      throw new Error('Results are no longer available (missing or expired).');
+    }
+
+    onProgress?.({ ...pollProgressBase, stage: 'done', phase: 'completed' });
+    return {
+      ...resultData,
+      statusUrl: links.statusUrl,
+      resultsUrl: links.resultsUrl,
+      callId: links.callId,
+    };
+  } finally {
+    stopLegacyPolling();
+  }
+};
+
+export async function testSharpCloud(files, {
+  prefix,
+  onProgress,
+  apiUrl,
+  apiKey,
+  returnMode,
+  gpuType,
+  downloadMode,
+  batchUploads,
+  storageTarget,
+  accessString,
+  jobId,
+  getJobId,
+  forceAsync,
+  pollIntervalMs,
+} = {}) {
   const saved = loadCloudGpuSettings();
-  const resolvedUrl = apiUrl || saved?.apiUrl 
-  const resolvedKey = apiKey || saved?.apiKey 
+  const resolvedUrl = apiUrl || saved?.apiUrl;
+  const resolvedKey = apiKey || saved?.apiKey;
   const resolvedGpu = (gpuType || saved?.gpuType || 'a10').trim().toLowerCase();
   const resolvedBatchUploads = Boolean(batchUploads ?? saved?.batchUploads);
   const resolvedStorageTarget = storageTarget || undefined;
-  const resolvedProgressUrl = resolveProgressUrl(resolvedUrl);
 
   if (!resolvedUrl || !resolvedKey) {
     console.error('❌ Missing Cloud GPU settings: configure API URL and API key in Add Cloud GPU.');
@@ -495,287 +887,89 @@ export async function testSharpCloud(files, { prefix, onProgress, apiUrl, apiKey
   }
 
   if (!files || files.length === 0) {
-    console.warn("No files selected for upload.");
+    console.warn('No files selected for upload.');
     return [];
   }
 
   const uploads = Array.from(files);
-  const results = [];
   const total = uploads.length;
-
-  const applyCommonFields = (formData, activeJobId) => {
-    if (prefix) {
-      formData.append('prefix', prefix);
-    }
-    if (returnMode) {
-      formData.append('return', returnMode);
-    }
-    if (activeJobId) {
-      formData.append('jobId', activeJobId);
-    }
-    if (resolvedGpu) {
-      formData.append('gpu', resolvedGpu);
-    }
-    if (resolvedStorageTarget) {
-      formData.append('storageTarget', resolvedStorageTarget);
-    }
-    if (accessString) {
-      formData.append('accessString', typeof accessString === 'string' ? accessString : JSON.stringify(accessString));
-    }
-  };
-
-  const handleResponse = async (response, label) => {
-    const contentType = response.headers.get('content-type') || '';
-    if (contentType.toLowerCase().startsWith('multipart/mixed')) {
-      const boundary = extractBoundary(contentType);
-      if (!boundary) throw new Error('Missing multipart boundary.');
-
-      const buffer = new Uint8Array(await response.arrayBuffer());
-      const parts = parseMultipartMixed(buffer, boundary);
-      const downloaded = [];
-      const storedFiles = [];
-
-      for (const part of parts) {
-        const disposition = part.headers['content-disposition'] || '';
-        const match = disposition.match(/filename="(.+?)"/i);
-        const filename = match?.[1] || 'output.bin';
-
-        const blob = new Blob([part.body], { type: part.headers['content-type'] || 'application/octet-stream' });
-        if (downloadMode === 'store') {
-          storedFiles.push(new File([blob], filename, { type: blob.type || 'application/octet-stream' }));
-        } else {
-          downloadBlob(blob, filename);
-        }
-        downloaded.push(filename);
-      }
-
-      console.log(`✅ Downloaded ${downloaded.length} files for ${label}`);
-      return { downloaded, files: storedFiles };
-    }
-
-    const isJson = contentType.toLowerCase().includes('application/json');
-    if (downloadMode === 'store' && !isJson) {
-      const blob = await response.blob();
-      const disposition = response.headers.get('content-disposition') || '';
-      const filename = extractFilenameFromDisposition(disposition, label || 'output.bin');
-      const storedFile = new File([blob], filename, { type: blob.type || 'application/octet-stream' });
-      console.log(`✅ Stored ${filename} for ${label}`);
-      return { downloaded: [filename], files: [storedFile] };
-    }
-
-    const result = await response.json();
-    console.log(`✅ Success for ${label}:`, result.url);
-    return result;
-  };
+  const results = [];
 
   if (resolvedBatchUploads) {
-    if (typeof onProgress === 'function') {
-      onProgress({ completed: 0, total, stage: 'upload', upload: { loaded: 0, total: 0, done: false } });
-    }
+    const activeJobId = jobId || getJobId?.(null) || generateJobId();
+    const progressBase = { completed: 0, total, jobId: activeJobId };
 
-    let stopPolling = null;
     try {
-      let activeJobId = jobId || getJobId?.(null) || generateJobId();
-      const formData = new FormData();
-      for (const file of uploads) {
-        formData.append('file', file, file.name || 'upload');
-      }
-      applyCommonFields(formData, activeJobId);
-      const progressBase = { completed: 0, total, jobId: activeJobId };
-      const result = await postFormDataWithProgress(resolvedUrl, resolvedKey, formData, {
+      const data = await processAsyncJob({
+        files: uploads,
+        label: `${uploads.length} files`,
+        submitUrl: resolvedUrl,
+        apiKey: resolvedKey,
         onProgress,
         progressBase,
-        jobId: activeJobId,
-        onUploadDone: () => {
-          if (!resolvedProgressUrl) {
-            warnMissingProgressUrl();
-            return;
-          }
-          stopPolling = startProgressPolling({
-            progressUrl: resolvedProgressUrl,
-            jobId: activeJobId,
-            onProgress,
-            progressBase,
-            intervalMs: pollIntervalMs,
-            fileCount: uploads.length,
-          });
-        },
+        prefix,
+        returnMode,
+        downloadMode,
+        gpu: resolvedGpu,
+        storageTarget: resolvedStorageTarget,
+        accessString,
+        activeJobId,
+        forceAsync,
+        pollIntervalMs,
       });
 
-      const response = result.response;
-      const returnedJobId = result.returnedJobId;
-      if (returnedJobId && returnedJobId !== activeJobId) {
-        activeJobId = returnedJobId;
-        stopPolling?.();
-        if (!resolvedProgressUrl) {
-          warnMissingProgressUrl();
-        } else {
-          stopPolling = startProgressPolling({
-            progressUrl: resolvedProgressUrl,
-            jobId: activeJobId,
-            onProgress,
-            progressBase: { ...progressBase, jobId: activeJobId },
-            intervalMs: pollIntervalMs,
-            fileCount: uploads.length,
-          });
-        }
-      }
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        stopPolling?.();
-        emitErrorProgress({
-          onProgress,
-          progressBase,
-          message: 'Processing failed',
-          detail: errorText || `Server responded with ${response.status}`,
-        });
-        throw new Error(`Server responded with ${response.status}: ${errorText}`);
-      }
-
-      const data = await handleResponse(response, `${uploads.length} files`);
-      stopPolling?.();
       results.push({ file: 'batch', ok: true, data, jobId: activeJobId });
+      onProgress?.({ completed: total, total, stage: 'done', jobId: activeJobId });
+      return results;
     } catch (err) {
-      const transportClosedAfterUpload = Boolean(err?.uploadDone && ['XHR_NETWORK_ERROR', 'XHR_ABORTED', 'XHR_TIMEOUT'].includes(err?.code));
-      if (transportClosedAfterUpload && resolvedProgressUrl) {
-        const activeJobId = err?.jobId || jobId || getJobId?.(null) || null;
-        const completion = await waitForProgressDone({
-          progressUrl: resolvedProgressUrl,
-          jobId: activeJobId,
-          intervalMs: pollIntervalMs,
-        });
-
-        if (completion.done && ['r2', 'supabase'].includes((resolvedStorageTarget || '').toLowerCase())) {
-          console.warn('[CloudGPU] Upload connection closed before response, but job completed remotely. Treating as success for remote storage output.');
-          stopPolling?.();
-          results.push({ file: 'batch', ok: true, data: { deferred: true }, jobId: activeJobId, recoveredFromDisconnect: true });
-          if (typeof onProgress === 'function') {
-            onProgress({ completed: total, total, stage: 'done', jobId: activeJobId });
-          }
-          return results;
-        }
-      }
-
-      const message = `Batch upload failed. You can refresh the collection to see any completed files. ${err?.message || ''}`.trim();
-      console.error('❌ Batch upload failed:', err?.message || err);
-      stopPolling?.();
+      const detail = err?.message || String(err);
       emitErrorProgress({
         onProgress,
-        progressBase: { completed: 0, total },
+        progressBase,
         message: 'Processing failed',
-        detail: err?.message || message,
+        detail,
       });
-      results.push({ file: 'batch', ok: false, error: message, silentFailure: true });
+      results.push({ file: 'batch', ok: false, error: detail, silentFailure: true });
+      return results;
     }
-
-    if (typeof onProgress === 'function') {
-      const successful = results.some((result) => result?.ok);
-      onProgress({ completed: successful ? total : 0, total, stage: successful ? 'done' : 'error' });
-    }
-
-    return results;
   }
 
   for (const file of uploads) {
-    console.log(`🚀 Uploading ${file.name}...`);
+    const activeJobId = getJobId?.(file) || jobId || generateJobId();
+    const progressBase = { completed: results.length, total, jobId: activeJobId };
 
-    let stopPolling = null;
     try {
-      let activeJobId = getJobId?.(file) || jobId || generateJobId();
-      const formData = new FormData();
-      formData.append('file', file, file.name || 'upload');
-      applyCommonFields(formData, activeJobId);
-      const progressBase = { completed: results.length, total, jobId: activeJobId };
-      const result = await postFormDataWithProgress(resolvedUrl, resolvedKey, formData, {
+      const data = await processAsyncJob({
+        files: [file],
+        label: file.name,
+        submitUrl: resolvedUrl,
+        apiKey: resolvedKey,
         onProgress,
         progressBase,
-        jobId: activeJobId,
-        onUploadDone: () => {
-          if (!resolvedProgressUrl) {
-            warnMissingProgressUrl();
-            return;
-          }
-          stopPolling = startProgressPolling({
-            progressUrl: resolvedProgressUrl,
-            jobId: activeJobId,
-            onProgress,
-            progressBase,
-            intervalMs: pollIntervalMs,
-            fileCount: 1,
-          });
-        },
+        prefix,
+        returnMode,
+        downloadMode,
+        gpu: resolvedGpu,
+        storageTarget: resolvedStorageTarget,
+        accessString,
+        activeJobId,
+        forceAsync,
+        pollIntervalMs,
       });
 
-      const response = result.response;
-      const returnedJobId = result.returnedJobId;
-      if (returnedJobId && returnedJobId !== activeJobId) {
-        activeJobId = returnedJobId;
-        stopPolling?.();
-        if (!resolvedProgressUrl) {
-          warnMissingProgressUrl();
-        } else {
-          stopPolling = startProgressPolling({
-            progressUrl: resolvedProgressUrl,
-            jobId: activeJobId,
-            onProgress,
-            progressBase: { ...progressBase, jobId: activeJobId },
-            intervalMs: pollIntervalMs,
-            fileCount: 1,
-          });
-        }
-      }
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        stopPolling?.();
-        emitErrorProgress({
-          onProgress,
-          progressBase,
-          message: 'Processing failed',
-          detail: errorText || `Server responded with ${response.status}`,
-        });
-        throw new Error(`Server responded with ${response.status}: ${errorText}`);
-      }
-
-      const data = await handleResponse(response, file.name);
-      stopPolling?.();
       results.push({ file: file.name, ok: true, data, jobId: activeJobId });
     } catch (err) {
-      const transportClosedAfterUpload = Boolean(err?.uploadDone && ['XHR_NETWORK_ERROR', 'XHR_ABORTED', 'XHR_TIMEOUT'].includes(err?.code));
-      if (transportClosedAfterUpload && resolvedProgressUrl) {
-        const activeJobId = err?.jobId || jobId || getJobId?.(file) || null;
-        const completion = await waitForProgressDone({
-          progressUrl: resolvedProgressUrl,
-          jobId: activeJobId,
-          intervalMs: pollIntervalMs,
-        });
-
-        if (completion.done && ['r2', 'supabase'].includes((resolvedStorageTarget || '').toLowerCase())) {
-          console.warn(`[CloudGPU] Upload connection closed for ${file.name}, but job completed remotely. Treating as success for remote storage output.`);
-          stopPolling?.();
-          results.push({ file: file.name, ok: true, data: { deferred: true }, jobId: activeJobId, recoveredFromDisconnect: true });
-          if (typeof onProgress === 'function') {
-            onProgress({ completed: results.length, total, stage: 'done', jobId: activeJobId });
-          }
-          continue;
-        }
-      }
-
-      console.error(`❌ Upload failed for ${file.name}:`, err.message);
-      stopPolling?.();
+      const detail = err?.message || String(err);
       emitErrorProgress({
         onProgress,
-        progressBase: { completed: results.length, total },
+        progressBase,
         message: 'Processing failed',
-        detail: err?.message || 'Upload failed',
+        detail,
       });
-      results.push({ file: file.name, ok: false, error: err.message, silentFailure: true });
+      results.push({ file: file.name, ok: false, error: detail, silentFailure: true });
     }
 
-    if (typeof onProgress === 'function') {
-      onProgress({ completed: results.length, total });
-    }
+    onProgress?.({ completed: results.length, total });
   }
 
   return results;

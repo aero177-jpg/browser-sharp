@@ -35,6 +35,33 @@ const GPU_OPTIONS = [
   { value: 'h100', label: 'H100 $3.95 Fastest' },
 ];
 const BATCH_SIZE_OPTIONS = [3, 5, 10, 15, 20];
+const MODAL_ENDPOINT_SUFFIX = '--ml-sharp-optimized.modal.run';
+
+const normalizeModalUsername = (value) => String(value || '').trim().toLowerCase().replace(/[^a-z0-9-]/g, '');
+
+const buildApiUrlFromModalUsername = (username) => {
+  const normalized = normalizeModalUsername(username);
+  if (!normalized) return '';
+  return `https://${normalized}${MODAL_ENDPOINT_SUFFIX}`;
+};
+
+const extractModalUsernameFromApiUrl = (apiUrl) => {
+  const raw = String(apiUrl || '').trim();
+  if (!raw) return '';
+
+  const withoutProtocol = raw.replace(/^https?:\/\//i, '');
+  const host = withoutProtocol.split('/')[0] || '';
+  const loweredHost = host.toLowerCase();
+
+  if (loweredHost.endsWith(MODAL_ENDPOINT_SUFFIX)) {
+    return normalizeModalUsername(loweredHost.slice(0, -MODAL_ENDPOINT_SUFFIX.length));
+  }
+
+  const modalRunMatch = loweredHost.match(/^([a-z0-9-]+)\.modal\.run$/i);
+  if (modalRunMatch?.[1]) return normalizeModalUsername(modalRunMatch[1]);
+
+  return '';
+};
 
 const normalizeBatchSize = (value) => {
   const numeric = Number(value);
@@ -71,8 +98,12 @@ function CloudGpuForm({ onBack }) {
   const initialSettings = useMemo(
     () => {
       const saved = loadCloudGpuSettings();
+      const savedModalUsername = normalizeModalUsername(
+        saved?.modalUsername || extractModalUsernameFromApiUrl(saved?.apiUrl)
+      );
       return {
-        apiUrl: saved?.apiUrl || '',
+        apiUrl: saved?.apiUrl || buildApiUrlFromModalUsername(savedModalUsername),
+        modalUsername: savedModalUsername,
         apiKey: saved?.apiKey || '',
         apiKeyEncrypted: saved?.apiKeyEncrypted || null,
         hasStoredApiKey: Boolean(saved?.hasStoredApiKey || saved?.apiKeyEncrypted || saved?.apiKey),
@@ -86,7 +117,7 @@ function CloudGpuForm({ onBack }) {
     []
   );
   const [savedSettings, setSavedSettings] = useState(initialSettings);
-  const [apiUrl, setApiUrl] = useState(initialSettings.apiUrl);
+  const [modalUsername, setModalUsername] = useState(initialSettings.modalUsername);
   const [apiKey, setApiKey] = useState(initialSettings.apiKey);
   const [gpuType, setGpuType] = useState(initialSettings.gpuType);
   const [batchUploads, setBatchUploads] = useState(initialSettings.batchUploads);
@@ -109,23 +140,27 @@ function CloudGpuForm({ onBack }) {
     )
   );
   const hasStoredApiKey = Boolean(savedSettings?.hasStoredApiKey || savedSettings?.apiKeyEncrypted || savedSettings?.apiKey || apiKey.trim());
+  const resolvedApiUrl = useMemo(() => buildApiUrlFromModalUsername(modalUsername), [modalUsername]);
 
   const trimmedSettings = useMemo(() => ({
-    apiUrl: apiUrl.trim(),
+    modalUsername: normalizeModalUsername(modalUsername),
+    apiUrl: resolvedApiUrl,
     apiKey: apiKey.trim(),
     gpuType: (gpuType || 'a10').trim().toLowerCase(),
     batchUploads: Boolean(batchUploads),
     batchSize: normalizeBatchSize(batchSize),
-  }), [apiUrl, apiKey, gpuType, batchUploads, batchSize]);
+  }), [modalUsername, resolvedApiUrl, apiKey, gpuType, batchUploads, batchSize]);
   const trimmedSaved = useMemo(() => ({
     apiUrl: savedSettings.apiUrl?.trim?.() || '',
+    modalUsername: normalizeModalUsername(savedSettings.modalUsername || extractModalUsernameFromApiUrl(savedSettings.apiUrl)),
     apiKey: savedSettings.apiKey?.trim?.() || '',
     gpuType: savedSettings.gpuType?.trim?.().toLowerCase?.() || 'a10',
     batchUploads: Boolean(savedSettings.batchUploads),
     batchSize: normalizeBatchSize(savedSettings.batchSize),
   }), [savedSettings]);
-  const isSettingsReady = Boolean(trimmedSettings.apiUrl && (trimmedSettings.apiKey || hasStoredApiKey));
+  const isSettingsReady = Boolean(trimmedSettings.modalUsername && (trimmedSettings.apiKey || hasStoredApiKey));
   const settingsChanged =
+    trimmedSettings.modalUsername !== trimmedSaved.modalUsername ||
     trimmedSettings.apiUrl !== trimmedSaved.apiUrl ||
     trimmedSettings.apiKey !== trimmedSaved.apiKey ||
     trimmedSettings.gpuType !== trimmedSaved.gpuType ||
@@ -138,8 +173,8 @@ function CloudGpuForm({ onBack }) {
     const canReuseEncrypted = Boolean(!typedApiKey && savedSettings?.apiKeyEncrypted);
     const providedPassword = unlockPasswordInput.trim();
 
-    if (!trimmedSettings.apiUrl || (!typedApiKey && !hasStoredApiKey)) {
-      setError('Enter API URL and API key.');
+    if (!trimmedSettings.modalUsername || !trimmedSettings.apiUrl || (!typedApiKey && !hasStoredApiKey)) {
+      setError('Enter Modal username and API key.');
       return;
     }
 
@@ -203,6 +238,7 @@ function CloudGpuForm({ onBack }) {
 
     const payload = {
       apiUrl: trimmedSettings.apiUrl,
+      modalUsername: trimmedSettings.modalUsername,
       apiKey: encryptApiKey ? '' : (typedApiKey || savedSettings.apiKey || ''),
       apiKeyEncrypted: nextEncryptedApiKey || null,
       gpuType: trimmedSettings.gpuType,
@@ -253,8 +289,11 @@ function CloudGpuForm({ onBack }) {
 
     const unlocked = loadCloudGpuSettings();
     if (unlocked) {
+      const unlockedModalUsername = normalizeModalUsername(
+        unlocked.modalUsername || extractModalUsernameFromApiUrl(unlocked.apiUrl)
+      );
       setSavedSettings(unlocked);
-      setApiUrl(unlocked.apiUrl || '');
+      setModalUsername(unlockedModalUsername);
       setApiKey(unlocked.apiKey || '');
       setGpuType(unlocked.gpuType || 'a10');
       setBatchUploads(Boolean(unlocked.batchUploads));
@@ -344,13 +383,16 @@ function CloudGpuForm({ onBack }) {
 
       <div class="config-grid" style={{ marginTop: '20px' }}>
         <div class="form-field">
-          <label>Endpoint URL</label>
+          <label>Modal username</label>
           <input
-            type="url"
-            placeholder="https://user-container-name.modal.run"
-            value={apiUrl}
-            onInput={(e) => setApiUrl(e.target.value)}
+            placeholder="your-modal-username"
+            type='text'
+            value={modalUsername}
+            onInput={(e) => setModalUsername(normalizeModalUsername(e.target.value))}
           />
+          <div class="field-hint" style={{ marginTop: '6px' }}>
+  Used to auto-generate your Modal endpoint URL.
+        </div>
         </div>
 
         <div class="form-field">
@@ -416,11 +458,9 @@ function CloudGpuForm({ onBack }) {
                 </option>
               ))}
             </select>
-            <div class="field-hint" style={{ marginTop: '6px' }}>
-              Lower is slower but more reliable. Higher is faster but can be unstable.
-            </div>
+          
             <div class="field-hint">
-              Lower is recommended for local folders. Higher is generally fine for cloud storage.
+              Lower is recommended for local folders. Higher is faster and suitable for cloud storage.
             </div>
           </div>
         )}
@@ -459,8 +499,8 @@ function CloudGpuForm({ onBack }) {
           <p>It enables "Image to 3DGS" uploads. Raw images are sent to your cloud endpoint, converted to splats, and saved directly to your Supabase or R2 storage.</p>
         </FaqItem>
 
-        <FaqItem question="Where do I find my credentials?">
-          <p>The URL is generated when you deploy the container app. The API Key is defined by you in the container's secrets.</p>
+        <FaqItem question="Where do I find my API Key?">
+          <p>The API Key is defined by you in the container's secrets.</p>
         </FaqItem>
 
         <FaqItem question="Is this required?">

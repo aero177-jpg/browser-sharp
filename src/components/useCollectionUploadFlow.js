@@ -338,6 +338,8 @@ export function useCollectionUploadFlow({
     }
 
     const type = resolvedSource?.type;
+    const cloudGpuSettings = loadCloudGpuSettings();
+    const cloudGpuShowDetailedStatus = cloudGpuSettings?.showDetailedStatus !== false;
 
     if (type === 'r2-bucket' && !sourceCanWrite(resolvedSource)) {
       onStatus?.('error');
@@ -389,6 +391,7 @@ export function useCollectionUploadFlow({
       upload: { loaded: 0, total: 0, done: false },
       completed: 0,
       total: imageFiles.length,
+      showDetailedStatus: cloudGpuShowDetailedStatus,
       batch: {
         index: totalBatches > 0 ? 1 : 0,
         total: totalBatches,
@@ -417,6 +420,7 @@ export function useCollectionUploadFlow({
             ...(progress || {}),
             completed: Math.max(0, Math.min(imageFiles.length, completedBeforeBatch + localCompleted)),
             total: imageFiles.length,
+            showDetailedStatus: cloudGpuShowDetailedStatus,
             batch: {
               index: batchNumber,
               total: totalBatches,
