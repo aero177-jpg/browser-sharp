@@ -157,6 +157,26 @@ const formatToMime = (format) => {
   return 'application/octet-stream';
 };
 
+const normalizeNameList = (values) => {
+  if (!Array.isArray(values)) return [];
+  const cleaned = values
+    .map((value) => (value == null ? '' : String(value).trim()))
+    .filter(Boolean);
+  return Array.from(new Set(cleaned));
+};
+
+const buildNameMatcher = (names) => {
+  const set = new Set(normalizeNameList(names));
+  return {
+    hasNames: set.size > 0,
+    has(name) {
+      if (!set.size) return false;
+      if (!name) return false;
+      return set.has(String(name));
+    },
+  };
+};
+
 const buildZipFileMap = async ({
   includeUrlCollections,
   includeSupabaseCollections,
@@ -166,8 +186,17 @@ const buildZipFileMap = async ({
   includeCloudGpuSettings,
   includeFileSettings,
   includeFilePreviews,
+  includeCollectionData,
+  includeConnectionData,
+  exportScope,
 }) => {
   const notes = [];
+  const scopeMode = exportScope?.mode === 'current-collection' ? 'current-collection' : 'all-data';
+  const isCurrentCollectionScope = scopeMode === 'current-collection';
+  const scopedSourceId = exportScope?.activeSourceId || null;
+  const scopedSourceType = exportScope?.activeSourceType || null;
+  const scopedCollectionName = exportScope?.collectionName || null;
+  const scopeNameMatcher = buildNameMatcher(exportScope?.assetNames || []);
 
   const data = {
     sources: [],
@@ -178,7 +207,13 @@ const buildZipFileMap = async ({
     previews: [],
   };
 
-  if (includeUrlCollections || includeSupabaseCollections || includeR2Collections) {
+  if (isCurrentCollectionScope && includeCollectionData) {
+    const allSources = await loadAllSources();
+    data.sources = allSources.filter((config) => config?.id && config.id === scopedSourceId);
+    if (!data.sources.length) {
+      notes.push('Current collection source entry was not found in saved sources.');
+    }
+  } else if (includeUrlCollections || includeSupabaseCollections || includeR2Collections) {
     const allSources = await loadAllSources();
     data.sources = allSources.filter((config) => {
       if (config.type === 'public-url') return includeUrlCollections;
@@ -192,27 +227,54 @@ const buildZipFileMap = async ({
     }
   }
 
-  if (includeSupabaseSettings) {
-    data.supabaseSettings = loadSupabaseSettings();
-  }
+  if (isCurrentCollectionScope) {
+    if (includeConnectionData) {
+      if (scopedSourceType === 'supabase-storage') {
+        data.supabaseSettings = loadSupabaseSettings();
+      }
+      if (scopedSourceType === 'r2-bucket') {
+        data.r2Settings = loadR2Settings();
+      }
+      if (scopedSourceType !== 'supabase-storage' && scopedSourceType !== 'r2-bucket') {
+        notes.push('Connection data export is only available for Supabase and R2 collections.');
+      }
+    }
+  } else {
+    if (includeSupabaseSettings) {
+      data.supabaseSettings = loadSupabaseSettings();
+    }
 
-  if (includeR2Settings) {
-    data.r2Settings = loadR2Settings();
-  }
+    if (includeR2Settings) {
+      data.r2Settings = loadR2Settings();
+    }
 
-  if (includeCloudGpuSettings) {
-    data.cloudGpuSettings = loadCloudGpuSettings();
+    if (includeCloudGpuSettings) {
+      data.cloudGpuSettings = loadCloudGpuSettings();
+    }
   }
 
   if (includeFileSettings) {
-    data.fileSettings = await listAllFileSettings();
+    const fileSettings = await listAllFileSettings();
+    if (isCurrentCollectionScope) {
+      data.fileSettings = scopeNameMatcher.hasNames
+        ? fileSettings.filter((record) => scopeNameMatcher.has(record?.fileName))
+        : [];
+    } else {
+      data.fileSettings = fileSettings;
+    }
   }
 
   const files = {};
   if (includeFilePreviews) {
     const previewRecords = await listPreviewRecords();
-    for (let index = 0; index < previewRecords.length; index += 1) {
-      const record = previewRecords[index];
+    const scopedPreviewRecords = isCurrentCollectionScope
+      ? (scopeNameMatcher.hasNames
+          ? previewRecords.filter((record) => scopeNameMatcher.has(record?.fileName))
+          : [])
+      : previewRecords;
+
+    for (let index = 0; index < scopedPreviewRecords.length; index += 1) {
+      const record = scopedPreviewRecords[index];
       const safeName = sanitizeFileName(record.fileName).replace(/\.[a-z0-9]+$/i, '');
       const ext = normalizePreviewExtension(record.format);
       const previewPath = `previews/${index}-${safeName}.${ext}`;
@@ -234,6 +296,13 @@ const buildZipFileMap = async ({
     schemaVersion: EXPORT_SCHEMA_VERSION,
     app: 'radia-viewer',
     exportedAt: new Date().toISOString(),
+    scope: {
+      mode: scopeMode,
+      activeSourceId: scopedSourceId,
+      activeSourceType: scopedSourceType,
+      collectionName: scopedCollectionName,
+      scopedAssetCount: scopeNameMatcher.hasNames ? normalizeNameList(exportScope?.assetNames).length : 0,
+    },
     selections: {
       includeUrlCollections,
       includeSupabaseCollections,
@@ -243,6 +312,8 @@ const buildZipFileMap = async ({
       includeCloudGpuSettings,
       includeFileSettings,
       includeFilePreviews,
+      includeCollectionData,
+      includeConnectionData,
     },
     data,
     notes,

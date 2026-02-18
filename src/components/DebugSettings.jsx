@@ -504,30 +504,78 @@ function DebugSettings() {
   const handleExportCollection = useCallback(async () => {
     if (!assets.length) throw new Error('No assets to export');
 
-    const files = {};
-    for (let i = 0; i < assets.length; i += 1) {
-      const asset = assets[i];
-      const assetFile = asset?.file
-        ? asset.file
-        : (isSourceAsset(asset) ? await loadAssetFile(asset) : null);
+    const totalAssets = assets.length;
+    const emitDownloadProgress = (current) => {
+      const normalizedCurrent = Math.max(1, Math.min(totalAssets, Number(current) || 1));
+      setUploadState({
+        isUploading: true,
+        uploadProgress: {
+          stage: 'downloading',
+          download: {
+            current: normalizedCurrent,
+            total: totalAssets,
+          },
+          total: totalAssets,
+        },
+      });
+    };
 
-      if (!assetFile) {
-        throw new Error(`Unable to load asset: ${asset?.name || `#${i + 1}`}`);
+    let exportSucceeded = false;
+    const files = {};
+    try {
+      emitDownloadProgress(1);
+      for (let i = 0; i < totalAssets; i += 1) {
+        const asset = assets[i];
+        emitDownloadProgress(i + 1);
+        const assetFile = asset?.file
+          ? asset.file
+          : (isSourceAsset(asset) ? await loadAssetFile(asset) : null);
+
+        if (!assetFile) {
+          throw new Error(`Unable to load asset: ${asset?.name || `#${i + 1}`}`);
+        }
+
+        const safeName = sanitizeFileName(assetFile.name || asset?.name || `asset-${i + 1}`);
+        const buffer = await assetFile.arrayBuffer();
+        files[`assets/${safeName}`] = new Uint8Array(buffer);
       }
 
-      const safeName = sanitizeFileName(assetFile.name || asset?.name || `asset-${i + 1}`);
-      const buffer = await assetFile.arrayBuffer();
-      files[`assets/${i + 1}-${safeName}`] = new Uint8Array(buffer);
-    }
+      setUploadState({
+        isUploading: true,
+        uploadProgress: {
+          stage: 'packaging',
+          message: 'Packaging ZIP',
+          total: totalAssets,
+        },
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
 
-    const zipData = zipSync(files, { level: 6 });
-    const blob = new Blob([zipData], { type: 'application/zip' });
-    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const safeCollectionName = sanitizeFileName(collectionInfo.collectionName, 'collection');
-    const filename = `${safeCollectionName}-${stamp}.zip`;
-    downloadBlob(blob, filename);
-    addLog(`[Export] Downloaded collection ZIP (${assets.length} assets)`);
-  }, [addLog, assets, collectionInfo.collectionName, downloadBlob, sanitizeFileName]);
+      const zipData = zipSync(files, { level: 6 });
+      const blob = new Blob([zipData], { type: 'application/zip' });
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const safeCollectionName = sanitizeFileName(collectionInfo.collectionName, 'collection');
+      const filename = `${safeCollectionName}-${stamp}.zip`;
+      downloadBlob(blob, filename);
+      addLog(`[Export] Downloaded collection ZIP (${totalAssets} assets)`);
+      exportSucceeded = true;
+    } catch (err) {
+      setUploadState({
+        isUploading: true,
+        uploadProgress: {
+          stage: 'error',
+          error: {
+            message: err?.message || 'Collection export failed',
+            detail: err?.message || 'Collection export failed',
+          },
+        },
+      });
+      throw err;
+    } finally {
+      if (exportSucceeded) {
+        setUploadState({ isUploading: false, uploadProgress: null });
+      }
+    }
+  }, [addLog, assets, collectionInfo.collectionName, downloadBlob, sanitizeFileName, setUploadState]);
 
 
   // If fullscreen is exited while stereo is on, disable stereo to avoid misalignment
@@ -632,7 +680,7 @@ function DebugSettings() {
         </div>
 
         <div class="control-row">
-          <span class="control-label">Download items</span>
+          <span class="control-label">Export splats</span>
           <button
             type="button"
             class="secondary"

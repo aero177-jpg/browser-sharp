@@ -1,4 +1,9 @@
 import { loadCloudGpuSettings } from './storage/cloudGpuSettings.js';
+import {
+  buildApiUrlFromModalUsername,
+  ensureModalProcessApiUrl,
+  extractModalUsernameFromApiUrl,
+} from './utils/modalEndpoints.js';
 
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
@@ -36,6 +41,9 @@ const ETA_PENALTY_MS = 15000;
 const ETA_PENALTY_COOLDOWN_MS = 8000;
 const FAST_POLL_PHASES = new Set(['loading_model', 'model_ready', 'processing_images']);
 
+// Debug: when true, always send forceAsync=true regardless of caller input.
+const DEBUG_FORCE_FORCE_ASYNC = false;
+
 export const isAndroidUserAgent = (ua) => {
   const userAgent = ua || (typeof navigator !== 'undefined' ? navigator.userAgent : '');
   return /Android/i.test(userAgent || '');
@@ -61,6 +69,10 @@ const extractBoundary = (contentType) => {
 
 const resolveLegacyProgressUrl = (submitUrl) => {
   if (!submitUrl) return null;
+  const modalUsername = extractModalUsernameFromApiUrl(submitUrl);
+  if (modalUsername) {
+    return buildApiUrlFromModalUsername(modalUsername, 'get-progress');
+  }
   if (submitUrl.includes('-process-image')) {
     return submitUrl.replace('-process-image', '-get-progress');
   }
@@ -762,7 +774,8 @@ const processAsyncJob = async ({
     accessString,
   });
 
-  const forceAsyncValue = normalizeForceAsync(forceAsync);
+  const effectiveForceAsync = DEBUG_FORCE_FORCE_ASYNC ? true : forceAsync;
+  const forceAsyncValue = normalizeForceAsync(effectiveForceAsync);
   if (forceAsyncValue != null) {
     formData.append('forceAsync', forceAsyncValue);
     formData.append('force_async', forceAsyncValue);
@@ -875,7 +888,7 @@ export async function testSharpCloud(files, {
   pollIntervalMs,
 } = {}) {
   const saved = loadCloudGpuSettings();
-  const resolvedUrl = apiUrl || saved?.apiUrl;
+  const resolvedUrl = ensureModalProcessApiUrl(apiUrl || saved?.apiUrl, 'process-image');
   const resolvedKey = apiKey || saved?.apiKey;
   const resolvedGpu = (gpuType || saved?.gpuType || 'a10').trim().toLowerCase();
   const resolvedBatchUploads = Boolean(batchUploads ?? saved?.batchUploads);

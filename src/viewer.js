@@ -51,12 +51,94 @@ let pendingBg = null;
 // FPS overlay element
 export let fpsContainer = null;
 let fpsLimitEnabled = true;
+let viewerElementRef = null;
+let visibilityChangeHandler = null;
+let webglContextLostHandler = null;
+let webglContextRestoredHandler = null;
+let contextLossRecoveryTimer = null;
+let glErrorStreak = 0;
+let lastGlErrorCheckAt = 0;
+let autoRecoveringFromGlError = false;
+let glContextLost = false;
+
+const GL_ERROR_CHECK_INTERVAL_MS = 500;
+const GL_ERROR_STREAK_THRESHOLD = 3;
+const CONTEXT_LOSS_RECOVERY_DELAY_MS = 1500;
 
 export const setCurrentMesh = (mesh) => { currentMesh = mesh; };
 export const setActiveCamera = (cam) => { activeCamera = cam; };
 export const setOriginalImageAspect = (aspect) => { originalImageAspect = aspect; };
 export const setDollyZoomEnabled = (enabled) => { dollyZoomEnabled = enabled; };
 export const setBgImageUrl = (url) => { bgImageUrl = url; };
+
+const clearContextLossRecoveryTimer = () => {
+  if (contextLossRecoveryTimer) {
+    clearTimeout(contextLossRecoveryTimer);
+    contextLossRecoveryTimer = null;
+  }
+};
+
+const reportRecoveryStatus = (message) => {
+  import('./store.js').then(({ useStore }) => {
+    useStore.getState().setStatus(message);
+  }).catch(() => {});
+};
+
+const recoverViewerFromGlFault = async (reason = 'WebGL fault') => {
+  if (autoRecoveringFromGlError) return;
+
+  const viewerEl = viewerElementRef || renderer?.domElement?.parentElement;
+  if (!viewerEl) return;
+
+  autoRecoveringFromGlError = true;
+  renderSuspended = true;
+  clearContextLossRecoveryTimer();
+  console.warn(`[viewer] Recovering from WebGL fault: ${reason}`);
+  reportRecoveryStatus('WebGL issue detected. Recovering renderer...');
+
+  try {
+    resetViewer(viewerEl, { preserveBackground: true });
+
+    const [{ resetSplatManager }, { reloadCurrentAsset, resize }] = await Promise.all([
+      import('./splatManager.js'),
+      import('./fileLoader.js'),
+    ]);
+
+    resetSplatManager();
+    await reloadCurrentAsset();
+    resize();
+    requestRender();
+    reportRecoveryStatus('Renderer recovered.');
+  } catch (error) {
+    console.error('[viewer] Failed to recover from WebGL fault', error);
+    reportRecoveryStatus('Renderer recovery failed. Please reload the page.');
+  } finally {
+    glErrorStreak = 0;
+    lastGlErrorCheckAt = 0;
+    glContextLost = false;
+    autoRecoveringFromGlError = false;
+    renderSuspended = false;
+  }
+};
+
+const checkForGlErrors = (now = performance.now()) => {
+  if (!renderer || glContextLost || autoRecoveringFromGlError) return;
+  if (now - lastGlErrorCheckAt < GL_ERROR_CHECK_INTERVAL_MS) return;
+
+  lastGlErrorCheckAt = now;
+  const gl = renderer.getContext?.();
+  if (!gl?.getError) return;
+
+  const errorCode = gl.getError();
+  if (errorCode !== gl.NO_ERROR) {
+    glErrorStreak += 1;
+    if (glErrorStreak >= GL_ERROR_STREAK_THRESHOLD) {
+      void recoverViewerFromGlFault(`gl.getError=${errorCode}`);
+    }
+  } else {
+    glErrorStreak = 0;
+  }
+};
 
 const ensureStereoCamera = () => {
   if (stereoCamera) return;
@@ -183,32 +265,38 @@ export const requestRender = () => {
  */
 export const forceRenderNow = () => {
   if (!renderer || !composer || !camera) return;
-  if (stereoEnabled && stereoCamera) {
-    // For stereo, call the stereo render path
-    if (scene.matrixWorldAutoUpdate === true) scene.updateMatrixWorld();
-    if (camera.parent === null && camera.matrixWorldAutoUpdate === true) camera.updateMatrixWorld();
-    stereoCamera.update(camera);
-    const size = renderer.getSize(new THREE.Vector2());
-    const scale = THREE.MathUtils.clamp(stereoScale || 1, 0.5, 1.0);
-    const renderWidth = Math.max(2, Math.floor(size.width * scale));
-    const renderHeight = Math.max(2, Math.floor(size.height * scale));
-    const offsetX = Math.floor((size.width - renderWidth) * 0.5);
-    const offsetY = Math.floor((size.height - renderHeight) * 0.5);
-    const halfWidth = Math.max(1, Math.floor(renderWidth * 0.5));
-    const rightWidth = Math.max(1, renderWidth - halfWidth);
-    renderer.autoClear = false;
-    renderer.clear();
-    renderer.setScissorTest(true);
-    renderer.setScissor(offsetX, offsetY, halfWidth, renderHeight);
-    renderer.setViewport(offsetX, offsetY, halfWidth, renderHeight);
-    renderer.render(scene, stereoCamera.cameraL);
-    renderer.setScissor(offsetX + halfWidth, offsetY, rightWidth, renderHeight);
-    renderer.setViewport(offsetX + halfWidth, offsetY, rightWidth, renderHeight);
-    renderer.render(scene, stereoCamera.cameraR);
-    renderer.setScissorTest(false);
-    renderer.autoClear = true;
-  } else {
-    composer.render();
+  try {
+    if (stereoEnabled && stereoCamera) {
+      // For stereo, call the stereo render path
+      if (scene.matrixWorldAutoUpdate === true) scene.updateMatrixWorld();
+      if (camera.parent === null && camera.matrixWorldAutoUpdate === true) camera.updateMatrixWorld();
+      stereoCamera.update(camera);
+      const size = renderer.getSize(new THREE.Vector2());
+      const scale = THREE.MathUtils.clamp(stereoScale || 1, 0.5, 1.0);
+      const renderWidth = Math.max(2, Math.floor(size.width * scale));
+      const renderHeight = Math.max(2, Math.floor(size.height * scale));
+      const offsetX = Math.floor((size.width - renderWidth) * 0.5);
+      const offsetY = Math.floor((size.height - renderHeight) * 0.5);
+      const halfWidth = Math.max(1, Math.floor(renderWidth * 0.5));
+      const rightWidth = Math.max(1, renderWidth - halfWidth);
+      renderer.autoClear = false;
+      renderer.clear();
+      renderer.setScissorTest(true);
+      renderer.setScissor(offsetX, offsetY, halfWidth, renderHeight);
+      renderer.setViewport(offsetX, offsetY, halfWidth, renderHeight);
+      renderer.render(scene, stereoCamera.cameraL);
+      renderer.setScissor(offsetX + halfWidth, offsetY, rightWidth, renderHeight);
+      renderer.setViewport(offsetX + halfWidth, offsetY, rightWidth, renderHeight);
+      renderer.render(scene, stereoCamera.cameraR);
+      renderer.setScissorTest(false);
+      renderer.autoClear = true;
+    } else {
+      composer.render();
+    }
+    checkForGlErrors();
+  } catch (error) {
+    void recoverViewerFromGlFault(error?.message || 'forceRenderNow exception');
+    return;
   }
   needsRender = false;
 };
@@ -229,6 +317,8 @@ export const updateDollyZoomBaselineFromCamera = () => {
 };
 
 export const initViewer = (viewerEl) => {
+  viewerElementRef = viewerEl;
+
   // Renderer
   renderer = new THREE.WebGLRenderer({
     antialias: false,
@@ -238,6 +328,29 @@ export const initViewer = (viewerEl) => {
   renderer.setPixelRatio(window.devicePixelRatio);
   renderer.setClearColor(0x000000, 0); // Transparent clear color
   viewerEl.appendChild(renderer.domElement);
+
+  webglContextLostHandler = (event) => {
+    event.preventDefault();
+    glContextLost = true;
+    renderSuspended = true;
+    glErrorStreak = 0;
+    clearContextLossRecoveryTimer();
+    contextLossRecoveryTimer = setTimeout(() => {
+      if (glContextLost) {
+        void recoverViewerFromGlFault('webglcontextlost');
+      }
+    }, CONTEXT_LOSS_RECOVERY_DELAY_MS);
+  };
+
+  webglContextRestoredHandler = () => {
+    glContextLost = false;
+    clearContextLossRecoveryTimer();
+    renderSuspended = false;
+    requestRender();
+  };
+
+  renderer.domElement.addEventListener('webglcontextlost', webglContextLostHandler, false);
+  renderer.domElement.addEventListener('webglcontextrestored', webglContextRestoredHandler, false);
 
   // Camera
   camera = new THREE.PerspectiveCamera(60, 1, 0.01, 500);
@@ -358,9 +471,13 @@ export const initViewer = (viewerEl) => {
 
   // On-demand rendering
   controls.addEventListener("change", requestRender);
-  document.addEventListener("visibilitychange", () => {
+  if (visibilityChangeHandler) {
+    document.removeEventListener('visibilitychange', visibilityChangeHandler);
+  }
+  visibilityChangeHandler = () => {
     if (!document.hidden) requestRender();
-  });
+  };
+  document.addEventListener('visibilitychange', visibilityChangeHandler);
 
   return { renderer, camera, controls, composer, spark };
 };
@@ -399,11 +516,17 @@ export const startRenderLoop = () => {
     const controlsNeedUpdate = controls.update();
 
     if (needsRender || controlsNeedUpdate) {
-      if (stereoEnabled && stereoCamera) {
-        renderStereo();
-      } else {
-        composer.render();
+      try {
+        if (stereoEnabled && stereoCamera) {
+          renderStereo();
+        } else {
+          composer.render();
+        }
+      } catch (error) {
+        void recoverViewerFromGlFault(error?.message || 'render exception');
+        return;
       }
+      checkForGlErrors(now);
       needsRender = false;
       frameCount++;
     }
@@ -514,6 +637,19 @@ export const resetViewer = (viewerEl, { preserveBackground = true } = {}) => {
   const preservedBackground = preserveBackground ? bgImageUrl : null;
 
   cancelPendingBgActivation();
+  clearContextLossRecoveryTimer();
+  glContextLost = false;
+  glErrorStreak = 0;
+  lastGlErrorCheckAt = 0;
+
+  if (renderer?.domElement && webglContextLostHandler) {
+    renderer.domElement.removeEventListener('webglcontextlost', webglContextLostHandler, false);
+  }
+  if (renderer?.domElement && webglContextRestoredHandler) {
+    renderer.domElement.removeEventListener('webglcontextrestored', webglContextRestoredHandler, false);
+  }
+  webglContextLostHandler = null;
+  webglContextRestoredHandler = null;
 
   if (controls) {
     controls.removeEventListener?.('change', requestRender);

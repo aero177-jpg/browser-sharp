@@ -11,41 +11,29 @@ import TitleCard from './TitleCard';
 import SidePanel from './SidePanel';
 import MobileSheet from './MobileSheet';
 import AssetSidebar from './AssetSidebar';
-import AssetNavigation from './AssetNavigation';
-import { initViewer, startRenderLoop, currentMesh, camera, controls, defaultCamera, defaultControls, dollyZoomBaseDistance, dollyZoomBaseFov, requestRender, THREE, resetViewer } from '../viewer';
-import { resize, loadFromStorageSource, loadNextAsset, loadPrevAsset, reloadCurrentAsset } from '../fileLoader';
+import { initViewer, startRenderLoop, requestRender } from '../viewer';
+import { resize, loadFromStorageSource, loadNextAsset, loadPrevAsset } from '../fileLoader';
 import { resetViewWithImmersive } from '../cameraUtils';
-import { enableImmersiveMode, disableImmersiveMode, setImmersiveSensitivityMultiplier, setTouchPanEnabled, syncImmersiveBaseline } from '../immersiveMode';
-import { setupFullscreenHandler } from '../fullscreenHandler';
 import useOutsideClick from '../utils/useOutsideClick';
 import useSwipe from '../utils/useSwipe';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faExpandAlt, faCompressAlt } from '@fortawesome/free-solid-svg-icons';
-import { FocusIcon, Rotate3DIcon, MaximizeIcon, MinimizeIcon, slideShowToggleIcon as SlideShowToggleIcon } from '../icons/customIcons';
 import { initVrSupport } from '../vrMode';
-import { getSource, createPublicUrlSource, registerSource, saveSource } from '../storage/index.js';
 import { loadR2Settings } from '../storage/r2Settings.js';
 import ConnectStorageDialog from './ConnectStorageDialog';
 import ControlsModal from './ControlsModal';
-import { startSlideshow, stopSlideshow, resetSlideshow } from '../slideshowController';
 import { useCollectionUploadFlow } from './useCollectionUploadFlow.js';
 import { useViewerDrop } from './useViewerDrop.jsx';
 import PwaReloadPrompt from './PwaReloadPrompt';
 import SlideshowOptionsModal from './SlideshowOptionsModal';
-import { resetSplatManager } from '../splatManager';
+import AddDemoCollectionsModal from './AddDemoCollectionsModal';
 import { useCollectionRouting } from './useCollectionRouting.js';
 import { resetLandingView } from '../utils/resetLandingView.js';
+import BottomControls from './BottomControls';
+import useMobileState from '../utils/useMobileState';
+import { fadeInViewer, fadeOutViewer, restoreViewerVisibility } from '../utils/viewerFade';
+import useDemoCollections from './useDemoCollections';
 
 /** Delay before resize after panel toggle animation completes */
 const PANEL_TRANSITION_MS = 350;
-
-const updateControlSpeedsForFov = (fov) => {
-  if (!controls) return;
-  const fovScale = THREE.MathUtils.clamp(fov / defaultCamera.fov, 0.05, 2.0);
-  controls.rotateSpeed = Math.max(0.02, defaultControls.rotateSpeed * fovScale * 0.45);
-  controls.zoomSpeed = Math.max(0.05, defaultControls.zoomSpeed * fovScale * 0.8);
-  controls.panSpeed = Math.max(0.05, defaultControls.panSpeed * fovScale * 0.8);
-};
 
 function App() {
   // Store state
@@ -55,24 +43,13 @@ function App() {
   const setMobileState = useStore((state) => state.setMobileState);
   const togglePanel = useStore((state) => state.togglePanel);
   const assets = useStore((state) => state.assets);
-  const currentAssetIndex = useStore((state) => state.currentAssetIndex);
   const setCurrentAssetIndex = useStore((state) => state.setCurrentAssetIndex);
   const setActiveSourceId = useStore((state) => state.setActiveSourceId);
   const setAssets = useStore((state) => state.setAssets);
-  const toggleAssetSidebar = useStore((state) => state.toggleAssetSidebar);
   const setStatus = useStore((state) => state.setStatus);
   const addLog = useStore((state) => state.addLog);
   const activeSourceId = useStore((state) => state.activeSourceId);
   const focusSettingActive = useStore((state) => state.focusSettingActive);
-  const fov = useStore((state) => state.fov);
-  const setFov = useStore((state) => state.setFov);
-  const viewerFovSlider = useStore((state) => state.viewerFovSlider);
-  const immersiveMode = useStore((state) => state.immersiveMode);
-  const setImmersiveMode = useStore((state) => state.setImmersiveMode);
-  const immersiveSensitivity = useStore((state) => state.immersiveSensitivity);
-  const slideshowMode = useStore((state) => state.slideshowMode);
-  const slideshowPlaying = useStore((state) => state.slideshowPlaying);
-  const setSlideshowMode = useStore((state) => state.setSlideshowMode);
   const controlsModalOpen = useStore((state) => state.controlsModalOpen);
   const setControlsModalOpen = useStore((state) => state.setControlsModalOpen);
   const controlsModalDefaultSubsections = useStore((state) => state.controlsModalDefaultSubsections);
@@ -84,9 +61,6 @@ function App() {
   const [hasDefaultSource, setHasDefaultSource] = useState(false);
   const isLandingEmptyState = landingVisible && assets.length === 0 && !activeSourceId;
   
-  // Track mesh state
-  const [hasMesh, setHasMesh] = useState(false);
-  const hasMeshRef = useRef(false);
   const defaultLoadAttempted = useRef(false);
 
   // File input + storage dialog state for title card actions
@@ -94,17 +68,9 @@ function App() {
   const [storageDialogInitialTier, setStorageDialogInitialTier] = useState(null);
 
   // Fullscreen state
-  const [isFullscreenMode, setIsFullscreenMode] = useState(false);
-  const [isRegularFullscreen, setIsRegularFullscreen] = useState(false);
-  const bottomControlsRef = useRef(null);
   const swipeTargetRef = useRef(null);
-  const controlsRevealTimeout = useRef(null);
-  const [controlsRevealed, setControlsRevealed] = useState(false);
+
   const [slideshowOptionsOpen, setSlideshowOptionsOpen] = useState(false);
-  const slideshowHoldTimeout = useRef(null);
-  const slideshowHoldTriggered = useRef(false);
-  const resetHoldTimeout = useRef(null);
-  const resetHoldTriggered = useRef(false);
 
   // Outside click handler to close side panel
   useOutsideClick(
@@ -113,91 +79,17 @@ function App() {
     panelOpen && !focusSettingActive
   );
 
-  // Setup fullscreen handler - re-run when controls mount
-  useEffect(() => {
-    const fullscreenRoot = document.getElementById('app');
-    const viewerEl = document.getElementById('viewer');
-    if (!fullscreenRoot || !viewerEl) return;
-
-    return setupFullscreenHandler(fullscreenRoot, viewerEl, setIsFullscreenMode);
-  }, [hasMesh]); // Re-run when hasMesh changes (when controls appear/disappear)
-
-  useEffect(() => {
-    const syncRegularFullscreen = () => {
-      const fullscreenRoot = document.getElementById('app');
-      setIsRegularFullscreen(Boolean(document.fullscreenElement));
-      if (!document.fullscreenElement && fullscreenRoot?.classList.contains('fullscreen-mode-fallback')) {
-        fullscreenRoot.classList.remove('fullscreen-mode-fallback');
-        setIsFullscreenMode(false);
-      }
-    };
-
-    syncRegularFullscreen();
-    document.addEventListener('fullscreenchange', syncRegularFullscreen);
-    return () => document.removeEventListener('fullscreenchange', syncRegularFullscreen);
-  }, []);
-
-  /**
-   * Track mesh loading state with stability to prevent flickering.
-   * When mesh disappears, wait before updating state to avoid flicker during asset transitions.
-   * When mesh appears, update immediately for responsive UI.
-   */
-  useEffect(() => {
-    let timeout = null;
-    
-    const checkMesh = () => {
-      const meshPresent = !!currentMesh;
-      
-      // Clear any pending timeout
-      if (timeout) {
-        clearTimeout(timeout);
-        timeout = null;
-      }
-      
-      if (meshPresent !== hasMeshRef.current) {
-        if (meshPresent) {
-          // Mesh appeared - update immediately
-          hasMeshRef.current = true;
-          setHasMesh(true);
-        } else {
-          // Mesh disappeared - wait before updating to avoid flicker during transitions
-          timeout = setTimeout(() => {
-            hasMeshRef.current = false;
-            setHasMesh(false);
-          }, 300);
-        }
-      }
-    };
-    
-    // Check immediately and set up interval to poll
-    checkMesh();
-    const interval = setInterval(checkMesh, 100);
-    
-    return () => {
-      clearInterval(interval);
-      if (timeout) clearTimeout(timeout);
-    };
-  }, []);
-
-  /**
-   * Handles reset view - uses shared function that handles immersive mode.
-   */
-  const handleResetView = useCallback(() => {
-    resetViewWithImmersive();
-  }, []);
-
-  const handleHardResetView = useCallback(async () => {
-    const viewerEl = document.getElementById('viewer');
-    if (!viewerEl) return;
-
-    resetViewer(viewerEl, { preserveBackground: true });
-    resetSplatManager();
-    void initVrSupport(viewerEl);
-
-    await reloadCurrentAsset();
-    resize();
-    requestRender();
-  }, []);
+  const {
+    demoCollectionsModalOpen,
+    setDemoCollectionsModalOpen,
+    handleLoadDemo,
+    handleInstallDemoCollections,
+    demoCollectionOptions,
+  } = useDemoCollections({
+    addLog,
+    setLandingVisible,
+    panelTransitionMs: PANEL_TRANSITION_MS,
+  });
 
   /**
    * Handles swipe gestures on bottom controls for asset navigation.
@@ -219,277 +111,18 @@ function App() {
     onSwipe: handleSwipe,
   });
 
-  const handleToggleFullscreenMode = useCallback(async () => {
-    // App fullscreen mode keeps existing viewer/UI fullscreen behavior.
-    const fullscreenRoot = document.getElementById('app');
-    const viewerEl = document.getElementById('viewer');
-    if (!fullscreenRoot) return;
-
-    try {
-      // Fade out before toggling
-      if (viewerEl) {
-        viewerEl.classList.remove('fs-fade-in');
-        viewerEl.classList.add('fs-fade-out');
-      }
-      
-      // Wait for fade-out to complete
-      await new Promise((r) => setTimeout(r, 150));
-      
-      if (fullscreenRoot.classList.contains('fullscreen-mode-fallback')) {
-        fullscreenRoot.classList.remove('fullscreen-mode-fallback');
-        setIsFullscreenMode(false);
-        resize();
-        requestRender();
-      } else if (document.fullscreenElement === fullscreenRoot) {
-        await document.exitFullscreen();
-      } else if (document.fullscreenElement === document.documentElement) {
-        // If regular fullscreen is active, avoid replacing it; emulate app fullscreen via class.
-        fullscreenRoot.classList.add('fullscreen-mode-fallback');
-        setIsFullscreenMode(true);
-        resize();
-        requestRender();
-      } else {
-        await fullscreenRoot.requestFullscreen();
-      }
-      
-      // After fullscreen settles, resize then fade in
-      setTimeout(() => {
-        requestAnimationFrame(() => {
-          resize();
-          requestRender();
-          if (viewerEl) {
-            viewerEl.classList.remove('fs-fade-out');
-            viewerEl.classList.add('fs-fade-in');
-            // Clean up class after transition
-            setTimeout(() => viewerEl.classList.remove('fs-fade-in'), 250);
-          }
-        });
-      }, 500);
-    } catch (err) {
-      console.warn('Fullscreen toggle failed:', err);
-      // Ensure we restore visibility on error
-      if (viewerEl) {
-        viewerEl.classList.remove('fs-fade-out');
-        viewerEl.classList.add('fs-fade-in');
-      }
-    }
-  }, []);
-
-  const handleToggleRegularFullscreen = useCallback(async () => {
-    const viewerEl = document.getElementById('viewer');
-    const fullscreenRoot = document.getElementById('app');
-
-    try {
-      if (viewerEl) {
-        viewerEl.classList.remove('fs-fade-in');
-        viewerEl.classList.add('fs-fade-out');
-      }
-
-      await new Promise((r) => setTimeout(r, 150));
-
-      if (document.fullscreenElement) {
-        if (fullscreenRoot?.classList.contains('fullscreen-mode-fallback')) {
-          fullscreenRoot.classList.remove('fullscreen-mode-fallback');
-          setIsFullscreenMode(false);
-        }
-        await document.exitFullscreen();
-      } else {
-        if (fullscreenRoot?.classList.contains('fullscreen-mode-fallback')) {
-          fullscreenRoot.classList.remove('fullscreen-mode-fallback');
-          setIsFullscreenMode(false);
-        }
-        await document.documentElement.requestFullscreen();
-      }
-
-      setTimeout(() => {
-        requestAnimationFrame(() => {
-          resize();
-          requestRender();
-          if (viewerEl) {
-            viewerEl.classList.remove('fs-fade-out');
-            viewerEl.classList.add('fs-fade-in');
-            setTimeout(() => viewerEl.classList.remove('fs-fade-in'), 250);
-          }
-        });
-      }, 500);
-    } catch (err) {
-      console.warn('Regular fullscreen toggle failed:', err);
-      if (viewerEl) {
-        viewerEl.classList.remove('fs-fade-out');
-        viewerEl.classList.add('fs-fade-in');
-      }
-    }
-  }, []);
-
-  const handleSlideshowToggle = useCallback(() => {
-    if (slideshowMode) {
-      resetSlideshow();
-      setSlideshowMode(false);
-      return;
-    }
-
-    setSlideshowMode(true);
-    startSlideshow();
-  }, [slideshowMode, setSlideshowMode]);
-
-  const handleSlideshowHoldStart = useCallback(() => {
-    slideshowHoldTriggered.current = false;
-    if (slideshowHoldTimeout.current) {
-      clearTimeout(slideshowHoldTimeout.current);
-    }
-    slideshowHoldTimeout.current = setTimeout(() => {
-      slideshowHoldTriggered.current = true;
-      setSlideshowOptionsOpen(true);
-      slideshowHoldTimeout.current = null;
-    }, 500);
-  }, []);
-
-  const handleSlideshowHoldEnd = useCallback(() => {
-    if (slideshowHoldTimeout.current) {
-      clearTimeout(slideshowHoldTimeout.current);
-      slideshowHoldTimeout.current = null;
-    }
-  }, []);
-
-  const handleSlideshowButtonClick = useCallback(() => {
-    if (slideshowHoldTriggered.current) {
-      slideshowHoldTriggered.current = false;
-      return;
-    }
-    handleSlideshowToggle();
-  }, [handleSlideshowToggle]);
-
-  const handleResetHoldStart = useCallback(() => {
-    resetHoldTriggered.current = false;
-    if (resetHoldTimeout.current) {
-      clearTimeout(resetHoldTimeout.current);
-    }
-    resetHoldTimeout.current = setTimeout(() => {
-      resetHoldTriggered.current = true;
-      handleHardResetView();
-      resetHoldTimeout.current = null;
-    }, 2000);
-  }, [handleHardResetView]);
-
-  const handleResetHoldEnd = useCallback(() => {
-    if (resetHoldTimeout.current) {
-      clearTimeout(resetHoldTimeout.current);
-      resetHoldTimeout.current = null;
-    }
-  }, []);
-
-  const handleResetButtonClick = useCallback(() => {
-    if (resetHoldTriggered.current) {
-      resetHoldTriggered.current = false;
-      return;
-    }
-    handleResetView();
-  }, [handleResetView]);
-
   const handleDeviceRotate = useCallback(async () => {
     const viewerEl = document.getElementById('viewer');
     if (!viewerEl) return;
 
     try {
-      viewerEl.classList.remove('fs-fade-in');
-      viewerEl.classList.add('fs-fade-out');
-
-      await new Promise((r) => setTimeout(r, 150));
-
-      requestAnimationFrame(() => {
-        resize();
-        requestRender();
-        viewerEl.classList.remove('fs-fade-out');
-        viewerEl.classList.add('fs-fade-in');
-        setTimeout(() => viewerEl.classList.remove('fs-fade-in'), 250);
-      });
+      await fadeOutViewer(viewerEl);
+      fadeInViewer(viewerEl, { resize, requestRender, settleMs: 0 });
     } catch (err) {
       console.warn('Device rotation handling failed:', err);
-      viewerEl.classList.remove('fs-fade-out');
-      viewerEl.classList.add('fs-fade-in');
+      restoreViewerVisibility(viewerEl);
     }
-  }, []);
-
-  const handleOverlayFovChange = useCallback((event) => {
-    const newFov = Number(event.target.value);
-    if (!Number.isFinite(newFov) || !camera || !controls) return;
-
-    setFov(newFov);
-
-    if (dollyZoomBaseDistance && dollyZoomBaseFov) {
-      const baseTan = Math.tan(THREE.MathUtils.degToRad(dollyZoomBaseFov / 2));
-      const newTan = Math.tan(THREE.MathUtils.degToRad(newFov / 2));
-      const newDistance = dollyZoomBaseDistance * (baseTan / newTan);
-
-      const direction = new THREE.Vector3()
-        .subVectors(camera.position, controls.target)
-        .normalize();
-      camera.position.copy(controls.target).addScaledVector(direction, newDistance);
-    }
-
-    camera.fov = newFov;
-    camera.updateProjectionMatrix();
-    updateControlSpeedsForFov(newFov);
-    controls.update();
-    if (immersiveMode) {
-      syncImmersiveBaseline();
-    }
-    requestRender();
-  }, [setFov, immersiveMode]);
-
-  const revealBottomControls = useCallback((temporary = true, timeoutMs = 2000) => {
-    if (controlsRevealTimeout.current) {
-      clearTimeout(controlsRevealTimeout.current);
-      controlsRevealTimeout.current = null;
-    }
-
-    setControlsRevealed(true);
-
-    if (temporary) {
-      controlsRevealTimeout.current = setTimeout(() => {
-        setControlsRevealed(false);
-        controlsRevealTimeout.current = null;
-      }, timeoutMs);
-    }
-  }, []);
-
-  const hideBottomControls = useCallback(() => {
-    if (controlsRevealTimeout.current) {
-      clearTimeout(controlsRevealTimeout.current);
-      controlsRevealTimeout.current = null;
-    }
-    setControlsRevealed(false);
-  }, []);
-
-  useEffect(() => {
-    if (!slideshowMode) {
-      setControlsRevealed(false);
-      if (controlsRevealTimeout.current) {
-        clearTimeout(controlsRevealTimeout.current);
-        controlsRevealTimeout.current = null;
-      }
-    }
-  }, [slideshowMode]);
-
-  const handleImmersiveToggle = useCallback(async () => {
-    if (immersiveMode) {
-      disableImmersiveMode();
-      setImmersiveMode(false);
-      addLog('Immersive mode disabled');
-      return;
-    }
-
-    setTouchPanEnabled(true);
-    setImmersiveSensitivityMultiplier(immersiveSensitivity);
-    const success = await enableImmersiveMode();
-    if (success) {
-      setImmersiveMode(true);
-      addLog('Immersive mode enabled - tilt device to orbit');
-    } else {
-      setImmersiveMode(false);
-      addLog('Could not enable immersive mode');
-    }
-  }, [immersiveMode, setImmersiveMode, addLog, immersiveSensitivity]);
+  }, [resize, requestRender]);
 
   /**
    * Title card actions: file picker
@@ -543,41 +176,6 @@ function App() {
   }, [addLog]);
 
   /**
-   * Title card actions: load demo collection
-   */
-  const handleLoadDemo = useCallback(async () => {
-    try {
-      // Fade out landing card before starting load
-      setLandingVisible(false);
-      await new Promise((r) => setTimeout(r, PANEL_TRANSITION_MS));
-      let demo = getSource('demo-public-url');
-      if (!demo) {
-        // Demo collection (cloud)
-        const cloudUrls = [
-          'https://pub-db16fc5228e844edb71f8282c2992658.r2.dev/splat_1/_DSF1672.sog',
-          'https://pub-db16fc5228e844edb71f8282c2992658.r2.dev/splat_1/_DSF1891.sog',
-          'https://pub-db16fc5228e844edb71f8282c2992658.r2.dev/splat_1/_DSF3354.sog',
-        ];
-
-        demo = createPublicUrlSource({ id: 'demo-public-url', name: 'Demo URL collection', assetPaths: cloudUrls });
-        registerSource(demo);
-        try { await saveSource(demo.toJSON()); } catch (err) { console.warn('Failed to persist demo source:', err); }
-      }
-
-      try {
-        await demo.connect?.();
-      } catch (err) {
-        console.warn('Demo connect failed (continuing):', err);
-      }
-
-      await loadFromStorageSource(demo);
-    } catch (err) {
-      addLog('Failed to load demo: ' + (err?.message || err));
-      console.warn('Failed to load demo:', err);
-    }
-  }, [addLog]);
-
-  /**
    * Handle selecting a source from the collections modal
    */
   const handleSelectSource = useCallback(async (source) => {
@@ -612,47 +210,10 @@ function App() {
     setStorageDialogOpen(true);
   }, []);
 
-  /**
-   * Detects mobile device and orientation.
-   * Uses orientationchange event and matchMedia for reliable mobile detection.
-   */
-  useEffect(() => {
-    const updateMobileState = () => {
-      const mobile = Math.min(window.innerWidth, window.innerHeight) <= 768;
-      // Prefer matchMedia for orientation as it's more reliable on mobile
-      const portraitQuery = window.matchMedia?.('(orientation: portrait)');
-      const portrait = portraitQuery ? portraitQuery.matches : window.innerHeight > window.innerWidth;
-      setMobileState(mobile, portrait);
-    };
-    
-    updateMobileState();
-
-    // Listen to resize as fallback
-    window.addEventListener('resize', updateMobileState);
-
-    // Dedicated orientation change event for mobile devices
-    window.addEventListener('orientationchange', updateMobileState);
-
-    // matchMedia change listener for orientation (most reliable)
-    const portraitQuery = window.matchMedia?.('(orientation: portrait)');
-    portraitQuery?.addEventListener?.('change', updateMobileState);
-
-    // Trigger viewer fade + resize on device orientation changes
-    const handleOrientationChange = () => {
-      handleDeviceRotate();
-    };
-
-    window.addEventListener('orientationchange', handleOrientationChange);
-    portraitQuery?.addEventListener?.('change', handleOrientationChange);
-
-    return () => {
-      window.removeEventListener('resize', updateMobileState);
-      window.removeEventListener('orientationchange', updateMobileState);
-      portraitQuery?.removeEventListener?.('change', updateMobileState);
-      window.removeEventListener('orientationchange', handleOrientationChange);
-      portraitQuery?.removeEventListener?.('change', handleOrientationChange);
-    };
-  }, [setMobileState, handleDeviceRotate]);
+  useMobileState({
+    setMobileState,
+    onRotate: handleDeviceRotate,
+  });
 
   const { dropOverlay, dropModal } = useViewerDrop({
     activeSourceId,
@@ -748,111 +309,7 @@ function App() {
         <div class="bottom-swipe-target" ref={swipeTargetRef} />
       )}
       {!isLandingEmptyState && (isMobile && isPortrait ? <MobileSheet /> : <SidePanel />)}
-      {/* Bottom controls container: sidebar index (left), nav (center), fullscreen+reset (right) */}
-      <div
-        class={`bottom-controls${slideshowMode && slideshowPlaying ? ' slideshow-hide' : ''}${controlsRevealed ? ' is-revealed' : ''}`}
-        ref={bottomControlsRef}
-        onPointerEnter={() => slideshowMode && slideshowPlaying && revealBottomControls(false)}
-        onPointerLeave={() => slideshowMode && slideshowPlaying && revealBottomControls(true, 1000)}
-        onPointerDown={() => slideshowMode && slideshowPlaying && revealBottomControls(true, 1000)}
-      >
-        {/* Left: Asset index button */}
-        <div class="bottom-controls-right">
-          {assets.length > 0 && (
-            <button
-              class={`bottom-page-btn immersive-toggle ${slideshowMode ? 'is-active' : 'is-inactive'}`}
-              onClick={handleSlideshowButtonClick}
-              onPointerDown={handleSlideshowHoldStart}
-              onPointerUp={handleSlideshowHoldEnd}
-              onPointerLeave={handleSlideshowHoldEnd}
-              onPointerCancel={handleSlideshowHoldEnd}
-              aria-pressed={slideshowMode}
-              aria-label={slideshowMode ? 'Stop slideshow' : 'Start slideshow'}
-              title={slideshowMode ? 'Stop slideshow' : 'Start slideshow'}
-            >
-              <SlideShowToggleIcon size={18} />
-            </button>
-          )}
-          {assets.length > 0 && (
-            <button
-              class="bottom-page-btn"
-              onClick={toggleAssetSidebar}
-              title="Open asset browser"
-            >
-              {currentAssetIndex + 1} / {assets.length}
-            </button>
-          )}
-        </div>
-{hasMesh && assets.length > 0 && (
-  <>
-        {/* Center: Navigation buttons */}
-        <div class="bottom-controls-center">
-          <div class="bottom-controls-center-inner">
-            <AssetNavigation />
-            {viewerFovSlider && (
-              <div class="fov-overlay" role="group" aria-label="Viewer FOV">
-                <input
-                  class="fov-overlay-slider"
-                  type="range"
-                  min="20"
-                  max="120"
-                  step="1"
-                  value={fov}
-                  onInput={handleOverlayFovChange}
-                />
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Right: Fullscreen and reset buttons */}
-        <div class="bottom-controls-right">
-            <>
-            
-              <button 
-                class="bottom-page-btn" 
-                onClick={handleResetButtonClick}
-                onPointerDown={handleResetHoldStart}
-                onPointerUp={handleResetHoldEnd}
-                onPointerLeave={handleResetHoldEnd}
-                onPointerCancel={handleResetHoldEnd}
-                aria-label="Reset camera view"
-                title="Reset view (R)"
-              >
-                <FocusIcon size={18} />
-              </button>
-             
-              <button
-                class="bottom-page-btn"
-                onClick={handleToggleFullscreenMode}
-                aria-label={isFullscreenMode ? "Exit fullscreen mode" : "Enter fullscreen mode"}
-                title={isFullscreenMode ? "Exit fullscreen mode" : "Enter fullscreen mode"}
-              >
-                <FontAwesomeIcon icon={isFullscreenMode ? faCompressAlt : faExpandAlt} />
-              </button>
-
-              <button
-                class="bottom-page-btn"
-                onClick={handleToggleRegularFullscreen}
-                aria-label={isRegularFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
-                title={isRegularFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
-                >
-                {isRegularFullscreen ? <MinimizeIcon size={18} /> : <MaximizeIcon size={18} />}
-              </button>
-{isMobile && <button
-                class={`bottom-page-btn immersive-toggle ${immersiveMode ? 'is-active' : 'is-inactive'}`}
-                onClick={handleImmersiveToggle}
-                aria-pressed={immersiveMode}
-                aria-label={immersiveMode ? 'Disable immersive mode' : 'Enable immersive mode'}
-                title={immersiveMode ? 'Disable immersive mode' : 'Enable immersive mode'}
-              >
-                <Rotate3DIcon size={18} />
-              </button>}
-            </>
-        </div>
-        </>
-)}
-      </div>
+      <BottomControls onOpenSlideshowOptions={() => setSlideshowOptionsOpen(true)} />
 
       <ConnectStorageDialog
         isOpen={storageDialogOpen}
@@ -868,6 +325,12 @@ function App() {
       <SlideshowOptionsModal
         isOpen={slideshowOptionsOpen}
         onClose={() => setSlideshowOptionsOpen(false)}
+      />
+      <AddDemoCollectionsModal
+        isOpen={demoCollectionsModalOpen}
+        onClose={() => setDemoCollectionsModalOpen(false)}
+        onInstall={handleInstallDemoCollections}
+        options={demoCollectionOptions}
       />
       <PwaReloadPrompt />
       {dropModal}

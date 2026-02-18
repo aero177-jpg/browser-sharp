@@ -183,6 +183,14 @@ export const SOURCE_TIERS = {
     requirements: ['API URL and API key'],
     icon: 'cloud-gpu',
   },
+  'import-collections': {
+    tier: 5,
+    label: 'Import ZIP',
+    description: 'Import collections, settings, and previews from a transfer bundle',
+    benefits: ['Restore prior exports', 'Merge data into this browser'],
+    requirements: ['A .zip bundle exported from Transfer Data'],
+    icon: 'upload',
+  },
 };
 
 /**

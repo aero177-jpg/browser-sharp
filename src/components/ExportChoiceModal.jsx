@@ -65,26 +65,39 @@ function ExportChoiceModal({
   const [exportBusy, setExportBusy] = useState(false);
   const [exportError, setExportError] = useState('');
 
+  const handleClose = () => {
+    setExportBusy(false);
+    setExportError('');
+    onClose?.();
+  };
+
   useEffect(() => {
     setMode(defaultMode);
+    if (!isOpen) {
+      setExportBusy(false);
+      setExportError('');
+    }
   }, [defaultMode, isOpen]);
 
   if (!isOpen) return null;
 
-  const handleExport = async () => {
+  const handleExport = () => {
     if (exportBusy) return;
     setExportError('');
     setExportBusy(true);
+
+    const exportAction = mode === 'asset' ? onExportAsset : onExportCollection;
     try {
-      if (mode === 'asset') {
-        await onExportAsset?.();
-      } else {
-        await onExportCollection?.();
+      const result = exportAction?.();
+      if (result && typeof result.then === 'function') {
+        result.catch((err) => {
+          console.error('[ExportChoiceModal] Export failed after modal close', err);
+        });
       }
-      onClose?.();
+
+      handleClose();
     } catch (err) {
       setExportError(err?.message || 'Export failed');
-    } finally {
       setExportBusy(false);
     }
   };
@@ -92,7 +105,7 @@ function ExportChoiceModal({
   return (
     <Modal
       isOpen={isOpen}
-      onClose={onClose}
+      onClose={handleClose}
     >
       <h2>{title}</h2>
       <p class="dialog-subtitle">{subtitle}</p>
@@ -133,7 +146,7 @@ function ExportChoiceModal({
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '24px' }}>
         <button
           class="secondary-button"
-          onClick={onClose}
+          onClick={handleClose}
           style={{ height: '36px', padding: '0 16px', minWidth: '80px', marginTop: '0' }}
         >
           Cancel

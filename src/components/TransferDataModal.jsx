@@ -3,10 +3,11 @@
  * Multi-page flow: Landing → Export or Import
  */
 
-import { useCallback, useRef, useState } from 'preact/hooks';
+import { useCallback, useMemo, useState } from 'preact/hooks';
 import { useStore } from '../store';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
+  faCheck,
   faChevronRight,
   faCloud,
   faCog,
@@ -19,18 +20,25 @@ import {
   faSpinner,
   faUpload,
 } from '@fortawesome/free-solid-svg-icons';
-import { buildTransferBundle, importTransferBundle } from '../utils/debugTransfer.js';
+import { getSource } from '../storage/index.js';
+import { buildTransferBundle } from '../utils/debugTransfer.js';
 import Modal from './Modal';
 import SelectableOptionItem from './SelectableOptionItem';
+import ImportZipForm from './ImportZipForm.jsx';
 
 /**
  * Tier-style card for landing page options (Import / Export)
  */
-function TransferTierCard({ type, icon, title, description, onSelect }) {
+function TransferTierCard({ type, icon, title, description, onSelect, disabled = false }) {
   return (
     <button
-      class="storage-tier-card"
-      onClick={() => onSelect(type)}
+      class={`storage-tier-card${disabled ? ' disabled' : ''}`}
+      onClick={() => {
+        if (disabled) return;
+        onSelect(type);
+      }}
+      disabled={disabled}
+      style={disabled ? { opacity: 0.6, cursor: 'not-allowed' } : undefined}
     >
       <div class="tier-icon">
         <FontAwesomeIcon icon={icon} />
@@ -49,16 +57,55 @@ function TransferTierCard({ type, icon, title, description, onSelect }) {
 /**
  * Export page with data selection options
  */
-function ExportPage({ onBack, onClose, addLog }) {
-  const [transferOptions, setTransferOptions] = useState({
-    includeUrlCollections: true,
-    includeCloudGpuSettings: true,
-    includeSupabaseCollections: true,
-    includeSupabaseSettings: true,
-    includeR2Collections: true,
-    includeR2Settings: true,
-    includeFilePreviews: true,
-    includeFileSettings: true,
+function ExportPage({ onBack, onClose, addLog, exportMode = 'all-data', scopeContext = null }) {
+  const isCurrentCollectionMode = exportMode === 'current-collection';
+  const activeSourceType = scopeContext?.activeSourceType || null;
+  const hasConnectionOption = activeSourceType === 'r2-bucket' || activeSourceType === 'supabase-storage';
+
+  const buildExportFileName = useCallback(() => {
+    const now = new Date();
+    const shortDate = [
+      now.getFullYear(),
+      String(now.getMonth() + 1).padStart(2, '0'),
+      String(now.getDate()).padStart(2, '0'),
+    ].join('');
+
+    const sanitizeCollectionName = (value) => {
+      const text = String(value || '')
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '');
+      return text || 'collection';
+    };
+
+    const baseName = isCurrentCollectionMode
+      ? `radia-transfer-${sanitizeCollectionName(scopeContext?.collectionName)}`
+      : 'radia-transfer-full';
+
+    return `${baseName}-${shortDate}.zip`;
+  }, [isCurrentCollectionMode, scopeContext?.collectionName]);
+
+  const [transferOptions, setTransferOptions] = useState(() => {
+    if (isCurrentCollectionMode) {
+      return {
+        includeCollectionData: true,
+        includeConnectionData: hasConnectionOption,
+        includeFilePreviews: true,
+        includeFileSettings: true,
+      };
+    }
+
+    return {
+      includeUrlCollections: true,
+      includeCloudGpuSettings: true,
+      includeSupabaseCollections: true,
+      includeSupabaseSettings: true,
+      includeR2Collections: true,
+      includeR2Settings: true,
+      includeFilePreviews: true,
+      includeFileSettings: true,
+    };
   });
   const [transferBusy, setTransferBusy] = useState(false);
   const [transferError, setTransferError] = useState(null);
@@ -86,16 +133,32 @@ function ExportPage({ onBack, onClose, addLog }) {
 
   const handleExportTransfer = useCallback(async () => {
     if (!hasTransferSelection || transferBusy) return;
+    if (isCurrentCollectionMode && !scopeContext?.activeSourceId) {
+      setTransferError('Current collection is unavailable. Select a collection and try again.');
+      return;
+    }
     setTransferBusy(true);
     setTransferError(null);
     setExportSuccess(false);
     try {
-      const { blob, manifest } = await buildTransferBundle(transferOptions);
-      const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-      const filename = `radia-viewer-transfer-${stamp}.zip`;
+      const payload = isCurrentCollectionMode
+        ? {
+            ...transferOptions,
+            exportScope: {
+              mode: 'current-collection',
+              activeSourceId: scopeContext?.activeSourceId || null,
+              activeSourceType: scopeContext?.activeSourceType || null,
+              assetNames: scopeContext?.assetNames || [],
+              collectionName: scopeContext?.collectionName || 'Current collection',
+            },
+          }
+        : transferOptions;
+      const { blob, manifest } = await buildTransferBundle(payload);
+      const filename = buildExportFileName();
       downloadBlob(blob, filename);
       const previewCount = manifest?.data?.previews?.length ?? 0;
-      addLog?.(`[Debug] Transfer bundle exported (${previewCount} previews)`);
+      const exportLabel = isCurrentCollectionMode ? 'current collection' : 'all data';
+      addLog?.(`[Debug] Transfer bundle exported (${exportLabel}, ${previewCount} previews)`);
       setExportSuccess(true);
     } catch (err) {
       const message = err?.message || 'Export failed';
@@ -104,58 +167,109 @@ function ExportPage({ onBack, onClose, addLog }) {
     } finally {
       setTransferBusy(false);
     }
-  }, [addLog, downloadBlob, hasTransferSelection, transferBusy, transferOptions]);
+  }, [
+    addLog,
+    buildExportFileName,
+    downloadBlob,
+    hasTransferSelection,
+    isCurrentCollectionMode,
+    scopeContext,
+    transferBusy,
+    transferOptions,
+  ]);
 
-  const options = [
-    {
-      key: 'includeUrlCollections',
-      title: 'URL collections',
-      subtitle: 'Saved URL sources and their metadata',
-      icon: faLink,
-    },
-    {
-      key: 'includeCloudGpuSettings',
-      title: 'Cloud GPU settings',
-      subtitle: 'API endpoint and key configuration',
-      icon: faCloud,
-    },
-    {
-      key: 'includeSupabaseCollections',
-      title: 'Supabase collections',
-      subtitle: 'Saved Supabase bucket connections',
-      icon: faServer,
-    },
-    {
-      key: 'includeSupabaseSettings',
-      title: 'Supabase settings',
-      subtitle: 'Per-file camera and display settings',
-      icon: faCog,
-    },
-    {
-      key: 'includeR2Collections',
-      title: 'R2 collections',
-      subtitle: 'Saved Cloudflare R2 bucket connections',
-      icon: faServer,
-    },
-    {
-      key: 'includeR2Settings',
-      title: 'R2 settings',
-      subtitle: 'Saved R2 credentials and public URL',
-      icon: faCog,
-    },
-    {
-      key: 'includeFilePreviews',
-      title: 'File previews',
-      subtitle: 'Thumbnail images for local files',
-      icon: faImage,
-    },
-    {
-      key: 'includeFileSettings',
-      title: 'File settings',
-      subtitle: 'Per-file camera and display settings',
-      icon: faFolder,
-    },
-  ];
+  const options = isCurrentCollectionMode
+    ? [
+        {
+          key: 'includeCollectionData',
+          title: 'Collection data',
+          subtitle: 'Current collection/source entry and metadata',
+          icon: faFolder,
+        },
+        ...(hasConnectionOption
+          ? [
+              {
+                key: 'includeConnectionData',
+                title: activeSourceType === 'r2-bucket' ? 'R2 connection data' : 'Supabase connection data',
+                subtitle:
+                  activeSourceType === 'r2-bucket'
+                    ? 'Saved R2 credentials and endpoint settings'
+                    : 'Saved Supabase URL/key and bucket settings',
+                icon: faCog,
+              },
+            ]
+          : []),
+        {
+          key: 'includeFilePreviews',
+          title: 'File previews',
+          subtitle: 'Preview thumbnails for assets in this collection',
+          icon: faImage,
+        },
+        {
+          key: 'includeFileSettings',
+          title: 'File settings',
+          subtitle: 'Per-file settings only for assets in this collection',
+          icon: faFolder,
+        },
+      ]
+    : [
+        {
+          key: 'includeUrlCollections',
+          title: 'URL collections',
+          subtitle: 'Saved URL sources and their metadata',
+          icon: faLink,
+        },
+        {
+          key: 'includeCloudGpuSettings',
+          title: 'Cloud GPU settings',
+          subtitle: 'API endpoint and key configuration',
+          icon: faCloud,
+        },
+        {
+          key: 'includeSupabaseCollections',
+          title: 'Supabase collections',
+          subtitle: 'Saved Supabase bucket connections',
+          icon: faServer,
+        },
+        {
+          key: 'includeSupabaseSettings',
+          title: 'Supabase settings',
+          subtitle: 'Per-file camera and display settings',
+          icon: faCog,
+        },
+        {
+          key: 'includeR2Collections',
+          title: 'R2 collections',
+          subtitle: 'Saved Cloudflare R2 bucket connections',
+          icon: faServer,
+        },
+        {
+          key: 'includeR2Settings',
+          title: 'R2 settings',
+          subtitle: 'Saved R2 credentials and public URL',
+          icon: faCog,
+        },
+        {
+          key: 'includeFilePreviews',
+          title: 'File previews',
+          subtitle: 'Thumbnail images for local files',
+          icon: faImage,
+        },
+        {
+          key: 'includeFileSettings',
+          title: 'File settings',
+          subtitle: 'Per-file camera and display settings',
+          icon: faFolder,
+        },
+      ];
+
+  const exportTitle = isCurrentCollectionMode ? 'Export current collection' : 'Export all data';
+  const exportSubtitle = isCurrentCollectionMode
+    ? 'Select data to include. File settings and previews are limited to this collection manifest.'
+    : 'Select data to include in the export bundle.';
+  const scopedCollectionName = scopeContext?.collectionName || 'Current collection';
+  const scopedAssetCount = Array.isArray(scopeContext?.assetNames) ? scopeContext.assetNames.length : 0;
+  const scopedAssetLabel = `${scopedAssetCount} asset${scopedAssetCount === 1 ? '' : 's'}`;
 
   return (
     <div class="storage-form">
@@ -163,8 +277,13 @@ function ExportPage({ onBack, onClose, addLog }) {
         Back
       </button>
 
-      <h3>Export data</h3>
-      <p class="dialog-subtitle">Select data to include in the export bundle.</p>
+      <h3>{exportTitle}</h3>
+      <p class="dialog-subtitle">{exportSubtitle}</p>
+      {isCurrentCollectionMode && (
+        <p class="dialog-subtitle" style={{ marginTop: '6px', opacity: 0.8 }}>
+          Scope: {scopedCollectionName} ({scopedAssetLabel})
+        </p>
+      )}
 
       <div
         style={{
@@ -239,206 +358,38 @@ function ExportPage({ onBack, onClose, addLog }) {
 }
 
 /**
- * Import page with drag-and-drop zone
+ * Export scope selection page (Current collection vs All data)
  */
-function ImportPage({ onBack, onClose, addLog }) {
-  const isMobile = useStore((state) => state.isMobile);
-  const [importBusy, setImportBusy] = useState(false);
-  const [importError, setImportError] = useState(null);
-  const [importSuccess, setImportSuccess] = useState(null);
-  const [isDragging, setIsDragging] = useState(false);
-  const fileInputRef = useRef(null);
-
-  const processFile = useCallback(
-    async (file) => {
-      if (!file) return;
-      setImportBusy(true);
-      setImportError(null);
-      setImportSuccess(null);
-      try {
-        const { summary } = await importTransferBundle(file);
-        const message =
-          `Import complete: ${summary.sourcesImported} sources, ` +
-          `${summary.fileSettingsImported} settings, ${summary.previewsImported} previews`;
-        addLog?.(`[Debug] ${message}`);
-        if (summary.warnings?.length) {
-          addLog?.(`[Debug] Transfer import warnings: ${summary.warnings.join(' | ')}`);
-        }
-        setImportSuccess(message);
-      } catch (err) {
-        const message = err?.message || 'Import failed';
-        setImportError(message);
-        addLog?.(`[Debug] Transfer import failed: ${message}`);
-      } finally {
-        setImportBusy(false);
-      }
-    },
-    [addLog]
-  );
-
-  const handleFileChange = useCallback(
-    (e) => {
-      const file = e.target.files?.[0];
-      e.target.value = '';
-      processFile(file);
-    },
-    [processFile]
-  );
-
-  const handleBrowseClick = useCallback(() => {
-    fileInputRef.current?.click();
-  }, []);
-
-  const handleDragOver = useCallback((e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(true);
-  }, []);
-
-  const handleDragLeave = useCallback((e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(false);
-  }, []);
-
-  const handleDrop = useCallback(
-    (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      setIsDragging(false);
-      const file = e.dataTransfer?.files?.[0];
-      if (file && (file.name.endsWith('.zip') || file.type === 'application/zip')) {
-        processFile(file);
-      } else {
-        setImportError('Please drop a .zip file');
-      }
-    },
-    [processFile]
-  );
-
-  const dropZoneStyle = {
-    border: `2px dashed ${isDragging ? 'rgba(110, 231, 255, 0.8)' : 'rgba(255, 255, 255, 0.2)'}`,
-    borderRadius: '12px',
-    padding: '32px 24px',
-    textAlign: 'center',
-    background: isDragging ? 'rgba(110, 231, 255, 0.05)' : 'rgba(255, 255, 255, 0.02)',
-    transition: 'all 0.2s ease',
-    marginTop: '20px',
-  };
-
+function ExportScopePage({ onBack, onSelect, currentCollectionEnabled }) {
   return (
     <div class="storage-form">
       <button class="back-button" onClick={onBack}>
         Back
       </button>
 
-      <h3>Import data</h3>
-      <p class="dialog-subtitle">
-        Restore settings, collections, and previews from a transfer bundle.
-      </p>
+      <h3>Export scope</h3>
+      <p class="dialog-subtitle">Choose what you want to export.</p>
 
-      <div class="form-info" style={{ marginTop: '16px' }}>
-        <ul class="feature-list">
-          <li><FontAwesomeIcon icon={faCheck} /> Merges data by file name</li>
-          <li><FontAwesomeIcon icon={faCheck} /> Overwrites matching previews and settings</li>
-          <li><FontAwesomeIcon icon={faCheck} /> Preserves existing data not in the bundle</li>
-        </ul>
-      </div>
-
-      {!isMobile && (
-        <div
-          style={dropZoneStyle}
-          onDragOver={handleDragOver}
-          onDragLeave={handleDragLeave}
-          onDrop={handleDrop}
-        >
-          {importBusy ? (
-            <>
-              <FontAwesomeIcon
-                icon={faSpinner}
-                spin
-                style={{ fontSize: '32px', marginBottom: '12px', opacity: 0.6 }}
-              />
-              <p style={{ margin: 0, opacity: 0.8 }}>Importing...</p>
-            </>
-          ) : (
-            <>
-              <FontAwesomeIcon
-                icon={faUpload}
-                style={{ fontSize: '32px', marginBottom: '12px', opacity: 0.5 }}
-              />
-              <p style={{ margin: '0 0 12px 0', opacity: 0.8 }}>
-                Drag and drop a .zip file here
-              </p>
-              <button
-                class="secondary-button"
-                onClick={handleBrowseClick}
-                style={{ height: '36px', padding: '0 20px' }}
-              >
-                Browse files
-              </button>
-            </>
-          )}
-        </div>
-      )}
-
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept=".zip,application/zip"
-        style={{ display: 'none' }}
-        onChange={handleFileChange}
-      />
-
-      {importError && (
-        <div class="form-error" style={{ marginTop: '16px' }}>
-          <FontAwesomeIcon icon={faExclamationTriangle} />
-          {' '}{importError}
-        </div>
-      )}
-
-      {importSuccess && (
-        <div class="form-success" style={{ marginTop: '16px' }}>
-          <FontAwesomeIcon icon={faCheck} />
-          {' '}{importSuccess}
-        </div>
-      )}
-
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'flex-end',
-          gap: '8px',
-          marginTop: '24px',
-        }}
-      >
-        <button
-          class="secondary-button"
-          onClick={onClose}
-          style={{ height: '36px', padding: '0 16px', minWidth: '80px', marginTop: 0 }}
-        >
-          {importSuccess ? 'Done' : 'Cancel'}
-        </button>
-        {isMobile && (
-          <button
-            class="primary-button"
-            onClick={handleBrowseClick}
-            disabled={importBusy}
-            style={{ height: '36px', padding: '0 16px', minWidth: '120px' }}
-          >
-            {importBusy ? (
-              <>
-                <FontAwesomeIcon icon={faSpinner} spin />
-                {' '}Importing...
-              </>
-            ) : (
-              <>
-                <FontAwesomeIcon icon={faUpload} />
-                {' '}Browse files
-              </>
-            )}
-          </button>
-        )}
+      <div class="storage-tiers" style={{ marginTop: '20px' }}>
+        <TransferTierCard
+          type="current-collection"
+          icon={faFolder}
+          title="Current collection"
+          description={
+            currentCollectionEnabled
+              ? 'Export only this collection with scoped settings and previews'
+              : 'Unavailable until a collection is selected'
+          }
+          onSelect={onSelect}
+          disabled={!currentCollectionEnabled}
+        />
+        <TransferTierCard
+          type="all-data"
+          icon={faDownload}
+          title="All data"
+          description="Export from all available collections and settings"
+          onSelect={onSelect}
+        />
       </div>
     </div>
   );
@@ -448,7 +399,38 @@ function ImportPage({ onBack, onClose, addLog }) {
  * Main TransferDataModal component with multi-page flow
  */
 function TransferDataModal({ isOpen, onClose, addLog }) {
-  const [page, setPage] = useState(null); // null = landing, 'export', 'import'
+  const activeSourceId = useStore((state) => state.activeSourceId);
+  const assets = useStore((state) => state.assets);
+  const [page, setPage] = useState(null); // null = landing, 'export-scope', 'export-all', 'export-current', 'import'
+
+  const activeSource = activeSourceId ? getSource(activeSourceId) : null;
+  const currentCollectionEnabled = Boolean(activeSourceId && activeSource);
+  const currentCollectionAssetNames = useMemo(() => {
+    const sourceAssets = typeof activeSource?.getAssets === 'function' ? activeSource.getAssets() : [];
+    const sourceNames = Array.isArray(sourceAssets)
+      ? sourceAssets.map((asset) => asset?.name).filter(Boolean)
+      : [];
+    if (sourceNames.length > 0) {
+      return Array.from(new Set(sourceNames));
+    }
+
+    const fallbackNames = (assets || [])
+      .filter((asset) => asset?.sourceId === activeSourceId)
+      .map((asset) => asset?.name)
+      .filter(Boolean);
+    return Array.from(new Set(fallbackNames));
+  }, [activeSource, activeSourceId, assets]);
+
+  const currentCollectionScope = useMemo(() => {
+    if (!currentCollectionEnabled) return null;
+    return {
+      mode: 'current-collection',
+      activeSourceId,
+      activeSourceType: activeSource?.type || null,
+      collectionName: activeSource?.name || 'Current collection',
+      assetNames: currentCollectionAssetNames,
+    };
+  }, [activeSource, activeSourceId, currentCollectionAssetNames, currentCollectionEnabled]);
 
   const handleClose = useCallback(() => {
     setPage(null);
@@ -456,16 +438,45 @@ function TransferDataModal({ isOpen, onClose, addLog }) {
   }, [onClose]);
 
   const handleBack = useCallback(() => {
+    if (page === 'export-all' || page === 'export-current') {
+      setPage('export-scope');
+      return;
+    }
     setPage(null);
-  }, []);
+  }, [page]);
 
   if (!isOpen) return null;
 
   let content;
-  if (page === 'export') {
-    content = <ExportPage onBack={handleBack} onClose={handleClose} addLog={addLog} />;
+  if (page === 'export-scope') {
+    content = (
+      <ExportScopePage
+        onBack={handleBack}
+        onSelect={(mode) => setPage(mode === 'current-collection' ? 'export-current' : 'export-all')}
+        currentCollectionEnabled={currentCollectionEnabled}
+      />
+    );
+  } else if (page === 'export-all') {
+    content = (
+      <ExportPage
+        onBack={handleBack}
+        onClose={handleClose}
+        addLog={addLog}
+        exportMode="all-data"
+      />
+    );
+  } else if (page === 'export-current') {
+    content = (
+      <ExportPage
+        onBack={handleBack}
+        onClose={handleClose}
+        addLog={addLog}
+        exportMode="current-collection"
+        scopeContext={currentCollectionScope}
+      />
+    );
   } else if (page === 'import') {
-    content = <ImportPage onBack={handleBack} onClose={handleClose} addLog={addLog} />;
+    content = <ImportZipForm onBack={handleBack} onClose={handleClose} addLog={addLog} />;
   } else {
     // Landing page
     content = (
@@ -477,7 +488,7 @@ function TransferDataModal({ isOpen, onClose, addLog }) {
 
         <div class="storage-tiers" style={{ marginTop: '20px' }}>
           <TransferTierCard
-            type="export"
+            type="export-scope"
             icon={faDownload}
             title="Export"
             description="Save collections, settings, and previews to a ZIP file"

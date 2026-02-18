@@ -2,6 +2,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   faFolder,
   faCloud,
+  faUpload,
   faExclamationTriangle,
   faChevronRight,
   faLink,
@@ -13,6 +14,7 @@ import { SOURCE_TIERS } from '../../storage/index.js';
 const ICONS = {
   folder: faFolder,
   cloud: faCloud,
+  upload: faUpload,
   link: faLink,
   database: faDatabase,
   supabase: SupabaseIcon,

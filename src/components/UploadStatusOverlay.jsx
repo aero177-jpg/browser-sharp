@@ -3,6 +3,7 @@
  *
  * Stages:
  *   upload       → "Uploading" + spinner, no bar
+ *   packaging    → "Packaging ZIP" + spinner, no bar
  *   warmup       → "GPU warm-up" + bar + countdown
  *   processing   → "Processing image X of Y" + bar + countdown
  *   transferring → "Transferring X files to storage" + spinner, no bar
@@ -65,6 +66,7 @@ const resolveStageLabel = ({ stage, phase, currentFile, totalFiles, batchPrefix 
   }
 
   if (stage === 'upload') return `${batchPrefix}Uploading`;
+  if (stage === 'packaging') return `${batchPrefix}Packaging ZIP`;
   if (stage === 'transferring') return `${batchPrefix}Sending results to storage`;
   if (stage === 'warmup') return `${batchPrefix}Warming up GPU`;
   if (stage === 'processing' && totalFiles > 1) {
@@ -244,6 +246,18 @@ function UploadStatusOverlay({ isUploading, uploadProgress, variant = 'default',
         showBar: false,
         etaLabel: '',
         progressPercent: 0,
+        messageLabel: backendMessage || '',
+      };
+    }
+
+    if (stage === 'packaging') {
+      return {
+        stageLabel: `${batchPrefix}Packaging ZIP`,
+        showSpinner: true,
+        showErrorIcon: false,
+        showBar: false,
+        etaLabel: '',
+        progressPercent: 100,
         messageLabel: backendMessage || '',
       };
     }

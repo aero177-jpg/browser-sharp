@@ -14,6 +14,7 @@ import AppStorageForm from './connectStorage/AppStorageForm.jsx';
 import UrlCollectionForm from './connectStorage/UrlCollectionForm.jsx';
 import SupabaseForm from './connectStorage/SupabaseForm.jsx';
 import R2Form from './connectStorage/R2Form.jsx';
+import ImportZipForm from './ImportZipForm.jsx';
 
 const isMobileUserAgent = () => {
   if (typeof navigator === 'undefined') return false;
@@ -113,6 +114,18 @@ function ConnectStorageDialog({ isOpen, onClose, onConnect, editSource, onEditCo
                 onSelect={setSelectedTier}
               />
             </div>
+
+            <div class="form-divider" style={{ marginTop: '20px' }}>
+              <span>Import collections</span>
+            </div>
+
+            <div class="storage-tiers">
+              <TierCard
+                type="import-collections"
+                selected={false}
+                onSelect={setSelectedTier}
+              />
+            </div>
         </>
       ) : selectedTier === 'local-folder' ? (
         <LocalFolderForm onConnect={handleConnect} onBack={handleBack} />
@@ -131,6 +144,8 @@ function ConnectStorageDialog({ isOpen, onClose, onConnect, editSource, onEditCo
             onSaveEdit={onEditComplete || onConnect}
           />      ) : selectedTier === 'cloud-gpu' ? (
         <CloudGpuForm onBack={handleBack} />
+      ) : selectedTier === 'import-collections' ? (
+        <ImportZipForm onBack={handleBack} onClose={handleClose} />
         ) : null}
     </Modal>
   );

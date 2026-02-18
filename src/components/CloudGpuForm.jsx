@@ -23,6 +23,12 @@ import {
   isVaultUnlocked,
   unlockCredentialVault,
 } from '../storage/credentialVault.js';
+import {
+  buildApiUrlFromModalUsername,
+  ensureModalProcessApiUrl,
+  extractModalUsernameFromApiUrl,
+  normalizeModalUsername,
+} from '../utils/modalEndpoints.js';
 
 /**
  * Expandable FAQ item
@@ -35,33 +41,6 @@ const GPU_OPTIONS = [
   { value: 'h100', label: 'H100 $3.95 Fastest' },
 ];
 const BATCH_SIZE_OPTIONS = [3, 5, 10, 15, 20];
-const MODAL_ENDPOINT_SUFFIX = '--ml-sharp-optimized.modal.run';
-
-const normalizeModalUsername = (value) => String(value || '').trim().toLowerCase().replace(/[^a-z0-9-]/g, '');
-
-const buildApiUrlFromModalUsername = (username) => {
-  const normalized = normalizeModalUsername(username);
-  if (!normalized) return '';
-  return `https://${normalized}${MODAL_ENDPOINT_SUFFIX}`;
-};
-
-const extractModalUsernameFromApiUrl = (apiUrl) => {
-  const raw = String(apiUrl || '').trim();
-  if (!raw) return '';
-
-  const withoutProtocol = raw.replace(/^https?:\/\//i, '');
-  const host = withoutProtocol.split('/')[0] || '';
-  const loweredHost = host.toLowerCase();
-
-  if (loweredHost.endsWith(MODAL_ENDPOINT_SUFFIX)) {
-    return normalizeModalUsername(loweredHost.slice(0, -MODAL_ENDPOINT_SUFFIX.length));
-  }
-
-  const modalRunMatch = loweredHost.match(/^([a-z0-9-]+)\.modal\.run$/i);
-  if (modalRunMatch?.[1]) return normalizeModalUsername(modalRunMatch[1]);
-
-  return '';
-};
 
 const normalizeBatchSize = (value) => {
   const numeric = Number(value);
@@ -102,7 +81,7 @@ function CloudGpuForm({ onBack }) {
         saved?.modalUsername || extractModalUsernameFromApiUrl(saved?.apiUrl)
       );
       return {
-        apiUrl: saved?.apiUrl || buildApiUrlFromModalUsername(savedModalUsername),
+        apiUrl: ensureModalProcessApiUrl(saved?.apiUrl || buildApiUrlFromModalUsername(savedModalUsername)),
         modalUsername: savedModalUsername,
         apiKey: saved?.apiKey || '',
         apiKeyEncrypted: saved?.apiKeyEncrypted || null,
@@ -151,7 +130,7 @@ function CloudGpuForm({ onBack }) {
     batchSize: normalizeBatchSize(batchSize),
   }), [modalUsername, resolvedApiUrl, apiKey, gpuType, batchUploads, batchSize]);
   const trimmedSaved = useMemo(() => ({
-    apiUrl: savedSettings.apiUrl?.trim?.() || '',
+    apiUrl: ensureModalProcessApiUrl(savedSettings.apiUrl?.trim?.() || ''),
     modalUsername: normalizeModalUsername(savedSettings.modalUsername || extractModalUsernameFromApiUrl(savedSettings.apiUrl)),
     apiKey: savedSettings.apiKey?.trim?.() || '',
     gpuType: savedSettings.gpuType?.trim?.().toLowerCase?.() || 'a10',
