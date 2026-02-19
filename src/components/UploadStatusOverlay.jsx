@@ -9,7 +9,7 @@
  *   transferring → "Transferring X files to storage" + spinner, no bar
  */
 
-import { useEffect, useMemo, useState } from 'preact/hooks';
+import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faChevronRight } from '@fortawesome/free-solid-svg-icons';
 
@@ -33,10 +33,9 @@ const PHASE_LABELS = {
   validation_failed: 'Validation failed',
 };
 
-const TERMINAL_STATUSES = new Set(['completed', 'failed']);
 const LOCAL_TICK_MS = 250;
 const WARMUP_MS = 40000;
-const IMAGE_STEP_MS = 10000;
+const IMAGE_STEP_MS = 15000;
 const WARMUP_MISS_PENALTY_MS = 5000;
 const IMAGE_STEP_MISS_PENALTY_MS = 2000;
 
@@ -54,6 +53,13 @@ const getElapsedMs = (timerState, nowMs) => {
 
 const normalizePhase = (value) => String(value || '').trim().toLowerCase();
 const normalizeStatus = (value) => String(value || '').trim().toLowerCase();
+
+const resolveTotalFilesEstimate = (timer, uploadProgress) => {
+  const fromTimer = normalizeStep(timer?.totalFiles);
+  const fromExpected = normalizeStep(uploadProgress?.filesExpected);
+  const fromTotal = normalizeStep(uploadProgress?.total);
+  return Math.max(1, fromTimer, fromExpected, fromTotal);
+};
 
 const resolveStageLabel = ({ stage, phase, currentFile, totalFiles, batchPrefix }) => {
   if (phase === 'uploading_or_staging_results') {
@@ -75,6 +81,7 @@ const resolveStageLabel = ({ stage, phase, currentFile, totalFiles, batchPrefix 
     return `${batchPrefix}Processing ${Math.max(1, currentFile || 1)} of ${totalFiles}`;
   }
   if (stage === 'processing') return `${batchPrefix}Processing image`;
+  if (stage === 'done') return `${batchPrefix}Completed`;
   return `${batchPrefix}Processing…`;
 };
 
@@ -155,36 +162,119 @@ function UploadStatusOverlay({ isUploading, uploadProgress, variant = 'default',
   const [showDetailMessage, setShowDetailMessage] = useState(false);
   const [liveTimer, setLiveTimer] = useState(null);
   const [isDismissed, setIsDismissed] = useState(false);
+  const [cancelInFlight, setCancelInFlight] = useState(false);
+  const [optimisticCancelling, setOptimisticCancelling] = useState(false);
+  const [lockedCloudSessionId, setLockedCloudSessionId] = useState(null);
+  const [lockedCloudProgress, setLockedCloudProgress] = useState(null);
+  const [cloudReachedTimedStage, setCloudReachedTimedStage] = useState(false);
+  const cancelCloseTimerRef = useRef(null);
   const debugState = useMemo(() => readDebugOverlayState(), []);
 
   const activeIsUploading = debugState.enabled ? debugState.isUploading : isUploading;
   const activeUploadProgress = debugState.enabled ? debugState.uploadProgress : uploadProgress;
+  const effectiveUploadProgress = lockedCloudSessionId ? lockedCloudProgress : activeUploadProgress;
+
+  useEffect(() => () => {
+    if (cancelCloseTimerRef.current) {
+      clearTimeout(cancelCloseTimerRef.current);
+      cancelCloseTimerRef.current = null;
+    }
+  }, []);
+
+  const scheduleOptimisticClose = () => {
+    if (cancelCloseTimerRef.current) {
+      clearTimeout(cancelCloseTimerRef.current);
+    }
+    cancelCloseTimerRef.current = setTimeout(() => {
+      setOptimisticCancelling(false);
+      setIsDismissed(true);
+      onDismiss?.();
+      cancelCloseTimerRef.current = null;
+    }, 3000);
+  };
+
+  useEffect(() => {
+    if (!activeIsUploading) {
+      setLockedCloudSessionId(null);
+      setLockedCloudProgress(null);
+      setCloudReachedTimedStage(false);
+      return;
+    }
+
+    const incoming = activeUploadProgress;
+    if (!incoming) return;
+
+    const isCloudGpu = incoming?.uploadKind === 'cloud-gpu';
+    if (!isCloudGpu) {
+      return;
+    }
+
+    const incomingSessionId = String(incoming?.uploadSessionId || 'cloud-gpu-session');
+    if (!lockedCloudSessionId) {
+      setLockedCloudSessionId(incomingSessionId);
+      setLockedCloudProgress(incoming);
+      return;
+    }
+
+    if (incomingSessionId === lockedCloudSessionId) {
+      setLockedCloudProgress(incoming);
+    }
+  }, [activeIsUploading, activeUploadProgress, lockedCloudSessionId]);
+
+  useEffect(() => {
+    if (!lockedCloudSessionId || !effectiveUploadProgress) {
+      setCloudReachedTimedStage(false);
+      return;
+    }
+
+    const stage = String(effectiveUploadProgress?.stage || '').trim().toLowerCase();
+    const phase = normalizePhase(effectiveUploadProgress?.phase);
+    if (
+      stage === 'warmup'
+      || stage === 'processing'
+      || stage === 'transferring'
+      || stage === 'done'
+      || stage === 'error'
+      || phase === 'processing_images'
+      || phase === 'serializing_outputs'
+      || phase === 'inference_complete'
+      || phase === 'uploading_or_staging_results'
+      || Boolean(effectiveUploadProgress?.timer)
+    ) {
+      setCloudReachedTimedStage(true);
+    }
+  }, [lockedCloudSessionId, effectiveUploadProgress]);
 
   const showUploadProgress = activeIsUploading && (
-    activeUploadProgress?.stage
-    || activeUploadProgress?.upload?.total
-    || activeUploadProgress?.timer
-    || activeUploadProgress?.error
-    || activeUploadProgress?.total
+    effectiveUploadProgress?.stage
+    || effectiveUploadProgress?.upload?.total
+    || effectiveUploadProgress?.timer
+    || effectiveUploadProgress?.error
+    || effectiveUploadProgress?.total
   );
 
   useEffect(() => {
     setShowErrorDetails(false);
-  }, [activeUploadProgress?.error?.detail, activeUploadProgress?.error?.message]);
+  }, [effectiveUploadProgress?.error?.detail, effectiveUploadProgress?.error?.message]);
 
   useEffect(() => {
     setShowDetailMessage(false);
-  }, [activeUploadProgress?.message, activeUploadProgress?.phase, activeUploadProgress?.stage]);
+  }, [effectiveUploadProgress?.message, effectiveUploadProgress?.phase, effectiveUploadProgress?.stage]);
 
   useEffect(() => {
     if (!showUploadProgress) {
       setIsDismissed(false);
+      setCancelInFlight(false);
+      if (!optimisticCancelling && cancelCloseTimerRef.current) {
+        clearTimeout(cancelCloseTimerRef.current);
+        cancelCloseTimerRef.current = null;
+      }
     }
-  }, [showUploadProgress]);
+  }, [showUploadProgress, optimisticCancelling]);
 
   useEffect(() => {
     setIsDismissed(false);
-  }, [activeUploadProgress?.error?.detail, activeUploadProgress?.error?.message, activeUploadProgress?.status, activeUploadProgress?.phase, activeUploadProgress?.stage]);
+  }, [effectiveUploadProgress?.error?.detail, effectiveUploadProgress?.error?.message, effectiveUploadProgress?.status, effectiveUploadProgress?.phase, effectiveUploadProgress?.stage]);
 
   useEffect(() => {
     if (!showUploadProgress) {
@@ -192,11 +282,14 @@ function UploadStatusOverlay({ isUploading, uploadProgress, variant = 'default',
       return;
     }
 
-    const stage = activeUploadProgress?.stage || 'upload';
-    const phase = normalizePhase(activeUploadProgress?.phase);
-    const status = normalizeStatus(activeUploadProgress?.status);
-    const isTerminalDone = status === 'completed' || phase === 'completed' || TERMINAL_STATUSES.has(status);
-    const timer = activeUploadProgress?.timer || null;
+    const rawStage = effectiveUploadProgress?.stage || 'upload';
+    const stage = (lockedCloudSessionId && cloudReachedTimedStage && rawStage === 'upload')
+      ? 'processing'
+      : rawStage;
+    const phase = normalizePhase(effectiveUploadProgress?.phase);
+    const status = normalizeStatus(effectiveUploadProgress?.status);
+    const isTerminalDone = status === 'done' || status === 'complete' || status === 'completed' || phase === 'completed' || Boolean(effectiveUploadProgress?.done);
+    const timer = effectiveUploadProgress?.timer || null;
     const isTimedStage = stage === 'warmup' || stage === 'processing' || phase === 'processing_images';
 
     if (!isTimedStage) {
@@ -204,7 +297,7 @@ function UploadStatusOverlay({ isUploading, uploadProgress, variant = 'default',
       return;
     }
 
-    const totalFiles = Math.max(1, normalizeStep(timer?.totalFiles || activeUploadProgress?.total || 1));
+    const totalFiles = resolveTotalFilesEstimate(timer, effectiveUploadProgress);
     const observedStep = Math.min(totalFiles, normalizeStep(timer?.currentFile));
 
     setLiveTimer((previous) => {
@@ -250,7 +343,7 @@ function UploadStatusOverlay({ isUploading, uploadProgress, variant = 'default',
         terminal: false,
       };
     });
-  }, [showUploadProgress, activeUploadProgress]);
+  }, [showUploadProgress, effectiveUploadProgress, lockedCloudSessionId, cloudReachedTimedStage]);
 
   useEffect(() => {
     if (!showUploadProgress || !liveTimer || liveTimer.terminal) return undefined;
@@ -286,23 +379,61 @@ function UploadStatusOverlay({ isUploading, uploadProgress, variant = 'default',
   }, [showUploadProgress, liveTimer?.terminal]);
 
   const viewModel = useMemo(() => {
-    if (!showUploadProgress) return null;
+    if (!showUploadProgress && !optimisticCancelling) return null;
 
-    const stage = activeUploadProgress?.stage || 'upload';
-    const phase = normalizePhase(activeUploadProgress?.phase);
-    const status = normalizeStatus(activeUploadProgress?.status);
-    const timer = activeUploadProgress?.timer || null;
-    const download = activeUploadProgress?.download || null;
-    const totalFiles = timer?.totalFiles || activeUploadProgress?.total || 0;
+    if (optimisticCancelling) {
+      return {
+        stageLabel: 'Cancelling',
+        showSpinner: true,
+        showErrorIcon: false,
+        showBar: false,
+        etaLabel: '',
+        progressPercent: 0,
+        messageLabel: '',
+        showCancel: false,
+        cancelPending: true,
+      };
+    }
+
+    const rawStage = effectiveUploadProgress?.stage || 'upload';
+    const stage = (lockedCloudSessionId && cloudReachedTimedStage && rawStage === 'upload')
+      ? 'processing'
+      : rawStage;
+    const phase = normalizePhase(effectiveUploadProgress?.phase);
+    const status = normalizeStatus(effectiveUploadProgress?.status);
+    const timer = effectiveUploadProgress?.timer || null;
+    const download = effectiveUploadProgress?.download || null;
+    const totalFiles = resolveTotalFilesEstimate(timer, effectiveUploadProgress);
     const currentFile = timer?.currentFile || 0;
-    const error = activeUploadProgress?.error || null;
-    const backendMessage = String(activeUploadProgress?.message || '').trim();
-    const batch = activeUploadProgress?.batch || null;
+    const error = effectiveUploadProgress?.error || null;
+    const backendMessage = String(effectiveUploadProgress?.message || '').trim();
+    const batch = effectiveUploadProgress?.batch || null;
     const batchPrefix = batch?.total > 1
       ? `Batch ${batch?.index || 1} of ${batch?.total} • `
       : '';
-    const hasTerminalFailure = status === 'failed' || phase === 'failed' || phase === 'validation_failed';
-    const isTerminalDone = status === 'completed' || phase === 'completed' || TERMINAL_STATUSES.has(status);
+    const hasTerminalFailure = status === 'failed' || status === 'error' || phase === 'failed' || phase === 'validation_failed';
+    const isTerminalDone = status === 'done' || status === 'complete' || status === 'completed' || phase === 'completed' || Boolean(effectiveUploadProgress?.done);
+    const fileErrors = Array.isArray(effectiveUploadProgress?.fileErrors) ? effectiveUploadProgress.fileErrors : [];
+    const failedCount = Math.max(0, Number(effectiveUploadProgress?.failedCount) || fileErrors.length);
+    const successCount = Math.max(0, Number(effectiveUploadProgress?.successCount) || 0);
+    const hasCancelAction = typeof effectiveUploadProgress?.cancelJob === 'function';
+    const showCancel = hasCancelAction && !isTerminalDone && !hasTerminalFailure && stage !== 'error';
+    const cancelPending = Boolean(effectiveUploadProgress?.cancelPending) || cancelInFlight;
+
+    if (isTerminalDone && failedCount > 0) {
+      return {
+        stageLabel: `${batchPrefix}Completed with warnings (${successCount} succeeded, ${failedCount} failed)`,
+        showSpinner: false,
+        showErrorIcon: false,
+        showBar: false,
+        etaLabel: '',
+        progressPercent: 100,
+        errorDetail: '',
+        messageLabel: backendMessage || '',
+        showCancel,
+        cancelPending,
+      };
+    }
 
     if (stage === 'error' || error || hasTerminalFailure) {
       const errorMessage = error?.message || backendMessage || 'Process failed';
@@ -315,6 +446,8 @@ function UploadStatusOverlay({ isUploading, uploadProgress, variant = 'default',
         progressPercent: 0,
         errorDetail: error?.detail || backendMessage || '',
         errorMessage,
+        showCancel: false,
+        cancelPending: false,
       };
     }
 
@@ -328,6 +461,8 @@ function UploadStatusOverlay({ isUploading, uploadProgress, variant = 'default',
         etaLabel: '',
         progressPercent: 0,
         messageLabel: backendMessage || '',
+        showCancel,
+        cancelPending,
       };
     }
 
@@ -340,6 +475,8 @@ function UploadStatusOverlay({ isUploading, uploadProgress, variant = 'default',
         etaLabel: '',
         progressPercent: 100,
         messageLabel: backendMessage || '',
+        showCancel,
+        cancelPending,
       };
     }
 
@@ -353,6 +490,8 @@ function UploadStatusOverlay({ isUploading, uploadProgress, variant = 'default',
         etaLabel: '',
         progressPercent: 100,
         messageLabel: backendMessage || '',
+        showCancel,
+        cancelPending,
       };
     }
 
@@ -367,6 +506,8 @@ function UploadStatusOverlay({ isUploading, uploadProgress, variant = 'default',
         etaLabel: '',
         progressPercent: 0,
         messageLabel: backendMessage || '',
+        showCancel,
+        cancelPending,
       };
     }
 
@@ -401,10 +542,13 @@ function UploadStatusOverlay({ isUploading, uploadProgress, variant = 'default',
       etaLabel,
       progressPercent: percentFromTime,
       messageLabel,
+      showCancel,
+      cancelPending,
     };
-  }, [showUploadProgress, activeUploadProgress, liveTimer]);
+  }, [showUploadProgress, effectiveUploadProgress, liveTimer, cancelInFlight, lockedCloudSessionId, cloudReachedTimedStage, optimisticCancelling]);
 
-  if (!showUploadProgress || isDismissed || !viewModel) return null;
+  const showOverlay = showUploadProgress || optimisticCancelling;
+  if (!showOverlay || isDismissed || !viewModel) return null;
 
   const variantClass = variant && variant !== 'default' ? ` ${variant}` : '';
   const titleClass = viewModel.showSpinner || viewModel.showErrorIcon
@@ -434,6 +578,33 @@ function UploadStatusOverlay({ isUploading, uploadProgress, variant = 'default',
             </button>
           )}
           <span>{viewModel.stageLabel}</span>
+          {viewModel.showCancel && (
+            <button
+              type="button"
+              class="viewer-upload-cancel-button"
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={async (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                if (cancelInFlight || optimisticCancelling || typeof effectiveUploadProgress?.cancelJob !== 'function') return;
+                setOptimisticCancelling(true);
+                setCancelInFlight(true);
+                scheduleOptimisticClose();
+                try {
+                  await effectiveUploadProgress.cancelJob();
+                } catch {
+                  // ignore inline cancel errors; polling updates will surface status
+                } finally {
+                  setCancelInFlight(false);
+                }
+              }}
+              aria-label={viewModel.cancelPending ? 'Cancelling job' : 'Cancel job'}
+              title={viewModel.cancelPending ? 'Cancelling…' : 'Cancel'}
+              disabled={viewModel.cancelPending}
+            >
+              ✕
+            </button>
+          )}
         </div>
         {viewModel.showSpinner && <span class="viewer-upload-spinner" />}
         {viewModel.showErrorIcon && (

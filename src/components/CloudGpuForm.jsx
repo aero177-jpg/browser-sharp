@@ -40,13 +40,6 @@ const GPU_OPTIONS = [
   { value: 'a100', label: 'A100 $2.50 High performance' },
   { value: 'h100', label: 'H100 $3.95 Fastest' },
 ];
-const BATCH_SIZE_OPTIONS = [3, 5, 10, 15, 20];
-
-const normalizeBatchSize = (value) => {
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric)) return 10;
-  return BATCH_SIZE_OPTIONS.includes(numeric) ? numeric : 10;
-};
 
 const VAULT_PASSWORD_MISMATCH_ERROR = 'Password does not match the existing vault password.';
 
@@ -89,8 +82,6 @@ function CloudGpuForm({ onBack }) {
         requiresPassword: Boolean(saved?.requiresPassword),
         isEncrypted: Boolean(saved?.isEncrypted || saved?.apiKeyEncrypted),
         gpuType: saved?.gpuType || 'a10',
-        batchUploads: saved?.batchUploads ?? true,
-        batchSize: normalizeBatchSize(saved?.batchSize),
       };
     },
     []
@@ -99,8 +90,6 @@ function CloudGpuForm({ onBack }) {
   const [modalUsername, setModalUsername] = useState(initialSettings.modalUsername);
   const [apiKey, setApiKey] = useState(initialSettings.apiKey);
   const [gpuType, setGpuType] = useState(initialSettings.gpuType);
-  const [batchUploads, setBatchUploads] = useState(initialSettings.batchUploads);
-  const [batchSize, setBatchSize] = useState(initialSettings.batchSize);
   const [status, setStatus] = useState('idle');
   const [error, setError] = useState(null);
   const [encryptApiKey, setEncryptApiKey] = useState(Boolean(initialSettings.apiKeyEncrypted));
@@ -126,16 +115,12 @@ function CloudGpuForm({ onBack }) {
     apiUrl: resolvedApiUrl,
     apiKey: apiKey.trim(),
     gpuType: (gpuType || 'a10').trim().toLowerCase(),
-    batchUploads: Boolean(batchUploads),
-    batchSize: normalizeBatchSize(batchSize),
-  }), [modalUsername, resolvedApiUrl, apiKey, gpuType, batchUploads, batchSize]);
+  }), [modalUsername, resolvedApiUrl, apiKey, gpuType]);
   const trimmedSaved = useMemo(() => ({
     apiUrl: ensureModalProcessApiUrl(savedSettings.apiUrl?.trim?.() || ''),
     modalUsername: normalizeModalUsername(savedSettings.modalUsername || extractModalUsernameFromApiUrl(savedSettings.apiUrl)),
     apiKey: savedSettings.apiKey?.trim?.() || '',
     gpuType: savedSettings.gpuType?.trim?.().toLowerCase?.() || 'a10',
-    batchUploads: Boolean(savedSettings.batchUploads),
-    batchSize: normalizeBatchSize(savedSettings.batchSize),
   }), [savedSettings]);
   const isSettingsReady = Boolean(trimmedSettings.modalUsername && (trimmedSettings.apiKey || hasStoredApiKey));
   const settingsChanged =
@@ -143,8 +128,6 @@ function CloudGpuForm({ onBack }) {
     trimmedSettings.apiUrl !== trimmedSaved.apiUrl ||
     trimmedSettings.apiKey !== trimmedSaved.apiKey ||
     trimmedSettings.gpuType !== trimmedSaved.gpuType ||
-    trimmedSettings.batchUploads !== trimmedSaved.batchUploads ||
-    trimmedSettings.batchSize !== trimmedSaved.batchSize ||
     Boolean(encryptApiKey) !== Boolean(savedSettings.apiKeyEncrypted);
 
   const handleSave = useCallback(async () => {
@@ -221,8 +204,8 @@ function CloudGpuForm({ onBack }) {
       apiKey: encryptApiKey ? '' : (typedApiKey || savedSettings.apiKey || ''),
       apiKeyEncrypted: nextEncryptedApiKey || null,
       gpuType: trimmedSettings.gpuType,
-      batchUploads: trimmedSettings.batchUploads,
-      batchSize: trimmedSettings.batchSize,
+      batchUploads: true,
+      batchSize: 100,
     };
 
     if (!payload.apiKeyEncrypted) {
@@ -275,8 +258,6 @@ function CloudGpuForm({ onBack }) {
       setModalUsername(unlockedModalUsername);
       setApiKey(unlocked.apiKey || '');
       setGpuType(unlocked.gpuType || 'a10');
-      setBatchUploads(Boolean(unlocked.batchUploads));
-      setBatchSize(normalizeBatchSize(unlocked.batchSize));
       setEncryptApiKey(Boolean(unlocked.apiKeyEncrypted));
     }
 
@@ -412,37 +393,6 @@ function CloudGpuForm({ onBack }) {
           </select>
         </div>
 
-        <div class="form-field">
-          <label>Batch uploads</label>
-          <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <input
-              type="checkbox"
-              checked={batchUploads}
-              onChange={(e) => setBatchUploads(e.target.checked)}
-            />
-            <span>Enable batch uploads</span>
-          </label>
-          <i style={{ fontSize: '0.85em', marginTop: '6px', color: "#a0aec0" }}>
-            Faster, but less reliable on large batches.
-          </i>
-        </div>
-
-        {batchUploads && (
-          <div class="form-field">
-            <label>Batch size</label>
-            <select value={String(batchSize)} onChange={(e) => setBatchSize(normalizeBatchSize(e.target.value))}>
-              {BATCH_SIZE_OPTIONS.map((size) => (
-                <option key={size} value={String(size)}>
-                  {size}
-                </option>
-              ))}
-            </select>
-          
-            <div class="field-hint">
-              Lower is recommended for local folders. Higher is faster and suitable for cloud storage.
-            </div>
-          </div>
-        )}
       </div>
 
       {error && (

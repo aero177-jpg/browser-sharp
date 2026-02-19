@@ -379,7 +379,7 @@ input[type="checkbox"]:disabled:checked {
 .viewer-upload-overlay {
   position: fixed;
   top: 12px;
-  right: 12px;
+  left: 12px;
   z-index: 60;
   padding: 8px 10px 10px;
   background: rgba(12, 16, 24, 0.78);
@@ -430,6 +430,28 @@ input[type="checkbox"]:disabled:checked {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.viewer-upload-cancel-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  background: transparent;
+  border: none;
+  color: rgba(255, 170, 170, 0.92);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  pointer-events: auto;
+  padding: 0;
+  margin-left: 4px;
+}
+
+.viewer-upload-cancel-button:disabled {
+  color: rgba(200, 200, 220, 0.55);
+  cursor: default;
 }
 
 .viewer-upload-title.has-spinner {
@@ -2353,8 +2375,8 @@ select option {
 .sidebar-hover-target {
   position: absolute;
   left: 0;
-  top: 0;
- height: max(80vh, calc(100% - 200px));
+  top: 75px;
+ height: max(60vh, calc(100% - 220px));
   width: 12vw;
   z-index: 9;
 }

@@ -36,8 +36,6 @@ const SUPABASE_RESCAN_INTERVAL_MS = 500;
 const SUPABASE_RESCAN_ATTEMPTS = 6;
 const R2_RESCAN_INTERVAL_MS = 500;
 const R2_RESCAN_ATTEMPTS = 6;
-const DEFAULT_IMAGE_UPLOAD_BATCH_SIZE = 10;
-const ALLOWED_BATCH_SIZES = [3, 5, 10, 15, 20];
 
 const generateJobId = () => {
   const cryptoObj = typeof globalThis !== 'undefined' ? globalThis.crypto : null;
@@ -46,22 +44,21 @@ const generateJobId = () => {
   return `job-${Date.now()}-${rand}`;
 };
 
-const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-const chunkFiles = (files, chunkSize) => {
-  const safeSize = Math.max(1, Number(chunkSize) || 1);
-  const chunks = [];
-  for (let index = 0; index < files.length; index += safeSize) {
-    chunks.push(files.slice(index, index + safeSize));
-  }
-  return chunks;
+const generateUploadSessionId = () => {
+  const cryptoObj = typeof globalThis !== 'undefined' ? globalThis.crypto : null;
+  if (cryptoObj?.randomUUID) return `cloud-gpu-${cryptoObj.randomUUID()}`;
+  const rand = Math.random().toString(16).slice(2);
+  return `cloud-gpu-${Date.now()}-${rand}`;
 };
 
-const resolveConfiguredBatchSize = () => {
-  const saved = loadCloudGpuSettings();
-  const size = Number(saved?.batchSize);
-  if (!Number.isFinite(size)) return DEFAULT_IMAGE_UPLOAD_BATCH_SIZE;
-  return ALLOWED_BATCH_SIZES.includes(size) ? size : DEFAULT_IMAGE_UPLOAD_BATCH_SIZE;
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const getLocalFileKey = (file) => {
+  if (!file) return '';
+  const name = String(file.name || '');
+  const size = Number(file.size) || 0;
+  const modified = Number(file.lastModified) || 0;
+  return `${name}|${size}|${modified}`;
 };
 
 const waitForRemoteRescan = async (source, { expectedMin = 1 } = {}) => {
@@ -349,8 +346,7 @@ export function useCollectionUploadFlow({
     const prefix = type === 'supabase-storage' || type === 'r2-bucket' ? getCollectionPrefix(resolvedSource) : undefined;
     const returnMode = type === 'supabase-storage' || type === 'r2-bucket' ? undefined : 'direct';
     const downloadMode = type === 'app-storage' || (!resolvedSource && !prepareOnly) || prepareOnly ? 'store' : undefined;
-    const batchSize = resolveConfiguredBatchSize();
-    const imageBatches = chunkFiles(imageFiles, batchSize);
+    const imageBatches = [imageFiles];
     const totalBatches = imageBatches.length;
 
     // Build accessString + storageTarget for the backend
@@ -377,6 +373,7 @@ export function useCollectionUploadFlow({
 
     onLoadingChange?.(true);
     onUploadingChange?.(true);
+    const uploadSessionId = generateUploadSessionId();
     const reportUploadState = (state) => {
       onUploadState?.(state);
       setUploadState?.(state);
@@ -385,8 +382,14 @@ export function useCollectionUploadFlow({
     const allResults = [];
     const allStoredFiles = [];
     let totalSuccessCount = 0;
+    let totalFailedCount = 0;
     let uploadError = null;
+    let incrementalRefreshInFlight = false;
+    let lastIncrementalRefreshAtMs = 0;
+    let cancelledByUser = false;
     const initialProgress = {
+      uploadKind: 'cloud-gpu',
+      uploadSessionId,
       stage: 'upload',
       upload: { loaded: 0, total: 0, done: false },
       completed: 0,
@@ -407,9 +410,12 @@ export function useCollectionUploadFlow({
       for (let batchIndex = 0; batchIndex < imageBatches.length; batchIndex += 1) {
         const batchFiles = imageBatches[batchIndex];
         const batchNumber = batchIndex + 1;
-        const batchStart = batchIndex * batchSize + 1;
-        const batchEnd = batchStart + batchFiles.length - 1;
-        const completedBeforeBatch = batchIndex * batchSize;
+        const batchStart = 1;
+        const batchEnd = batchFiles.length;
+        const completedBeforeBatch = 0;
+        const streamedFileKeys = new Set();
+        let streamAppendQueue = Promise.resolve();
+        let streamedFirstShown = false;
 
         const mapProgress = (progress) => {
           const rawCompleted = Number(progress?.completed);
@@ -418,6 +424,8 @@ export function useCollectionUploadFlow({
             : 0;
           const merged = {
             ...(progress || {}),
+            uploadKind: 'cloud-gpu',
+            uploadSessionId,
             completed: Math.max(0, Math.min(imageFiles.length, completedBeforeBatch + localCompleted)),
             total: imageFiles.length,
             showDetailedStatus: cloudGpuShowDetailedStatus,
@@ -436,7 +444,6 @@ export function useCollectionUploadFlow({
           prefix,
           returnMode,
           downloadMode,
-          batchUploads: true,
           storageTarget: cloudStorageTarget,
           accessString: cloudAccessString,
           getJobId: () => generateJobId(),
@@ -445,18 +452,98 @@ export function useCollectionUploadFlow({
             if (progress?.stage === 'error' && progress?.error) {
               uploadError = progress.error;
             }
+
+            if (!resolvedSource && Array.isArray(progress?.newStoredFiles) && progress.newStoredFiles.length > 0) {
+              const incoming = progress.newStoredFiles.filter(Boolean);
+              const uniqueIncoming = incoming.filter((file) => {
+                const key = getLocalFileKey(file);
+                if (!key || streamedFileKeys.has(key)) return false;
+                streamedFileKeys.add(key);
+                return true;
+              });
+
+              if (uniqueIncoming.length > 0) {
+                streamAppendQueue = streamAppendQueue
+                  .then(async () => {
+                    if (!streamedFirstShown && batchIndex === 0 && queueAction !== 'append') {
+                      const [first, ...rest] = uniqueIncoming;
+                      if (first) {
+                        await handleMultipleFiles([first]);
+                        streamedFirstShown = true;
+                      }
+                      if (rest.length > 0) {
+                        await handleAddFiles(rest, { selectFirstAdded: false });
+                      }
+                      return;
+                    }
+
+                    await handleAddFiles(uniqueIncoming, { selectFirstAdded: false });
+                    streamedFirstShown = true;
+                  })
+                  .catch((err) => {
+                    console.warn('[UploadFlow] Incremental local append failed', err);
+                  });
+              }
+            }
+
+            const hasIncrementalFiles = (type === 'supabase-storage' || type === 'r2-bucket')
+              && Array.isArray(progress?.newFiles)
+              && progress.newFiles.length > 0;
+            if (hasIncrementalFiles && !incrementalRefreshInFlight) {
+              const now = Date.now();
+              const minRefreshGapMs = 1500;
+              if (now - lastIncrementalRefreshAtMs >= minRefreshGapMs) {
+                incrementalRefreshInFlight = true;
+                lastIncrementalRefreshAtMs = now;
+                Promise.resolve(onRefreshAssets?.())
+                  .catch((err) => {
+                    console.warn('[UploadFlow] Incremental remote refresh failed', err);
+                  })
+                  .finally(() => {
+                    incrementalRefreshInFlight = false;
+                  });
+              }
+            }
+
             const mergedProgress = mapProgress(progress);
             onUploadProgress?.(mergedProgress);
             reportUploadState({ isUploading: true, uploadProgress: mergedProgress });
           },
         });
 
+        const batchCancelled = batchResults.some((result) => Boolean(result?.data?.cancelled));
+        if (batchCancelled) {
+          cancelledByUser = true;
+          break;
+        }
+
         allResults.push(...batchResults);
-        const batchStoredFiles = batchResults.flatMap((result) => result?.data?.files || []);
+        await streamAppendQueue;
+        const batchStoredFiles = batchResults
+          .flatMap((result) => result?.data?.files || [])
+          .filter((file) => {
+            const key = getLocalFileKey(file);
+            return key ? !streamedFileKeys.has(key) : true;
+          });
         allStoredFiles.push(...batchStoredFiles);
 
-        const batchSuccessCount = batchResults.reduce((sum, result) => sum + (result?.ok ? 1 : 0), 0);
+        const batchSuccessCount = batchResults.reduce((sum, result) => {
+          if (!result?.ok) return sum;
+          const explicitSuccess = Number(result?.data?.successCount);
+          if (Number.isFinite(explicitSuccess) && explicitSuccess >= 0) {
+            return sum + explicitSuccess;
+          }
+          return sum + batchFiles.length;
+        }, 0);
+        const batchFailedCount = batchResults.reduce((sum, result) => {
+          const explicitFailed = Number(result?.data?.failedCount);
+          if (Number.isFinite(explicitFailed) && explicitFailed >= 0) {
+            return sum + explicitFailed;
+          }
+          return sum;
+        }, 0);
         totalSuccessCount += batchSuccessCount;
+        totalFailedCount += batchFailedCount;
 
         if (prepareOnly) {
           continue;
@@ -498,6 +585,10 @@ export function useCollectionUploadFlow({
         }
       }
 
+      if (cancelledByUser) {
+        return;
+      }
+
       const anySuccess = totalSuccessCount > 0;
       const silentOnly = allResults.length > 0 && allResults.every((result) => result?.ok || result?.silentFailure);
 
@@ -513,6 +604,18 @@ export function useCollectionUploadFlow({
 
       if (anySuccess) {
         uploadError = null;
+        if (totalFailedCount > 0) {
+          onUploadProgress?.({
+            uploadKind: 'cloud-gpu',
+            uploadSessionId,
+            stage: 'done',
+            status: 'done',
+            done: true,
+            successCount: totalSuccessCount,
+            failedCount: totalFailedCount,
+            message: `${totalSuccessCount} succeeded, ${totalFailedCount} failed`,
+          });
+        }
       } else {
         onStatus?.('error');
         if (!silentOnly) {
@@ -527,8 +630,21 @@ export function useCollectionUploadFlow({
       onLoadingChange?.(false);
       onUploadingChange?.(false);
       if (uploadError) {
-        onUploadProgress?.({ stage: 'error', error: uploadError });
-        reportUploadState({ isUploading: true, uploadProgress: { stage: 'error', error: uploadError } });
+        onUploadProgress?.({
+          uploadKind: 'cloud-gpu',
+          uploadSessionId,
+          stage: 'error',
+          error: uploadError,
+        });
+        reportUploadState({
+          isUploading: true,
+          uploadProgress: {
+            uploadKind: 'cloud-gpu',
+            uploadSessionId,
+            stage: 'error',
+            error: uploadError,
+          },
+        });
       } else {
         onUploadProgress?.(null);
         reportUploadState({ isUploading: false, uploadProgress: null });
