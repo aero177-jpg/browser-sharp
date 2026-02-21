@@ -159,6 +159,10 @@ input[type="checkbox"]:disabled:checked {
   height: 100%;
   width: 100%;
   padding: 18px;
+  padding-top: max(18px, env(safe-area-inset-top));
+  padding-right: max(18px, env(safe-area-inset-right));
+  padding-bottom: max(18px, env(safe-area-inset-bottom));
+  padding-left: max(18px, env(safe-area-inset-left));
   display: flex;
   align-items: center;
   justify-content: center;
@@ -260,19 +264,22 @@ input[type="checkbox"]:disabled:checked {
 
 /* When app is fullscreen, ensure proper stacking and layout */
 #app:fullscreen #viewer,
-#app:-webkit-full-screen #viewer {
+#app:-webkit-full-screen #viewer,
+#app.ios-fullscreen-fallback #viewer {
   z-index: 0;
 }
 
 #app:fullscreen .page,
-#app:-webkit-full-screen .page {
+#app:-webkit-full-screen .page,
+#app.ios-fullscreen-fallback .page {
   padding: 0;
   align-items: stretch;
   justify-content: stretch;
 }
 
 #app:fullscreen .viewer,
-#app:-webkit-full-screen .viewer {
+#app:-webkit-full-screen .viewer,
+#app.ios-fullscreen-fallback .viewer {
   width: 100vw;
   height: 100vh;
   border-radius: 0;
@@ -282,7 +289,8 @@ input[type="checkbox"]:disabled:checked {
 }
 
 #app:fullscreen .viewer canvas,
-#app:-webkit-full-screen .viewer canvas {
+#app:-webkit-full-screen .viewer canvas,
+#app.ios-fullscreen-fallback .viewer canvas {
   border-radius: 0;
 }
 
@@ -1647,7 +1655,8 @@ input[type="checkbox"]:disabled:checked {
 
 /* In fullscreen, enhance the glow effect with more blur and scale */
 #app:fullscreen .bg-image-container,
-#app:-webkit-full-screen .bg-image-container {
+#app:-webkit-full-screen .bg-image-container,
+#app.ios-fullscreen-fallback .bg-image-container {
   background-size: auto 100%;
   transform: scaleX(130%);
   filter: blur(40px)!important;
@@ -1655,25 +1664,29 @@ input[type="checkbox"]:disabled:checked {
 
 /* Fullscreen: UI elements moved inside viewer need explicit positioning and z-index */
 #app:fullscreen .panel-toggle,
-#app:-webkit-full-screen .panel-toggle {
+#app:-webkit-full-screen .panel-toggle,
+#app.ios-fullscreen-fallback .panel-toggle {
   position: fixed;
   z-index: 100;
 }
 
 #app:fullscreen .side,
-#app:-webkit-full-screen .side {
+#app:-webkit-full-screen .side,
+#app.ios-fullscreen-fallback .side {
   position: fixed;
   z-index: 98;
 }
 
 #app:fullscreen .asset-sidebar,
-#app:-webkit-full-screen .asset-sidebar {
+#app:-webkit-full-screen .asset-sidebar,
+#app.ios-fullscreen-fallback .asset-sidebar {
   position: fixed;
   z-index: 95;
 }
 
 #app:fullscreen .sidebar-hover-target,
-#app:-webkit-full-screen .sidebar-hover-target {
+#app:-webkit-full-screen .sidebar-hover-target,
+#app.ios-fullscreen-fallback .sidebar-hover-target {
   position: fixed;
   z-index: 94;
 }
@@ -1681,7 +1694,8 @@ input[type="checkbox"]:disabled:checked {
 
 
 #app:fullscreen .mobile-sheet,
-#app:-webkit-full-screen .mobile-sheet {
+#app:-webkit-full-screen .mobile-sheet,
+#app.ios-fullscreen-fallback .mobile-sheet {
   position: fixed;
     background: transparent !important;
   z-index: 92;
@@ -1689,12 +1703,14 @@ input[type="checkbox"]:disabled:checked {
 
 /* Make bottom page buttons transparent in fullscreen for unobtrusive UI */
 #app:fullscreen .bottom-page-btn,
-#app:-webkit-full-screen .bottom-page-btn {
+#app:-webkit-full-screen .bottom-page-btn,
+#app.ios-fullscreen-fallback .bottom-page-btn {
   background: transparent !important;
 }
 
 #app:fullscreen .modal-overlay,
-#app:-webkit-full-screen .modal-overlay {
+#app:-webkit-full-screen .modal-overlay,
+#app.ios-fullscreen-fallback .modal-overlay {
   position: fixed;
   inset: 0;
   z-index: 110;
@@ -2996,7 +3012,8 @@ border-radius: 10px;
 
 /* Fullscreen mode adjustments */
 #app:fullscreen .bottom-controls,
-#app:-webkit-full-screen .bottom-controls {
+#app:-webkit-full-screen .bottom-controls,
+#app.ios-fullscreen-fallback .bottom-controls {
   position: fixed;
   z-index: 10;
 }
@@ -3004,13 +3021,15 @@ border-radius: 10px;
 /* Mobile fullscreen adjustments */
 @media screen and (max-width: 768px) {
   #app:fullscreen .bottom-controls,
-  #app:-webkit-full-screen .bottom-controls {
+  #app:-webkit-full-screen .bottom-controls,
+  #app.ios-fullscreen-fallback .bottom-controls {
     bottom: 18px !important;
   }
 
   @media (orientation: portrait) {
     #app:fullscreen .bottom-controls,
-    #app:-webkit-full-screen .bottom-controls {
+    #app:-webkit-full-screen .bottom-controls,
+    #app.ios-fullscreen-fallback .bottom-controls {
       bottom: 70px !important;
     }
   }

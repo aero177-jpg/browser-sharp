@@ -23,6 +23,7 @@ import ControlsModal from './ControlsModal';
 import { useCollectionUploadFlow } from './useCollectionUploadFlow.js';
 import { useViewerDrop } from './useViewerDrop.jsx';
 import PwaReloadPrompt from './PwaReloadPrompt';
+import PwaInstallPrompt from './PwaInstallPrompt';
 import SlideshowOptionsModal from './SlideshowOptionsModal';
 import AddDemoCollectionsModal from './AddDemoCollectionsModal';
 import { useCollectionRouting } from './useCollectionRouting.js';
@@ -349,6 +350,7 @@ function App() {
         options={demoCollectionOptions}
       />
       <PwaReloadPrompt />
+      <PwaInstallPrompt />
       <ImportFromUrlModal
         isOpen={Boolean(pendingImportUrl)}
         importUrl={pendingImportUrl}
