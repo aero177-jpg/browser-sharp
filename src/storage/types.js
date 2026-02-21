@@ -185,10 +185,10 @@ export const SOURCE_TIERS = {
   },
   'import-collections': {
     tier: 5,
-    label: 'Import ZIP',
+    label: 'Import configs',
     description: 'Import collections, settings, and previews from a transfer bundle',
     benefits: ['Restore prior exports', 'Merge data into this browser'],
-    requirements: ['A .zip bundle exported from Transfer Data'],
+    requirements: ['A .zip bundle or JSON file exported from Transfer Data'],
     icon: 'upload',
   },
 };

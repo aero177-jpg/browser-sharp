@@ -26,6 +26,8 @@ import PwaReloadPrompt from './PwaReloadPrompt';
 import SlideshowOptionsModal from './SlideshowOptionsModal';
 import AddDemoCollectionsModal from './AddDemoCollectionsModal';
 import { useCollectionRouting } from './useCollectionRouting.js';
+import { getImportUrlFromLocation, clearImportUrlFromLocation } from '../utils/importFromUrl.js';
+import ImportFromUrlModal from './ImportFromUrlModal';
 import { resetLandingView } from '../utils/resetLandingView.js';
 import BottomControls from './BottomControls';
 import useMobileState from '../utils/useMobileState';
@@ -71,6 +73,9 @@ function App() {
   const swipeTargetRef = useRef(null);
 
   const [slideshowOptionsOpen, setSlideshowOptionsOpen] = useState(false);
+
+  // Remote import via ?import= query param
+  const [pendingImportUrl, setPendingImportUrl] = useState(null);
 
   // Outside click handler to close side panel
   useOutsideClick(
@@ -252,6 +257,15 @@ function App() {
     addLog,
   });
 
+  // Detect ?import= query parameter once the viewer is ready
+  useEffect(() => {
+    if (!viewerReady) return;
+    const url = getImportUrlFromLocation();
+    if (url) {
+      setPendingImportUrl(url);
+    }
+  }, [viewerReady]);
+
   // Auto-load the default collection (if any) once the viewer is ready
   useEffect(() => {
     // Routing contract:
@@ -335,6 +349,15 @@ function App() {
         options={demoCollectionOptions}
       />
       <PwaReloadPrompt />
+      <ImportFromUrlModal
+        isOpen={Boolean(pendingImportUrl)}
+        importUrl={pendingImportUrl}
+        onClose={() => {
+          setPendingImportUrl(null);
+          clearImportUrlFromLocation();
+        }}
+        addLog={addLog}
+      />
       {dropModal}
       {uploadModal}
     </div>

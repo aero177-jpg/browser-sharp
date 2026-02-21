@@ -201,7 +201,7 @@ function ControlsModal({ isOpen, onClose, defaultOpenSubsections = [] }) {
                 <li><strong>Background glow:</strong> This is a copy of preview for visual effect. May not appear on first render. Regenerate preview to correct issues, or remove in advanced settings.</li>
                 <li><strong>Missing previews:</strong> Only generated on first load. Click "batch previews" in advanced settings to generate all (experimental; captures previews by rapidly loading splats).</li>
                 <li><strong>'Cracks' in splat:</strong> Thin areas may show cracks in low quality. "High" quality alleviates this but impacts performance.</li>
-                <li><strong>Poor performance:</strong> This app is focused on splat optimization, but some devices may still experience lag or stuttering. Integrated graphics, older mobile devices, and standalone VR headsets may be affected. Try adjusting quality presets, or adjust "render debug" options in advanced settings. If running in browser, ensure that your dedicated GPU is utilized, and not your integrated graphics.</li>
+                <li><strong>Poor performance:</strong> This app is focused on splat optimization, but some devices may still experience lag or stuttering. Integrated graphics, older mobile devices, and standalone VR headsets may be affected. Try adjusting quality presets, or adjust performance options in advanced settings. If running in browser, ensure that your dedicated GPU is utilized, and not your integrated graphics.</li>
               </ul>
             </Section>
             <Section title="Collections" isOpen={isSubsectionOpen('troubleshooting.collections')}>

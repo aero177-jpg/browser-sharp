@@ -28,6 +28,78 @@ const MOBILE_SHEET_OPEN_HEIGHT_VH = 40;
 /** Accesses Zustand store state */
 const getStoreState = () => useStore.getState();
 
+const clampDimension = (value) => Math.max(2, Math.floor(value));
+
+const resolveAvailableBounds = ({ fillViewport, isMobile, isPortrait }) => {
+  let availableWidth = Math.max(0, window.innerWidth - (fillViewport ? 0 : PAGE_PADDING));
+  let availableHeight = Math.max(0, window.innerHeight - (fillViewport ? 0 : PAGE_PADDING));
+
+  if (!fillViewport && isMobile && isPortrait) {
+    const sheetHeight = MOBILE_SHEET_CLOSED_HEIGHT;
+    availableHeight = Math.max(0, window.innerHeight - sheetHeight - (PAGE_PADDING / 2));
+  }
+
+  return { availableWidth, availableHeight };
+};
+
+const resolveAspectFittedSize = (availableWidth, availableHeight, aspect) => {
+  if (!(aspect > 0)) {
+    return {
+      width: clampDimension(availableWidth),
+      height: clampDimension(availableHeight),
+    };
+  }
+
+  const availableAspect = availableWidth / availableHeight;
+  if (aspect > availableAspect) {
+    const width = clampDimension(availableWidth);
+    return {
+      width,
+      height: clampDimension(width / aspect),
+    };
+  }
+
+  const height = clampDimension(availableHeight);
+  return {
+    width: clampDimension(height * aspect),
+    height,
+  };
+};
+
+const getVisualViewerSize = () => {
+  const { isMobile, isPortrait, expandedViewer } = getStoreState();
+  const fullscreenRoot = document.getElementById('app');
+  const isFullscreen = document.fullscreenElement === fullscreenRoot;
+  const fillViewport = isFullscreen || expandedViewer;
+  const { availableWidth, availableHeight } = resolveAvailableBounds({
+    fillViewport,
+    isMobile,
+    isPortrait,
+  });
+
+  if (fillViewport) {
+    return {
+      width: clampDimension(availableWidth),
+      height: clampDimension(availableHeight),
+    };
+  }
+
+  return resolveAspectFittedSize(availableWidth, availableHeight, originalImageAspect);
+};
+
+const getProjectionViewportSize = () => {
+  const { isMobile, isPortrait } = getStoreState();
+  const fullscreenRoot = document.getElementById('app');
+  const isFullscreen = document.fullscreenElement === fullscreenRoot;
+  const { availableWidth, availableHeight } = resolveAvailableBounds({
+    fillViewport: isFullscreen,
+    isMobile,
+    isPortrait,
+  });
+
+  return resolveAspectFittedSize(availableWidth, availableHeight, originalImageAspect);
+};
+
 // Build projection matrix from intrinsics
 const makeProjectionFromIntrinsics = ({ fx, fy, cx, cy, width, height, near, far }) => {
   const left = (-cx * near) / fx;
@@ -126,52 +198,10 @@ export const applyIntrinsicsAspect = (entry) => {
 export const updateViewerAspectRatio = () => {
   const viewerEl = document.getElementById('viewer');
   if (!viewerEl) return;
-  
-  const { isMobile, isPortrait, panelOpen } = getStoreState();
-  const fullscreenRoot = document.getElementById('app');
-  const isFullscreen = document.fullscreenElement === fullscreenRoot;
-  
-  let availableWidth = Math.max(0, window.innerWidth - (isFullscreen ? 0 : PAGE_PADDING));
-  let availableHeight = Math.max(0, window.innerHeight - (isFullscreen ? 0 : PAGE_PADDING));
-  
-  // In mobile portrait mode, subtract the mobile sheet height from available space
-  if (!isFullscreen && isMobile && isPortrait) {
-    // Always use closed height to prevent viewer resize/camera reset when opening sheet
-    // The sheet will overlay the bottom of the viewer
-    const sheetHeight = MOBILE_SHEET_CLOSED_HEIGHT;
-    availableHeight = Math.max(0, window.innerHeight - sheetHeight - (PAGE_PADDING / 2));
-  }
 
-  if (isFullscreen) {
-    viewerEl.style.width = `${availableWidth}px`;
-    viewerEl.style.height = `${availableHeight}px`;
-    return;
-  }
-
-  if (originalImageAspect && originalImageAspect > 0) {
-    // Calculate what the aspect ratio of available space is
-    const availableAspect = availableWidth / availableHeight;
-    
-    let viewerWidth, viewerHeight;
-    
-    // If image is wider than available space, constrain by width
-    // If image is taller than available space, constrain by height
-    if (originalImageAspect > availableAspect) {
-      // Image is wider - fill width
-      viewerWidth = availableWidth;
-      viewerHeight = viewerWidth / originalImageAspect;
-    } else {
-      // Image is taller - fill height
-      viewerHeight = availableHeight;
-      viewerWidth = viewerHeight * originalImageAspect;
-    }
-    
-    viewerEl.style.width = `${viewerWidth}px`;
-    viewerEl.style.height = `${viewerHeight}px`;
-  } else {
-    viewerEl.style.width = `${availableWidth}px`;
-    viewerEl.style.height = `${availableHeight}px`;
-  }
+  const visualSize = getVisualViewerSize();
+  viewerEl.style.width = `${visualSize.width}px`;
+  viewerEl.style.height = `${visualSize.height}px`;
 };
 
 /**
@@ -185,28 +215,31 @@ export const resize = () => {
   
   updateViewerAspectRatio();
   const { clientWidth, clientHeight } = viewerEl;
-  renderer.setSize(clientWidth, clientHeight, false);
+  const projectionSize = getProjectionViewportSize();
+  renderer.setSize(projectionSize.width, projectionSize.height, false);
 
   // Keep the EffectComposer's internal render targets in sync with the
   // renderer so splats render at the correct resolution/aspect ratio.
   // Without this, composer.render() writes to stale-sized targets and the
   // result gets stretched onto the new canvas size.
   if (composer) {
-    composer.setSize(clientWidth, clientHeight);
+    composer.setSize(projectionSize.width, projectionSize.height);
   }
   
   if (activeCamera && activeCamera?.cameraMetadata) {
-    applyCameraProjection(activeCamera.cameraMetadata, clientWidth, clientHeight);
+    applyCameraProjection(activeCamera.cameraMetadata, projectionSize.width, projectionSize.height);
   } else if (activeCamera) {
-    applyCameraProjection(activeCamera, clientWidth, clientHeight);
+    applyCameraProjection(activeCamera, projectionSize.width, projectionSize.height);
   } else {
-    camera.aspect = clientWidth / clientHeight;
+    camera.aspect = projectionSize.width / projectionSize.height;
     camera.updateProjectionMatrix();
   }
 
   // Debug: log resize dimensions so we can verify correct values
-  console.debug('[resize]', clientWidth, '×', clientHeight,
-    'aspect:', (clientWidth / clientHeight).toFixed(3),
+  console.debug('[resize]',
+    'viewer:', `${clientWidth}×${clientHeight}`,
+    'projection:', `${projectionSize.width}×${projectionSize.height}`,
+    'aspect:', (projectionSize.width / projectionSize.height).toFixed(3),
     'camera.aspect:', camera.aspect.toFixed(3),
     'activeCamera:', !!activeCamera);
 

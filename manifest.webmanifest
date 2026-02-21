@@ -4,8 +4,8 @@
   "short_name": "Radia",
   "start_url": "./",
   "scope": "./",
-  "display": "fullscreen",
-  "display_override": ["fullscreen", "standalone"],
+  "display": "standalone",
+  "display_override": ["standalone", "fullscreen"],
   "background_color": "#0c0d10",
   "theme_color": "#0c0d10",
   "icons": [

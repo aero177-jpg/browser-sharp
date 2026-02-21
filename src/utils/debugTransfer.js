@@ -331,6 +331,18 @@ export const buildTransferBundle = async (options) => {
   return { blob, manifest };
 };
 
+/**
+ * Build a JSON-only transfer manifest (no binary preview blobs).
+ * Forces includeFilePreviews to false so no binary data is collected.
+ * Returns { json, manifest } where json is a formatted JSON string.
+ */
+export const buildTransferJson = async (options) => {
+  const jsonOptions = { ...options, includeFilePreviews: false };
+  const { manifest } = await buildZipFileMap(jsonOptions);
+  const json = JSON.stringify(manifest, null, 2);
+  return { json, manifest };
+};
+
 const countLocalStorageKeysByPrefix = (prefix) => {
   if (typeof window === 'undefined' || !window.localStorage) return 0;
   let count = 0;
@@ -445,9 +457,53 @@ export const clearSelectedLocalData = async (options = {}) => {
   return summary;
 };
 
-export const importTransferBundle = async (file) => {
-  const buffer = await file.arrayBuffer();
-  const zipEntries = unzipSync(new Uint8Array(buffer));
+/**
+ * Validate a raw manifest object (from a JSON-only import).
+ * Returns { valid, manifest, error }.
+ */
+export const validateTransferManifest = (manifest) => {
+  if (!manifest || typeof manifest !== 'object') {
+    return { valid: false, manifest: null, error: 'Invalid manifest format' };
+  }
+  if (manifest.app !== 'radia-viewer') {
+    return { valid: false, manifest, error: 'Not a valid Radia transfer bundle' };
+  }
+  if (manifest.schemaVersion !== EXPORT_SCHEMA_VERSION) {
+    return { valid: false, manifest, error: `Unsupported schema version: ${manifest.schemaVersion}` };
+  }
+  return { valid: true, manifest, error: null };
+};
+
+/**
+ * Validate a transfer bundle ZIP buffer without importing.
+ * Returns { valid, manifest, error } where manifest is the parsed manifest.json.
+ */
+export const validateTransferBundle = (arrayBuffer) => {
+  try {
+    const zipEntries = unzipSync(new Uint8Array(arrayBuffer));
+    const manifestEntry = zipEntries['manifest.json'];
+    if (!manifestEntry) {
+      return { valid: false, manifest: null, error: 'Missing manifest.json in transfer bundle' };
+    }
+    const manifest = JSON.parse(strFromU8(manifestEntry));
+    if (manifest?.app !== 'radia-viewer') {
+      return { valid: false, manifest, error: 'Not a valid Radia transfer bundle' };
+    }
+    if (manifest?.schemaVersion !== EXPORT_SCHEMA_VERSION) {
+      return { valid: false, manifest, error: `Unsupported schema version: ${manifest?.schemaVersion}` };
+    }
+    return { valid: true, manifest, error: null };
+  } catch (err) {
+    return { valid: false, manifest: null, error: err?.message || 'Failed to read transfer bundle' };
+  }
+};
+
+/**
+ * Import a transfer bundle from a raw ArrayBuffer.
+ * The buffer must be a ZIP containing manifest.json + optional preview blobs.
+ */
+export const importTransferBundleFromBuffer = async (arrayBuffer) => {
+  const zipEntries = unzipSync(new Uint8Array(arrayBuffer));
 
   const manifestEntry = zipEntries['manifest.json'];
   if (!manifestEntry) {
@@ -455,10 +511,19 @@ export const importTransferBundle = async (file) => {
   }
 
   const manifest = JSON.parse(strFromU8(manifestEntry));
+
+  if (manifest?.app !== 'radia-viewer') {
+    throw new Error('Not a valid Radia transfer bundle');
+  }
+  if (manifest?.schemaVersion !== EXPORT_SCHEMA_VERSION) {
+    throw new Error(`Unsupported schema version: ${manifest?.schemaVersion}`);
+  }
+
   const data = manifest?.data || {};
 
   const summary = {
     sourcesImported: 0,
+    importedSources: [],
     fileSettingsImported: 0,
     previewsImported: 0,
     supabaseSettingsImported: Boolean(data.supabaseSettings),
@@ -490,6 +555,7 @@ export const importTransferBundle = async (file) => {
       const source = restoreSource(config);
       if (source) {
         registerSource(source);
+        summary.importedSources.push(source);
       }
       summary.sourcesImported += 1;
     }
@@ -524,4 +590,105 @@ export const importTransferBundle = async (file) => {
   }
 
   return { manifest, summary };
+};
+
+/**
+ * Import from a parsed manifest object (JSON-only, no preview blobs).
+ * Skips preview import entirely since there are no binary entries.
+ */
+export const importTransferManifest = async (manifest) => {
+  const check = validateTransferManifest(manifest);
+  if (!check.valid) {
+    throw new Error(check.error);
+  }
+
+  const data = manifest?.data || {};
+
+  const summary = {
+    sourcesImported: 0,
+    importedSources: [],
+    fileSettingsImported: 0,
+    previewsImported: 0,
+    supabaseSettingsImported: Boolean(data.supabaseSettings),
+    r2SettingsImported: Boolean(data.r2Settings),
+    cloudGpuSettingsImported: Boolean(data.cloudGpuSettings),
+    warnings: [],
+  };
+
+  if (data.supabaseSettings) {
+    saveSupabaseSettings(data.supabaseSettings);
+  }
+
+  if (data.r2Settings) {
+    saveR2Settings(data.r2Settings);
+  }
+
+  if (data.cloudGpuSettings) {
+    saveCloudGpuSettings(data.cloudGpuSettings);
+  }
+
+  if (Array.isArray(data.sources)) {
+    for (const config of data.sources) {
+      if (!config?.type) continue;
+      if (config.type !== 'public-url' && config.type !== 'supabase-storage' && config.type !== 'r2-bucket') {
+        summary.warnings.push(`Skipped unsupported source type: ${config.type}`);
+        continue;
+      }
+      await saveSource(config);
+      const source = restoreSource(config);
+      if (source) {
+        registerSource(source);
+        summary.importedSources.push(source);
+      }
+      summary.sourcesImported += 1;
+    }
+  }
+
+  if (Array.isArray(data.fileSettings)) {
+    for (const record of data.fileSettings) {
+      if (!record?.fileName) continue;
+      await deleteFileSettings(record.fileName);
+      await saveFileSettings(record.fileName, record);
+      summary.fileSettingsImported += 1;
+    }
+  }
+
+  if (Array.isArray(data.previews) && data.previews.length > 0) {
+    summary.warnings.push('Preview blobs are not included in JSON-only imports.');
+  }
+
+  return { manifest, summary };
+};
+
+export const importTransferBundle = async (file) => {
+  const isJson = file.name?.toLowerCase().endsWith('.json') || file.type === 'application/json';
+
+  if (isJson) {
+    const text = await file.text();
+    let manifest;
+    try {
+      manifest = JSON.parse(text);
+    } catch {
+      throw new Error('Invalid JSON file');
+    }
+    return importTransferManifest(manifest);
+  }
+
+  // Content-based JSON detection fallback (e.g. MIME not set correctly)
+  const buffer = await file.arrayBuffer();
+  const firstByte = new Uint8Array(buffer)[0];
+  if (firstByte === 0x7B) { // '{'
+    try {
+      const text = new TextDecoder().decode(buffer);
+      const manifest = JSON.parse(text);
+      const check = validateTransferManifest(manifest);
+      if (check.valid) {
+        return importTransferManifest(manifest);
+      }
+    } catch {
+      // Not valid JSON manifest — try ZIP
+    }
+  }
+
+  return importTransferBundleFromBuffer(buffer);
 };

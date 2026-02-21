@@ -17,7 +17,7 @@ const STORE_NAME = 'file-settings';
 const PREVIEW_STORE_NAME = 'file-previews';
 
 /** Preview schema version to force regeneration when encoding changes */
-const PREVIEW_VERSION = 1;
+const PREVIEW_VERSION = 2;
 
 /**
  * File settings schema.

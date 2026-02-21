@@ -362,6 +362,8 @@ export const useStore = create(
   // UI state
   panelOpen: false,
   assetSidebarOpen: false,
+  expandedViewer: false,
+  suppressSizeTransition: false,
   logExpanded: false,
   animSettingsExpanded: false,
   cameraSettingsExpanded: true,
@@ -600,6 +602,15 @@ export const useStore = create(
 
   /** Toggles asset sidebar open/closed */
   toggleAssetSidebar: () => set((state) => ({ assetSidebarOpen: !state.assetSidebarOpen })),
+
+  /** Sets expanded viewer mode */
+  setExpandedViewer: (expanded) => set({ expandedViewer: Boolean(expanded) }),
+
+  /** Toggles expanded viewer mode */
+  toggleExpandedViewer: () => set((state) => ({ expandedViewer: !state.expandedViewer })),
+
+  /** Sets whether viewer size transitions are suppressed */
+  setSuppressSizeTransition: (value) => set({ suppressSizeTransition: Boolean(value) }),
   
   /** Toggles panel open/closed */
   togglePanel: () => set((state) => ({ panelOpen: !state.panelOpen })),

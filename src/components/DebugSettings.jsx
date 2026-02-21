@@ -804,7 +804,7 @@ function DebugSettings() {
         </div>
 
         <div class="settings-divider">
-          <span>Render debug</span>
+          <span>Performance </span>
         </div>
 
         {/* <div class="control-row">

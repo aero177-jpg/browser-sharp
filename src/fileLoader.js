@@ -518,6 +518,7 @@ export const setDebugForceZoomOut = (enabled) => {
  * @param {Object|File} assetOrFile - Asset descriptor or File object to load
  * @param {Object} options - Load options
  * @param {string} options.slideDirection - 'next' or 'prev' for slide transition
+ * @param {Object} [options.outgoingCustomAnimationSettings] - Optional per-file overrides for the outgoing/current slide
  */
 export const loadSplatFile = async (assetOrFile, options = {}) => {
   const viewerEl = document.getElementById('viewer');
@@ -536,17 +537,18 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
   cleanupSlideTransitionState();
 
   const store = getStoreState();
-  const { slideDirection } = options;
+  const { slideDirection, outgoingCustomAnimationSettings } = options;
   const forceFadeForNonSequential = !slideDirection;
   const isFirstLoad = !hasLoadedFirstAsset; // Detect first asset load before any mesh exists
   const wasAlreadyCached = isSplatCached(asset);
   const activeCacheKey = asset.cacheKey || getBaseAssetId(asset) || asset.id;
-  const cachedCustomAnimation = getSplatCache().get(activeCacheKey)?.storedSettings?.customAnimation;
+  const incomingCustomAnimation = getSplatCache().get(activeCacheKey)?.storedSettings?.customAnimation;
+  const outgoingCustomAnimation = outgoingCustomAnimationSettings ?? store.fileCustomAnimation;
   const {
     immersiveActive,
-    slideMode: initialSlideMode,
-    transitionRange: initialTransitionRange,
-  } = getSlideModeForStore(store, { slideDirection, customAnimationSettings: cachedCustomAnimation });
+    slideMode: outgoingSlideMode,
+    transitionRange: outgoingTransitionRange,
+  } = getSlideModeForStore(store, { slideDirection, customAnimationSettings: outgoingCustomAnimation });
 
   // For first load, immediately hide content to prevent flash before fade-in
   // This must happen BEFORE any async work that might cause a render
@@ -564,13 +566,13 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
   let preloadedEntry = null;
   if (shouldRunTransition) {
     const slideOutAmount = resolveSlideAmountWithPerFileRange(
-      initialSlideMode,
+      outgoingSlideMode,
       'transition',
-      initialTransitionRange,
+      outgoingTransitionRange,
       'out',
     );
     const slideOutPromise = slideOutAnimation(transitionDirection, {
-      mode: initialSlideMode,
+      mode: outgoingSlideMode,
       preset: 'transition',
       amount: slideOutAmount,
     });
@@ -1561,6 +1563,7 @@ export const loadAssetByIndex = async (index) => {
   
   try {
     const store = getStoreState();
+    const outgoingCustomAnimationSettings = store.fileCustomAnimation;
     setCurrentAssetIndexManager(index);
     store.setCurrentAssetIndex(index);
     const sameBase = prevAsset
@@ -1570,13 +1573,13 @@ export const loadAssetByIndex = async (index) => {
     if (sameBase) {
       const reused = await navigateWithinLoadedBaseAsset(asset, { slideDirection: null });
       if (!reused) {
-        await loadSplatFile(asset);
+        await loadSplatFile(asset, { outgoingCustomAnimationSettings });
       }
     } else {
       // Gracefully fade out the background when leaving a proxy view so it
       // doesn't stay stuck at the old blur while the new asset loads.
       if (isProxyViewAsset(prevAsset)) fadeOutBackground();
-      await loadSplatFile(asset);
+      await loadSplatFile(asset, { outgoingCustomAnimationSettings });
     }
   } finally {
     isNavigationLocked = false;
@@ -1731,11 +1734,12 @@ export const loadNextAsset = async (options = {}) => {
   }
   
   try {
+    const store = getStoreState();
+    const outgoingCustomAnimationSettings = store.fileCustomAnimation;
     const prevAsset = getAssetByIndex(getCurrentAssetIndex());
     const asset = nextAsset();
     if (asset) {
       const index = getCurrentAssetIndex();
-      const store = getStoreState();
       store.setCurrentAssetIndex(index);
       const sameBase = prevAsset
         && getBaseAssetId(prevAsset) === getBaseAssetId(asset)
@@ -1744,11 +1748,11 @@ export const loadNextAsset = async (options = {}) => {
       if (sameBase) {
         const reused = await navigateWithinLoadedBaseAsset(asset, { slideDirection: 'next' });
         if (!reused) {
-          await loadSplatFile(asset, { slideDirection: 'next' });
+          await loadSplatFile(asset, { slideDirection: 'next', outgoingCustomAnimationSettings });
         }
       } else {
         if (isProxyViewAsset(prevAsset)) fadeOutBackground();
-        await loadSplatFile(asset, { slideDirection: 'next' });
+        await loadSplatFile(asset, { slideDirection: 'next', outgoingCustomAnimationSettings });
       }
     }
   } finally {
@@ -1783,11 +1787,12 @@ export const loadPrevAsset = async (options = {}) => {
   }
   
   try {
+    const store = getStoreState();
+    const outgoingCustomAnimationSettings = store.fileCustomAnimation;
     const prevLoadedAsset = getAssetByIndex(getCurrentAssetIndex());
     const asset = prevAsset();
     if (asset) {
       const index = getCurrentAssetIndex();
-      const store = getStoreState();
       store.setCurrentAssetIndex(index);
       const sameBase = prevLoadedAsset
         && getBaseAssetId(prevLoadedAsset) === getBaseAssetId(asset)
@@ -1796,11 +1801,11 @@ export const loadPrevAsset = async (options = {}) => {
       if (sameBase) {
         const reused = await navigateWithinLoadedBaseAsset(asset, { slideDirection: 'prev' });
         if (!reused) {
-          await loadSplatFile(asset, { slideDirection: 'prev' });
+          await loadSplatFile(asset, { slideDirection: 'prev', outgoingCustomAnimationSettings });
         }
       } else {
         if (isProxyViewAsset(prevLoadedAsset)) fadeOutBackground();
-        await loadSplatFile(asset, { slideDirection: 'prev' });
+        await loadSplatFile(asset, { slideDirection: 'prev', outgoingCustomAnimationSettings });
       }
     }
   } finally {

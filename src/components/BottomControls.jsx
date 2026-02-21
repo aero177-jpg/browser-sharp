@@ -4,7 +4,7 @@
 
 import { useCallback, useRef } from 'preact/hooks';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faExpandAlt } from '@fortawesome/free-solid-svg-icons';
+import { faExpandAlt, faCompressAlt } from '@fortawesome/free-solid-svg-icons';
 import { FocusIcon, Rotate3DIcon, MaximizeIcon, MinimizeIcon, slideShowToggleIcon as SlideShowToggleIcon } from '../icons/customIcons';
 import { useStore } from '../store';
 import { camera, controls, defaultCamera, defaultControls, dollyZoomBaseDistance, dollyZoomBaseFov, requestRender, THREE, resetViewer } from '../viewer';
@@ -40,13 +40,18 @@ function BottomControls({ onOpenSlideshowOptions }) {
   const slideshowMode = useStore((state) => state.slideshowMode);
   const slideshowPlaying = useStore((state) => state.slideshowPlaying);
   const viewerControlsDimmed = useStore((state) => state.viewerControlsDimmed);
+  const expandedViewer = useStore((state) => state.expandedViewer);
   const setSlideshowMode = useStore((state) => state.setSlideshowMode);
+  const toggleExpandedViewer = useStore((state) => state.toggleExpandedViewer);
+  const setSuppressSizeTransition = useStore((state) => state.setSuppressSizeTransition);
   const isMobile = useStore((state) => state.isMobile);
   const addLog = useStore((state) => state.addLog);
+  const disableTransparentUi = useStore((state) => state.disableTransparentUi);
 
   const hasMesh = useHasMesh();
   const resetHoldTimeout = useRef(null);
   const resetHoldTriggered = useRef(false);
+  const expandToggleTransitionTimeout = useRef(null);
 
   const {
     isRegularFullscreen,
@@ -160,10 +165,40 @@ function BottomControls({ onOpenSlideshowOptions }) {
     }
   }, [immersiveMode, setImmersiveMode, addLog, immersiveSensitivity]);
 
+  const handleToggleExpandedViewer = useCallback(() => {
+    const isCollapsingExpandedViewer = expandedViewer;
+
+    if (expandToggleTransitionTimeout.current) {
+      clearTimeout(expandToggleTransitionTimeout.current);
+      expandToggleTransitionTimeout.current = null;
+    }
+
+    setSuppressSizeTransition(true);
+
+    toggleExpandedViewer();
+
+    requestAnimationFrame(() => {
+      resize();
+      requestRender();
+
+      if (isCollapsingExpandedViewer) {
+        expandToggleTransitionTimeout.current = setTimeout(() => {
+          setSuppressSizeTransition(false);
+          expandToggleTransitionTimeout.current = null;
+        }, 500);
+        return;
+      }
+
+      requestAnimationFrame(() => {
+        setSuppressSizeTransition(false);
+      });
+    });
+  }, [expandedViewer, toggleExpandedViewer, setSuppressSizeTransition]);
+
   const assetsLength = assets.length;
   return (
     <div
-      class={`bottom-controls${(slideshowMode && slideshowPlaying) || viewerControlsDimmed ? ' slideshow-hide' : ''}${controlsRevealed ? ' is-revealed' : ''}`}
+      class={`bottom-controls${(slideshowMode && slideshowPlaying) || viewerControlsDimmed ? ' slideshow-hide' : ''}${controlsRevealed ? ' is-revealed' : ''}${disableTransparentUi ? ' no-transparent-ui' : ''}`}
       onPointerEnter={() => slideshowMode && slideshowPlaying && revealBottomControls(false)}
       onPointerLeave={() => slideshowMode && slideshowPlaying && revealBottomControls(true, 1000)}
       onPointerDown={() => slideshowMode && slideshowPlaying && revealBottomControls(true, 1000)}
@@ -242,11 +277,11 @@ function BottomControls({ onOpenSlideshowOptions }) {
 
             <button
               class="bottom-page-btn"
-              disabled
-              aria-label="Expand viewer (coming soon)"
-              title="Expand viewer (coming soon)"
+              onClick={handleToggleExpandedViewer}
+              aria-label={expandedViewer ? 'Collapse viewer' : 'Expand viewer'}
+              title={expandedViewer ? 'Collapse viewer' : 'Expand viewer'}
             >
-              <FontAwesomeIcon icon={faExpandAlt} />
+              <FontAwesomeIcon icon={expandedViewer ? faCompressAlt : faExpandAlt} />
             </button>
 
             {!isMobile && (

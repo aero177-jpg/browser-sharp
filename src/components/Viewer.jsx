@@ -74,6 +74,8 @@ function Viewer({ viewerReady, dropOverlay }) {
   const assetSidebarOpen = useStore((state) => state.assetSidebarOpen);
   const slideshowMode = useStore((state) => state.slideshowMode);
   const slideshowPlaying = useStore((state) => state.slideshowPlaying);
+  const expandedViewer = useStore((state) => state.expandedViewer);
+  const suppressSizeTransition = useStore((state) => state.suppressSizeTransition);
   const setAnchorState = useStore((state) => state.setAnchorState);
   const setCustomMetadataControlsVisible = useStore((state) => state.setCustomMetadataControlsVisible);
   const setCameraSettingsExpanded = useStore((state) => state.setCameraSettingsExpanded);
@@ -489,7 +491,7 @@ function Viewer({ viewerReady, dropOverlay }) {
   }, [slideshowMode, slideshowPlaying]);
 
   return (
-    <div id="viewer" class={`viewer ${debugLoadingMode ? 'loading' : ''} ${showEmptyState ? 'is-empty' : ''}`} ref={viewerRef}>
+    <div id="viewer" class={`viewer ${debugLoadingMode ? 'loading' : ''} ${showEmptyState ? 'is-empty' : ''} ${expandedViewer ? 'is-expanded' : ''} ${suppressSizeTransition ? 'no-size-transition' : ''}`} ref={viewerRef}>
       {dropOverlay}
       {requiresR2Unlock && (
         <R2UnlockState

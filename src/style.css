@@ -194,7 +194,45 @@ input[type="checkbox"]:disabled:checked {
   border-radius: 16px;
   /* overflow: hidden; */
   box-shadow: 0 10px 50px rgba(0, 0, 0, 0.45);
-  transition: width 220ms ease, height 220ms ease;
+  transition: width 220ms ease,height 220ms ease;
+    /* background-color 480ms ease;  */
+}
+
+.viewer.is-expanded {
+  position: fixed;
+  inset: 0;
+  width: 100vw !important;
+  height: 100vh !important;
+  background: #000;
+  /* border-radius: 0; */
+  /* border: none; */
+  box-shadow: none;
+}
+
+.viewer.is-expanded,
+.viewer.no-size-transition {
+  transition:
+    background-color 280ms ease;
+}
+
+.viewer.is-expanded .viewer-drop-overlay {
+  inset: 0;
+  border-radius: 0;
+}
+
+.viewer.is-expanded .bg-image-container {
+  background-size: contain;
+  background-position: center center;
+  background-repeat: no-repeat;
+  transform: scale(1.05);
+}
+
+.viewer.no-size-transition .bg-image-container {
+  background-size: contain;
+  background-position: center center;
+  background-repeat: no-repeat;
+  transform: scale(1);
+  transition: opacity 0.3s ease, filter 0.3s ease, transform 0.3s ease;
 }
 
 .viewer.cursor-hidden,
@@ -254,6 +292,10 @@ input[type="checkbox"]:disabled:checked {
     border-radius: 16px;
   position: relative;
   z-index: 0;
+}
+
+.viewer.is-expanded canvas {
+  border-radius: 0;
 }
 
 /* TitleCard overlay transition */
@@ -1591,7 +1633,7 @@ input[type="checkbox"]:disabled:checked {
   background-repeat: no-repeat;
   opacity: var(--bg-opacity, 1);
   filter: blur(var(--bg-blur, 40px));
-  transition: opacity 0.4s ease, filter 0.6s ease;
+  transition: opacity 0.4s ease, filter 0.6s ease, transform 260ms ease;
   z-index: 0;
   /* Scale up to extend past edges for blur edge artifacts */
   /* transform: scaleX(1.05); */
@@ -2376,6 +2418,11 @@ select option {
   white-space: nowrap;
 }
 
+.no-transparent-ui .bottom-page-btn {
+  background: rgba(12, 16, 26, 0.82);
+  border-color: rgba(255, 255, 255, 0.22);
+}
+
 .bottom-page-btn.immersive-toggle.is-inactive {
   opacity: 0.55;
 }
@@ -2383,6 +2430,12 @@ select option {
 .bottom-page-btn.immersive-toggle.is-active {
   background: rgba(255, 255, 255, 0.16);
   border-color: rgba(255, 255, 255, 0.45);
+  color: #fff;
+}
+
+.no-transparent-ui .bottom-page-btn.immersive-toggle.is-active {
+  background: rgba(40, 48, 70, 0.92);
+  border-color: rgba(255, 255, 255, 0.35);
   color: #fff;
 }
 
@@ -2394,6 +2447,12 @@ select option {
     border-color: rgba(255, 255, 255, 0.3);
     color: #fff;
   }
+
+  .no-transparent-ui .bottom-page-btn:hover {
+    background: rgba(40, 48, 70, 0.92);
+    border-color: rgba(255, 255, 255, 0.35);
+    color: #fff;
+  }
 }
 
 /* On touch devices, mirror the hover appearance while the button is actively pressed */
@@ -2401,6 +2460,12 @@ select option {
   .bottom-page-btn:active {
     background: rgba(255, 255, 255, 0.1);
     border-color: rgba(255, 255, 255, 0.3);
+    color: #fff;
+  }
+
+  .no-transparent-ui .bottom-page-btn:active {
+    background: rgba(40, 48, 70, 0.92);
+    border-color: rgba(255, 255, 255, 0.35);
     color: #fff;
   }
 }
@@ -2843,7 +2908,7 @@ border-radius: 10px;
 }
 
 .bottom-controls.slideshow-hide {
-  opacity: 0.08;
+  opacity: .2;
   pointer-events: auto;
 }
 

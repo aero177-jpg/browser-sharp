@@ -11,6 +11,7 @@ import {
   faChevronRight,
   faCloud,
   faCog,
+  faCopy,
   faDownload,
   faExclamationTriangle,
   faFolder,
@@ -20,8 +21,11 @@ import {
   faSpinner,
   faUpload,
 } from '@fortawesome/free-solid-svg-icons';
+import { validateImportUrl, buildShareLink } from '../utils/importFromUrl.js';
 import { getSource } from '../storage/index.js';
-import { buildTransferBundle } from '../utils/debugTransfer.js';
+import { buildTransferBundle, buildTransferJson } from '../utils/debugTransfer.js';
+import { loadR2Settings } from '../storage/r2Settings.js';
+import { loadCloudGpuSettings } from '../storage/cloudGpuSettings.js';
 import Modal from './Modal';
 import SelectableOptionItem from './SelectableOptionItem';
 import ImportZipForm from './ImportZipForm.jsx';
@@ -111,7 +115,74 @@ function ExportPage({ onBack, onClose, addLog, exportMode = 'all-data', scopeCon
   const [transferError, setTransferError] = useState(null);
   const [exportSuccess, setExportSuccess] = useState(false);
 
+  // Share via URL state
+  const [shareUrl, setShareUrl] = useState('');
+  const [generatedLink, setGeneratedLink] = useState('');
+  const [shareError, setShareError] = useState('');
+  const [shareCopied, setShareCopied] = useState(false);
+  const [jsonCopied, setJsonCopied] = useState(false);
+
+  const isJsonExport = !transferOptions.includeFilePreviews;
+
   const hasTransferSelection = Object.values(transferOptions).some(Boolean);
+
+  const credentialShareNote = useMemo(() => {
+    const getExposureType = (settings, rawKeyField, encryptedKeyField) => {
+      const hasRaw = Boolean(String(settings?.[rawKeyField] || '').trim());
+      const hasEncrypted = Boolean(settings?.[encryptedKeyField]);
+      if (hasRaw) return 'raw';
+      if (hasEncrypted) return 'encrypted';
+      return null;
+    };
+
+    const segments = [];
+    const addSegment = (serviceLabel, exposureType) => {
+      if (!exposureType) return;
+      segments.push(`${exposureType} ${serviceLabel} key`);
+    };
+
+    if (isCurrentCollectionMode) {
+      if (transferOptions.includeConnectionData && activeSourceType === 'r2-bucket') {
+        const r2Settings = loadR2Settings();
+        addSegment('R2', getExposureType(r2Settings, 'secretAccessKey', 'secretAccessKeyEncrypted'));
+      }
+    } else {
+      if (transferOptions.includeR2Settings) {
+        const r2Settings = loadR2Settings();
+        addSegment('R2', getExposureType(r2Settings, 'secretAccessKey', 'secretAccessKeyEncrypted'));
+      }
+
+      if (transferOptions.includeCloudGpuSettings) {
+        const cloudGpuSettings = loadCloudGpuSettings();
+        addSegment('Cloud GPU', getExposureType(cloudGpuSettings, 'apiKey', 'apiKeyEncrypted'));
+      }
+    }
+
+    if (!segments.length) return '';
+    if (segments.length === 1) return `Includes ${segments[0]}.`;
+    return `Includes ${segments.slice(0, -1).join(', ')} and ${segments[segments.length - 1]}.`;
+  }, [activeSourceType, isCurrentCollectionMode, transferOptions]);
+
+  const hasRawCredentialShare = useMemo(() => {
+    const hasRawField = (settings, rawKeyField) => Boolean(String(settings?.[rawKeyField] || '').trim());
+
+    if (isCurrentCollectionMode) {
+      if (transferOptions.includeConnectionData && activeSourceType === 'r2-bucket') {
+        return hasRawField(loadR2Settings(), 'secretAccessKey');
+      }
+      return false;
+    }
+
+    if (transferOptions.includeR2Settings && hasRawField(loadR2Settings(), 'secretAccessKey')) {
+      return true;
+    }
+
+    if (transferOptions.includeCloudGpuSettings && hasRawField(loadCloudGpuSettings(), 'apiKey')) {
+      return true;
+    }
+
+    return false;
+  }, [activeSourceType, isCurrentCollectionMode, transferOptions]);
 
   const toggleOption = useCallback((key) => () => {
     setTransferOptions((prev) => ({
@@ -131,6 +202,21 @@ function ExportPage({ onBack, onClose, addLog, exportMode = 'all-data', scopeCon
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }, []);
 
+  const buildExportPayload = useCallback(() => {
+    return isCurrentCollectionMode
+      ? {
+          ...transferOptions,
+          exportScope: {
+            mode: 'current-collection',
+            activeSourceId: scopeContext?.activeSourceId || null,
+            activeSourceType: scopeContext?.activeSourceType || null,
+            assetNames: scopeContext?.assetNames || [],
+            collectionName: scopeContext?.collectionName || 'Current collection',
+          },
+        }
+      : transferOptions;
+  }, [isCurrentCollectionMode, scopeContext, transferOptions]);
+
   const handleExportTransfer = useCallback(async () => {
     if (!hasTransferSelection || transferBusy) return;
     if (isCurrentCollectionMode && !scopeContext?.activeSourceId) {
@@ -140,25 +226,24 @@ function ExportPage({ onBack, onClose, addLog, exportMode = 'all-data', scopeCon
     setTransferBusy(true);
     setTransferError(null);
     setExportSuccess(false);
+    setJsonCopied(false);
     try {
-      const payload = isCurrentCollectionMode
-        ? {
-            ...transferOptions,
-            exportScope: {
-              mode: 'current-collection',
-              activeSourceId: scopeContext?.activeSourceId || null,
-              activeSourceType: scopeContext?.activeSourceType || null,
-              assetNames: scopeContext?.assetNames || [],
-              collectionName: scopeContext?.collectionName || 'Current collection',
-            },
-          }
-        : transferOptions;
-      const { blob, manifest } = await buildTransferBundle(payload);
-      const filename = buildExportFileName();
-      downloadBlob(blob, filename);
-      const previewCount = manifest?.data?.previews?.length ?? 0;
-      const exportLabel = isCurrentCollectionMode ? 'current collection' : 'all data';
-      addLog?.(`[Debug] Transfer bundle exported (${exportLabel}, ${previewCount} previews)`);
+      const payload = buildExportPayload();
+      if (isJsonExport) {
+        const { json } = await buildTransferJson(payload);
+        const blob = new Blob([json], { type: 'application/json' });
+        const filename = buildExportFileName().replace(/\.zip$/, '.json');
+        downloadBlob(blob, filename);
+        const exportLabel = isCurrentCollectionMode ? 'current collection' : 'all data';
+        addLog?.(`[Debug] Transfer JSON exported (${exportLabel})`);
+      } else {
+        const { blob, manifest } = await buildTransferBundle(payload);
+        const filename = buildExportFileName();
+        downloadBlob(blob, filename);
+        const previewCount = manifest?.data?.previews?.length ?? 0;
+        const exportLabel = isCurrentCollectionMode ? 'current collection' : 'all data';
+        addLog?.(`[Debug] Transfer bundle exported (${exportLabel}, ${previewCount} previews)`);
+      }
       setExportSuccess(true);
     } catch (err) {
       const message = err?.message || 'Export failed';
@@ -170,12 +255,44 @@ function ExportPage({ onBack, onClose, addLog, exportMode = 'all-data', scopeCon
   }, [
     addLog,
     buildExportFileName,
+    buildExportPayload,
     downloadBlob,
     hasTransferSelection,
     isCurrentCollectionMode,
+    isJsonExport,
     scopeContext,
     transferBusy,
     transferOptions,
+  ]);
+
+  const handleCopyJson = useCallback(async () => {
+    if (!hasTransferSelection || transferBusy) return;
+    setTransferBusy(true);
+    setTransferError(null);
+    setExportSuccess(false);
+    setJsonCopied(false);
+    try {
+      const payload = buildExportPayload();
+      const { json } = await buildTransferJson(payload);
+      await navigator.clipboard.writeText(json);
+      setJsonCopied(true);
+      setTimeout(() => setJsonCopied(false), 3000);
+      const exportLabel = isCurrentCollectionMode ? 'current collection' : 'all data';
+      addLog?.(`[Debug] Transfer JSON copied to clipboard (${exportLabel})`);
+      setExportSuccess(true);
+    } catch (err) {
+      const message = err?.message || 'Copy failed';
+      setTransferError(message);
+      addLog?.(`[Debug] Transfer JSON copy failed: ${message}`);
+    } finally {
+      setTransferBusy(false);
+    }
+  }, [
+    addLog,
+    buildExportPayload,
+    hasTransferSelection,
+    isCurrentCollectionMode,
+    transferBusy,
   ]);
 
   const options = isCurrentCollectionMode
@@ -319,6 +436,13 @@ function ExportPage({ onBack, onClose, addLog, exportMode = 'all-data', scopeCon
         </div>
       )}
 
+      {credentialShareNote && (
+        <div class={hasRawCredentialShare ? 'form-error' : 'form-notice'} style={{ marginTop: '16px' }}>
+          <FontAwesomeIcon icon={faExclamationTriangle} style={{ marginTop: '2px', flexShrink: 0 }} />
+          {' '}{credentialShareNote}
+        </div>
+      )}
+
       <div
         style={{
           display: 'flex',
@@ -345,6 +469,11 @@ function ExportPage({ onBack, onClose, addLog, exportMode = 'all-data', scopeCon
               <FontAwesomeIcon icon={faSpinner} spin />
               {' '}Exporting...
             </>
+          ) : isJsonExport ? (
+            <>
+              <FontAwesomeIcon icon={faDownload} />
+              {' '}Export JSON
+            </>
           ) : (
             <>
               <FontAwesomeIcon icon={faDownload} />
@@ -352,7 +481,114 @@ function ExportPage({ onBack, onClose, addLog, exportMode = 'all-data', scopeCon
             </>
           )}
         </button>
+        {isJsonExport && (
+          <button
+            class="secondary-button"
+            onClick={handleCopyJson}
+            disabled={!hasTransferSelection || transferBusy}
+            title="Copy JSON to clipboard"
+            style={{ height: '36px', padding: '0 12px', marginTop: 0, width: '36px', minWidth: '36px' }}
+          >
+            <FontAwesomeIcon icon={jsonCopied ? faCheck : faCopy} />
+          </button>
+        )}
       </div>
+
+      {/* Share via URL collapsible section */}
+      <details class="controls-section" style={{ marginTop: '20px' }}>
+        <summary class="controls-section__summary">
+          <FontAwesomeIcon icon={faChevronRight} className="controls-section__chevron" />
+          <span class="controls-section__title">Share via URL</span>
+        </summary>
+        <div class="controls-section__content">
+          <div class="controls-section__content-inner" style={{ paddingLeft: 0 }}>
+            <p class="dialog-subtitle" style={{ marginTop: '8px', marginBottom: '12px' }}>
+              Upload your exported ZIP or JSON file to any publicly accessible location
+              (cloud storage, static file host, CDN, etc.).
+              Paste the direct download link below to generate a shareable viewer link.
+            </p>
+
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <input
+                type="url"
+                placeholder="https://example.com/my-export.zip"
+                value={shareUrl}
+                onInput={(e) => {
+                  setShareUrl(e.target.value);
+                  setShareError('');
+                  setGeneratedLink('');
+                  setShareCopied(false);
+                }}
+                style={{ flex: 1 }}
+              />
+              <button
+                class="primary-button"
+                disabled={!shareUrl.trim()}
+                onClick={() => {
+                  const check = validateImportUrl(shareUrl);
+                  if (!check.valid) {
+                    setShareError(check.error);
+                    setGeneratedLink('');
+                    return;
+                  }
+                  const link = buildShareLink(shareUrl);
+                  setGeneratedLink(link);
+                  setShareError('');
+                  setShareCopied(false);
+                  try {
+                    navigator.clipboard.writeText(link);
+                    setShareCopied(true);
+                    setTimeout(() => setShareCopied(false), 3000);
+                  } catch { /* clipboard may fail silently */ }
+                }}
+                style={{ height: '36px', padding: '0 14px', marginTop: 0, whiteSpace: 'nowrap' }}
+              >
+                Generate link
+              </button>
+            </div>
+
+            {shareError && (
+              <div class="form-error" style={{ marginTop: '10px' }}>
+                <FontAwesomeIcon icon={faExclamationTriangle} />
+                {' '}{shareError}
+              </div>
+            )}
+
+            {generatedLink && (
+              <div style={{ marginTop: '12px' }}>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <input
+                    type="text"
+                    value={generatedLink}
+                    readOnly
+                    onClick={(e) => e.target.select()}
+                    style={{ flex: 1, fontSize: '13px' }}
+                  />
+                  <button
+                    class="secondary-button"
+                    onClick={() => {
+                      try {
+                        navigator.clipboard.writeText(generatedLink);
+                        setShareCopied(true);
+                        setTimeout(() => setShareCopied(false), 3000);
+                      } catch { /* ignore */ }
+                    }}
+                    style={{ height: '36px', padding: '0 12px', marginTop: 0, whiteSpace: 'nowrap' }}
+                  >
+                    <FontAwesomeIcon icon={faCopy} />
+                  </button>
+                </div>
+                {shareCopied && (
+                  <div class="form-success" style={{ marginTop: '8px' }}>
+                    <FontAwesomeIcon icon={faCheck} />
+                    {' '}Link copied to clipboard!
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </details>
     </div>
   );
 }

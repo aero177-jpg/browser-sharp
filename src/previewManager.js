@@ -6,13 +6,13 @@ import { setCapturePreviewFn } from "./assetManager.js";
 import { scene, renderer, composer, currentMesh, forceRenderNow, THREE, bgImageUrl } from "./viewer.js";
 
 /** Target height for generated previews (width auto-calculated) */
-const PREVIEW_TARGET_HEIGHT = 128;
+const PREVIEW_TARGET_HEIGHT = 256;
 
-/** Preferred WebP quality for compact previews */
-const PREVIEW_WEBP_QUALITY = 0.5;
+/** Preferred WebP quality for sharper previews */
+const PREVIEW_WEBP_QUALITY = 0.82;
 
 /** JPEG fallback quality when WebP is unavailable */
-const PREVIEW_JPEG_QUALITY = 0.35;
+const PREVIEW_JPEG_QUALITY = 0.72;
 
 const isObjectUrl = (value) => typeof value === 'string' && value.startsWith('blob:');
 
@@ -102,6 +102,9 @@ const capturePreviewBlob = async () => {
   canvas.width = targetWidth;
   canvas.height = PREVIEW_TARGET_HEIGHT;
   const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
   ctx.drawImage(sourceCanvas, 0, 0, targetWidth, PREVIEW_TARGET_HEIGHT);
 
   const encoded = await encodePreviewCanvas(canvas);

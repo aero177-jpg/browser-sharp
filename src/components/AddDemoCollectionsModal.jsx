@@ -147,12 +147,12 @@ export function DemoCollectionsPage({
           {installing ? (
             <>
               <FontAwesomeIcon icon={faSpinner} spin />
-              {' '}Installing...
+              {' '}Loading...
             </>
           ) : (
             <>
               <FontAwesomeIcon icon={faDownload} />
-              {' '}Install selected
+              {' '}Open selected
             </>
           )}
         </button>
